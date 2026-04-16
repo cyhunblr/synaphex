@@ -49,6 +49,15 @@ memory/internal/
 └── research/<slug>.md   # Phase 2 — Researcher output
 ```
 
+## IDE Integrations & Documentation
+
+Synaphex supports a **Delegated Mode**, allowing IDE models (like Gemini in Antigravity, or Copilot/Claude in VSCode) to natively run the Synaphex agent pipelines without requiring Anthropic API keys.
+
+Check out the detailed integration guides:
+
+- [Antigravity IDE Integration](docs/antigravity-integration.md)
+- [VSCode / Claude Code Integration](docs/vscode-integration.md)
+
 ## Status
 
 Phase 1 (foundation + memory infra) implemented. Phase 2 will add the six-agent pipeline (`task`, `fix`, interactive `settings`).
