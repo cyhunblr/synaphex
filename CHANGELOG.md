@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/cyhunblr/synaphex/compare/v1.4.0...v1.5.0) (2026-04-16)
+
+
+### Features
+
+* add automated CLI setup wizard for IDE integration and skill linking ([927cdeb](https://github.com/cyhunblr/synaphex/commit/927cdeb23faaf2f5459c58ca492281d26a6a794b))
+
 # [1.4.0](https://github.com/cyhunblr/synaphex/compare/v1.3.0...v1.4.0) (2026-04-16)
 
 ### Features
