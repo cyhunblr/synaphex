@@ -104,6 +104,55 @@ export const MODEL_CAPABILITIES: Record<
     adaptiveThinking: false,
     label: "GPT-OSS-120b",
   },
+  // ── VSCode: Claude Code Extension ───────────────────────────────
+  // Switch via /model command inside the extension
+  "claude-opus-4-6-vscode": {
+    thinking: true,
+    adaptiveThinking: true,
+    label: "Claude Opus 4.6 (Claude Code)",
+  },
+  "claude-sonnet-4-6-vscode": {
+    thinking: true,
+    adaptiveThinking: true,
+    label: "Claude Sonnet 4.6 (Claude Code)",
+  },
+  "claude-haiku-4-5-vscode": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "Claude Haiku 4.5 (Claude Code)",
+  },
+  // ── VSCode: GitHub Copilot Chat ───────────────────────────────
+  // Switch via the model picker in the Copilot Chat panel
+  "copilot-claude-opus-4-6": {
+    thinking: true,
+    adaptiveThinking: true,
+    label: "Claude Opus 4.6 (Copilot)",
+  },
+  "copilot-claude-sonnet-4-6": {
+    thinking: true,
+    adaptiveThinking: true,
+    label: "Claude Sonnet 4.6 (Copilot)",
+  },
+  "copilot-gpt-4o": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "GPT-4o (Copilot)",
+  },
+  "copilot-gpt-4.1": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "GPT-4.1 (Copilot)",
+  },
+  "copilot-gemini-2.5-pro": {
+    thinking: true,
+    adaptiveThinking: false,
+    label: "Gemini 2.5 Pro (Copilot)",
+  },
+  "copilot-gemini-2.0-flash": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "Gemini 2.0 Flash (Copilot)",
+  },
 };
 
 /** Synaphex 0..4 effort tier → Anthropic `thinking.budget_tokens` */

@@ -2,7 +2,7 @@
 name: fix
 description: Run the synaphex pipeline in streamlined fix mode — quick fixes with optional review skip.
 argument-hint: <project> <fix description>
-allowed-tools: mcp__synaphex__synaphex_task_start mcp__synaphex__synaphex_task_examine mcp__synaphex__synaphex_task_plan mcp__synaphex__synaphex_task_implement mcp__synaphex__synaphex_task_review
+allowed-tools: mcp__synaphex__task_start mcp__synaphex__task_examine mcp__synaphex__task_plan mcp__synaphex__task_implement mcp__synaphex__task_review
 ---
 
 Run the synaphex pipeline in fix mode: streamlined for quick bug fixes and small changes.
@@ -20,7 +20,7 @@ Get the current working directory using `pwd` in the terminal.
 
 ## Step 2: Start the task
 
-Call `synaphex_task_start` with `project`, `task`, `cwd`, and `mode: "fix"`.
+Call `task_start` with `project`, `task`, `cwd`, and `mode: "fix"`.
 
 Extract `slug`, `memory_digest` from the response.
 
@@ -40,13 +40,13 @@ Default to **skip** if the user just presses enter or says "default".
 
 ## Step 4: Run Examiner
 
-Call `synaphex_task_examine` with `project`, `slug`, `cwd`, `task`, and `memory_digest`.
+Call `task_examine` with `project`, `slug`, `cwd`, `task`, and `memory_digest`.
 
 Extract `examiner_compact`. Briefly summarize findings (1-2 sentences).
 
 ## Step 5: Run Planner
 
-Call `synaphex_task_plan` with `project`, `slug`, `task`, `cwd`, `examiner_compact`.
+Call `task_plan` with `project`, `slug`, `task`, `cwd`, `examiner_compact`.
 
 Extract `plan`. Present it to the user:
 
@@ -59,7 +59,7 @@ Handle approve/modify/reject same as the task skill.
 
 ## Step 6: Run Coder
 
-Call `synaphex_task_implement` with `project`, `slug`, `task`, `cwd`, `plan`, `examiner_compact`, `memory_digest`.
+Call `task_implement` with `project`, `slug`, `task`, `cwd`, `plan`, `examiner_compact`, `memory_digest`.
 
 Handle escalations same as the task skill.
 

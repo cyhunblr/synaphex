@@ -2,7 +2,7 @@
 name: remember
 description: Link one synaphex project's memory into another project's external memory.
 argument-hint: <parent-project> <child-project>
-allowed-tools: mcp__synaphex__synaphex_remember
+allowed-tools: mcp__synaphex__remember
 disable-model-invocation: true
 ---
 
@@ -10,7 +10,7 @@ Link one project's memory into another.
 
 Parse the arguments: the first token is the parent project (source), the second token is the child project (target).
 
-Call the `synaphex_remember` MCP tool with `parent_project` = first arg and `child_project` = second arg.
+Call the `remember` MCP tool with `parent_project` = first arg and `child_project` = second arg.
 
 The tool will:
 
@@ -25,4 +25,4 @@ Report the result to the user.
 - Either project does not exist → the tool returns an error
 - Trying to link a project to itself → the tool returns an error
 
-After linking, the child project can access the parent's memory via `/synaphex:load <child>` or by running `/synaphex:task` / `/synaphex:fix` on the child (Phase 2).
+After linking, the child project can access the parent's memory via `/load <child>` or by running `/task` / `/fix` on the child (Phase 2).

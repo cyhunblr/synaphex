@@ -17,13 +17,13 @@ To use the global `npx` command, you must trigger a login shell so that your mod
   "mcpServers": {
     "synaphex": {
       "command": "bash",
-      "args": ["-ic", "npx -y synaphex"]
+      "args": ["-ic", "npx -y synaphex@latest"]
     }
   }
 }
 ```
 
-_(Note: `-ic` ensures bash loads interactive configurations like your `fnm env` bindings)_
+_(Note: `-ic` ensures bash loads interactive configurations like your `fnm env` or `nvm` bindings from your shell profiles.)_
 
 ### Option B: Local Development Build (Safest Alternative)
 
@@ -61,32 +61,51 @@ If you are developing Synaphex locally:
 4. **Refresh MCP Servers**
    In Antigravity IDE, go to `MCP Settings` -> `Manage MCP Servers` and click **Refresh**. You should see `synaphex` listed as **enabled**.
 
-## Using Synaphex in Antigravity
+## Model Delegation & Configuration
 
-Since Synaphex defaults to **Delegated Mode**, you get a seamless experience leveraging the IDE's models.
+Since Synaphex defaults to **Delegated Mode**, the IDE's internal model (Gemini, Claude, GPT) is responsible for executing agent tasks.
+
+### Antigravity-Native Model IDs
+
+You can configure each agent in `~/.synaphex/<project>/settings.json` to use Antigravity's specific model selection. Synaphex supports the following native IDs for display in transition notes:
+
+- `claude-opus-4-6-thinking` — Recommended for **Planner** and **Reviewer**
+- `claude-sonnet-4-6-thinking` — Recommended for **Coder** and **Examiner**
+- `gemini-3.1-pro-high`
+- `gemini-3-flash` — Recommended for **Answerer**
+- `gpt-oss-120b`
+
+### Model Transition Hints
+
+When moving from one agent to another (e.g., from **Coder** to **Reviewer**), Synaphex will check if the next agent requires a different model (e.g., switching from Sonnet to Opus with Thinking). It will provide an advisory note in the chat:
+
+> ⚠️ **Model Switch Recommended**
+> Next agent: **Reviewer** — configured for **Claude Opus 4.6 (Thinking)**.
+> Current model: Claude Sonnet 4.6 (Thinking).
+> Please switch your IDE model to **"Claude Opus 4.6 (Thinking)"** before calling the next step.
 
 1. **Creating a Project**
    In your chat window, ask the agent:
 
-   > _"Run the create tool for a new synaphex project named 'my_app'."_
+   > _"Run the 'create' tool for a new synaphex project named 'my_app'."_
 
 2. **Building Context Memory**
    Initialize memory by analyzing your source code:
 
-   > _"Use the memorize tool to analyze the directory /path/to/my_app for the 'my_app' project."_
+   > _"Use the 'memorize' tool to analyze the directory /path/to/my_app for the 'my_app' project."_
 
 3. **Starting a Task (Pipeline)**
    To use the multi-agent pipeline:
 
-   > _"Run the task tool on 'my_app' for the requirement 'Create a login API endpoint'."_
+   > _"Run the 'task_start' tool on 'my_app' for the requirement 'Create a login API endpoint'."_
 
-   The IDE model will automatically receive the task instructions. From there, execute the pipeline step-by-step using these tools:
-   - Request `examine`
-   - Request `plan`
-   - Request `implement`
-   - Request `review`
+   The IDE model will automatically receive the task instructions. From there, it will guide you through the pipeline step-by-step using these tool calls:
+   - `task_examine`
+   - `task_plan`
+   - `task_implement`
+   - `task_review`
 
-> **IMPORTANT NOTE: Slash Commands**
-> Antigravity IDE and other MCP extensions generally do **NOT** display MCP tools as `/synaphex:XXX` slash commands (this is specific to the Claude Code CLI plugin). Instead, the tools are cleanly exported as `@mcp:synaphex:task`, `@mcp:synaphex:create`, etc., which you can select from the IDE autocomplete or simply trigger via natural language.
+> **Note: Tool Discovery**
+> Antigravity IDE and other MCP extensions generally do **NOT** display MCP tools as slash commands. Instead, the tools are cleanly exported as `task_start`, `create`, `memorize`, etc. They will appear in the IDE autocomplete (e.g., `@mcp:synaphex:task_start`) or can be triggered via natural language.
 
 Instead of Synaphex calling out to the Anthropic API internally, each step returns a prompt back to Antigravity's model, allowing the LLM _within_ the IDE (Gemini, Claude, GPT, etc.) to securely read, write, and execute the task!

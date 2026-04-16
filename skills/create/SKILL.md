@@ -2,13 +2,13 @@
 name: create
 description: Create a new synaphex project with memory scaffold and default settings.
 argument-hint: <project-name>
-allowed-tools: mcp__synaphex__synaphex_create
+allowed-tools: mcp__synaphex__create
 disable-model-invocation: true
 ---
 
 Create a new synaphex project.
 
-Call the `synaphex_create` MCP tool with the project name from `$ARGUMENTS`.
+Call the `create` MCP tool with the project name from `$ARGUMENTS`.
 
 The tool will:
 
@@ -18,4 +18,4 @@ The tool will:
 
 If the project already exists, the tool returns an error. Tell the user to delete the existing project directory manually if they want to start fresh.
 
-After the tool returns, summarize what was created and guide them to the next step: `/synaphex:memorize <project> <source-path>` to populate memory from a codebase.
+After the tool returns, summarize what was created and guide them to the next step: `/memorize <project> <source-path>` to populate memory from a codebase.

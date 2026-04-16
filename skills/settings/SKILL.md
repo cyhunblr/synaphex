@@ -2,7 +2,7 @@
 name: settings
 description: View and interactively edit per-agent settings for a synaphex project.
 argument-hint: <project-name>
-allowed-tools: mcp__synaphex__synaphex_settings mcp__synaphex__synaphex_update_settings
+allowed-tools: mcp__synaphex__settings mcp__synaphex__update_settings
 disable-model-invocation: true
 ---
 
@@ -10,7 +10,7 @@ View and edit synaphex agent settings interactively.
 
 ## Step 1: Read current settings
 
-Call the `synaphex_settings` MCP tool with the project name from `$ARGUMENTS`.
+Call the `settings` MCP tool with the project name from `$ARGUMENTS`.
 
 Present the returned table to the user exactly as received. It shows all six agents (examiner, researcher, planner, coder, answerer, reviewer) with their current model, think, and effort settings, plus a model reference section.
 
@@ -37,7 +37,7 @@ If the user's request would create an invalid combination (e.g., enabling thinki
 
 ## Step 4: Apply changes
 
-Call the `synaphex_update_settings` MCP tool with:
+Call the `update_settings` MCP tool with:
 
 - `project`: the project name
 - `updates`: an object mapping each agent name to the fields being changed
