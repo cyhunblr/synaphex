@@ -39,6 +39,26 @@ If you are using a VSCode extension (like Claude for VSCode, Cline, or Copilot M
 
 **Configuration File (`mcp.json` or equivalent):**
 
+You can either run the globally published package via `npx` (recommended) or use a local build.
+
+### Option A: Using NPX (Recommended)
+
+```json
+{
+  "mcpServers": {
+    "synaphex": {
+      "command": "npx",
+      "args": ["-y", "synaphex"],
+      "env": {
+        "ANTHROPIC_API_KEY": "YOUR_KEY_HERE"
+      }
+    }
+  }
+}
+```
+
+### Option B: Using a Local Build
+
 ```json
 {
   "mcpServers": {
