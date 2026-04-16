@@ -4,15 +4,17 @@ Project memory management for Claude Code. Distributed as a Claude Code plugin (
 
 All project data lives globally at `~/.synaphex/<project>/`. Each project has a `settings.json` (agent config), `meta.json`, and a `memory/` directory split into `internal/` (own knowledge) and `external/` (linked from other projects).
 
-## Phase 1 commands
+## Commands
 
-| Command                               | Description                                                                                           |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `/synaphex:create <project>`          | Create a new project with memory scaffold and default settings. Errors if the project already exists. |
-| `/synaphex:load <project>`            | Load a project's settings + memory digest into the session.                                           |
-| `/synaphex:memorize <project> <path>` | Analyze a source directory and populate / update the project's topic-based memory files.              |
-| `/synaphex:remember <parent> <child>` | Symlink `<parent>`'s `memory/internal/` into `<child>`'s `memory/external/<parent>_memory`.           |
-| `/synaphex:settings <project>`        | **Phase 2** — placeholder. Edit `~/.synaphex/<project>/settings.json` directly for now.               |
+| Command                        | Description                                                                                           |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `/create <project>`            | Create a new project with memory scaffold and default settings. Errors if the project already exists. |
+| `/load <project>`              | Load a project's settings + memory digest into the session.                                           |
+| `/memorize <project> <path>`   | Analyze a source directory and populate / update the project's topic-based memory files.              |
+| `/remember <parent> <child>`   | Symlink `<parent>`'s `memory/internal/` into `<child>`'s `memory/external/<parent>_memory`.           |
+| `/settings <project>`          | View current agent configurations                                                                     |
+| `/task <project> <task>`       | Run the full multi-agent task pipeline                                                                |
+| `/fix <project> <description>` | Run the multi-agent bug-fix pipeline                                                                  |
 
 ## Usage
 
@@ -95,8 +97,23 @@ _(If you happened to install it globally via `npm install -g synaphex`, you can 
 
 To remove Synaphex from your IDE, delete the `"synaphex"` entry from your `mcp_config.json` (or `.mcp.json`) and refresh your MCP servers.
 
+## Updating from Legacy Versions (v1.0.0+)
+
+Synaphex recently removed the `/synaphex:` prefix from its tools to improve IDE integration. If you are updating from an older version and still see legacy commands in your IDE autocomplete, you **must clear your caches**:
+
+```bash
+# 1. Uninstall legacy global version
+npm uninstall -g synaphex
+
+# 2. Clear NPX cache to force a fresh pull of @latest
+rm -rf ~/.npm/_npx
+
+# 3. Clear Claude Code extension's cached commands (Crucial for VSCode users)
+rm -rf ~/.claude/skills
+```
+
+After running these, restart your IDE (`Developer: Reload Window` in VSCode) and follow the normal NPX usage instructions.
+
 ## Status
 
-Phase 1 (foundation + memory infra) implemented. Phase 2 will add the six-agent pipeline (`task`, `fix`, interactive `settings`).
-
-See [MEET.MD](MEET.MD) for the original spec.
+Phase 1 and Phase 2 (the six-agent pipeline) are implemented. See [MEET.MD](MEET.MD) for the original specification.
