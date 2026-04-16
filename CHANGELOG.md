@@ -1,3 +1,10 @@
+## [1.6.3](https://github.com/cyhunblr/synaphex/compare/v1.6.2...v1.6.3) (2026-04-16)
+
+
+### Bug Fixes
+
+* finalize bulletproof multi-path plugin and skills discovery ([330efbf](https://github.com/cyhunblr/synaphex/commit/330efbf8341ce68f0c4975206d48a2205df71656))
+
 ## [1.6.2](https://github.com/cyhunblr/synaphex/compare/v1.6.1...v1.6.2) (2026-04-16)
 
 
