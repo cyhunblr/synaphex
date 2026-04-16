@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/cyhunblr/synaphex/compare/v1.6.3...v1.7.0) (2026-04-16)
+
+
+### Features
+
+* namespace task-related tools and remove native MCP prompts in favor of plugin-based skills ([6ab0d17](https://github.com/cyhunblr/synaphex/commit/6ab0d1719a7afa2049dac3222c8c2d9c1557ff6f))
+
 ## [1.6.3](https://github.com/cyhunblr/synaphex/compare/v1.6.2...v1.6.3) (2026-04-16)
 
 
