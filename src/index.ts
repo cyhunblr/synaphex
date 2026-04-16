@@ -24,6 +24,59 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
+// === Tool: synaphex_sampling_test (dev only) ===
+
+server.registerTool(
+  "synaphex_sampling_test",
+  {
+    description:
+      "Test MCP sampling — asks the IDE's own model to respond. Used to verify sampling support.",
+    inputSchema: z.object({
+      prompt: z.string().describe("A short prompt to send to the IDE model"),
+    }),
+  },
+  async ({ prompt }) => {
+    try {
+      const response = await server.server.createMessage({
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: prompt,
+            },
+          },
+        ],
+        maxTokens: 500,
+      });
+
+      const resultText =
+        response.content.type === "text"
+          ? response.content.text
+          : "Response was not text type: " + JSON.stringify(response.content);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Sampling works!\n\nModel: ${response.model}\nStop reason: ${response.stopReason}\n\nResponse:\n${resultText}`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Sampling failed: ${(err as Error).message}\n\nThis IDE likely does not support MCP sampling yet.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+);
+
 // === Tool: synaphex_create ===
 
 server.registerTool(
