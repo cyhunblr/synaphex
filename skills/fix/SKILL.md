@@ -1,91 +1,33 @@
 ---
 name: fix
-description: Use the 6-agent pipeline to fix a bug or a lint error in a project.
-argument-hint: <project-name> "<bug-description>"
+description: Run the synaphex bug-fix pipeline.
+argument-hint: <project> <bug-description>
 allowed-tools:
   [
-    "mcp__synaphex__synaphex_task_start",
-    "mcp__synaphex__synaphex_task_examine",
-    "mcp__synaphex__synaphex_task_plan",
-    "mcp__synaphex__synaphex_task_implement",
-    "mcp__synaphex__synaphex_task_review",
-    "mcp__synaphex__synaphex_write_memory",
+    "mcp__synaphex__task",
+    "mcp__synaphex__examine",
+    "mcp__synaphex__plan",
+    "mcp__synaphex__implement",
+    "mcp__synaphex__review",
+    "mcp__synaphex__write_memory",
+    "task",
+    "examine",
+    "plan",
+    "implement",
+    "review",
+    "write_memory",
   ]
 user-invocable: true
 ---
 
-Run the synaphex pipeline in fix mode: streamlined for quick bug fixes and small changes.
+# Synaphex Bug-Fix Pipeline
 
-## Step 1: Parse arguments
+Run a specialized pipeline to fix a bug in project `$ARGUMENTS`.
 
-Split `$ARGUMENTS` into:
+1. **Initialize**: Call `task` with `mode: "fix"`.
+2. **Examine**: Use `examine` with the returned memory digest.
+3. **Plan**: Use `plan` with the examiner output.
+4. **Implement**: Use `implement`.
+5. **Review**: Use `review` to confirm the fix.
 
-- **project**: first token
-- **task**: everything after the first token
-
-If no task is provided, ask the user to describe the fix.
-
-Get the current working directory using `pwd` in the terminal.
-
-## Step 2: Start the task
-
-Call `task_start` with `project`, `task`, `cwd`, and `mode: "fix"`.
-
-Extract `slug`, `memory_digest` from the response.
-
-Tell the user: "Fix **{slug}** initialized for project **{project}**."
-
-## Step 3: Ask about review mode
-
-Ask the user:
-
-> Review mode?
->
-> - **agent** — Automatic code review
-> - **user** — You review the changes
-> - **skip** — No review (fastest)
-
-Default to **skip** if the user just presses enter or says "default".
-
-## Step 4: Run Examiner
-
-Call `task_examine` with `project`, `slug`, `cwd`, `task`, and `memory_digest`.
-
-Extract `examiner_compact`. Briefly summarize findings (1-2 sentences).
-
-## Step 5: Run Planner
-
-Call `task_plan` with `project`, `slug`, `task`, `cwd`, `examiner_compact`.
-
-Extract `plan`. Present it to the user:
-
-> **Fix plan:**
-> {plan summary}
->
-> Proceed? (approve / modify / reject)
-
-Handle approve/modify/reject same as the task skill.
-
-## Step 6: Run Coder
-
-Call `task_implement` with `project`, `slug`, `task`, `cwd`, `plan`, `examiner_compact`, `memory_digest`.
-
-Handle escalations same as the task skill.
-
-Report files changed.
-
-## Step 7: Review (if not skipped)
-
-If review mode is **skip**, go directly to Step 8.
-
-Otherwise, handle the same as the task skill's Step 7. Review iterations capped at 3.
-
-## Step 8: Done
-
-Report:
-
-- Fix description
-- Files changed
-- Iterations (if any)
-
-Tell the user: "Fix applied! Review the changes and commit when ready."
+Iterate until the bug is resolved and tests pass.

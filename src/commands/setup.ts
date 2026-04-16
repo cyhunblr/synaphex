@@ -17,6 +17,7 @@ export async function handleSetup(platform?: string): Promise<void> {
 
   try {
     const npxPath = getNpxPath();
+    const home = os.homedir();
     const cwd = process.cwd();
     const scriptPath = fileURLToPath(import.meta.url);
     const packageRoot = path.resolve(path.dirname(scriptPath), "..", "..");
@@ -55,13 +56,29 @@ export async function handleSetup(platform?: string): Promise<void> {
       await processTarget(target, npxPath, rl);
     }
 
-    // Create plugin link for Claude
+    // 2. Register via multiple paths for maximum resilience
     if (platform?.toLowerCase() === "claude") {
-      console.log(`\n[2/2] INSTALLING CLAUDE PLUGIN...`);
+      console.log(`\n[2/2] REGISTERING SLASH COMMANDS...`);
+
+      // Path A: Modern Plugin Bundle
       await setupPlugin(packageRoot, rl);
+
+      // Path B: Standalone Commands (Modern flat directory)
+      const commandsDest = path.join(home, ".claude", "commands");
+      await setupStandalone(skillsSrc, commandsDest, "Commands", rl);
+
+      // Path C: Legacy Skills (Old flat directory)
+      const skillsDest = path.join(home, ".claude", "skills");
+      await setupStandalone(skillsSrc, skillsDest, "Legacy Skills", rl);
     } else {
       console.log(`\n[2/2] LINKING SKILLS...`);
-      await setupSkills(skillsSrc, rl);
+      const genericSkillsDest = path.join(
+        home,
+        ".claude",
+        "skills",
+        "synaphex",
+      );
+      await setupLegacyLink(skillsSrc, genericSkillsDest, rl);
     }
 
     console.log("\n" + "─".repeat(61));
@@ -176,10 +193,6 @@ async function setupPlugin(
       await execSync(`rm -rf "${pluginDest}"`);
       await fs.symlink(packageRoot, pluginDest, "dir");
       console.log(`  ✔ Plugin registered successfully.`);
-
-      const oldSkillsLink = path.join(home, ".claude", "skills", "synaphex");
-      await execSync(`rm -rf "${oldSkillsLink}"`);
-      console.log(`  ✔ Legacy skills cleaned up.`);
     } catch (err) {
       console.warn(
         `  ⚠️ Warning: Failed to register plugin: ${(err as Error).message}`,
@@ -190,13 +203,50 @@ async function setupPlugin(
   }
 }
 
-async function setupSkills(
+async function setupStandalone(
   skillsSrc: string,
+  destDir: string,
+  label: string,
   rl: readline.Interface,
 ): Promise<void> {
-  const home = os.homedir();
-  const skillsDest = path.join(home, ".claude", "skills", "synaphex");
+  console.log(`\n  → Installing ${label} to ${destDir}...`);
 
+  try {
+    const confirm = await rl.question(`  Install ${label}? [y/N] `);
+    if (confirm.toLowerCase() !== "y") {
+      console.log(`  ⏭️ ${label} skipped.`);
+      return;
+    }
+
+    await fs.mkdir(destDir, { recursive: true });
+
+    const skills = await fs.readdir(skillsSrc);
+    for (const skillName of skills) {
+      const skillPath = path.join(skillsSrc, skillName, "SKILL.md");
+      const linkPath = path.join(destDir, `synaphex:${skillName}.md`);
+
+      // Ensure it's a directory and has SKILL.md
+      const isDir = (
+        await fs.stat(path.join(skillsSrc, skillName))
+      ).isDirectory();
+      if (!isDir) continue;
+
+      await execSync(`rm -f "${linkPath}"`);
+      await fs.symlink(skillPath, linkPath);
+      console.log(`    ✔ Linked /synaphex:${skillName}`);
+    }
+  } catch (err) {
+    console.warn(
+      `  ⚠️ Warning: Failed to install ${label}: ${(err as Error).message}`,
+    );
+  }
+}
+
+async function setupLegacyLink(
+  skillsSrc: string,
+  skillsDest: string,
+  rl: readline.Interface,
+): Promise<void> {
   console.log(`  → Source      : ${skillsSrc}`);
   console.log(`  → Destination : ${skillsDest}`);
 
