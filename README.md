@@ -68,6 +68,19 @@ Check out the detailed integration guides:
 - [Antigravity IDE Integration](docs/antigravity-integration.md)
 - [VSCode / Claude Code Integration](docs/vscode-integration.md)
 
+## Uninstallation & Cleanup
+
+To completely remove a Synaphex project and its memory, simply delete its directory:
+
+```bash
+rm -rf ~/.synaphex/<project>
+
+# To remove ALL synaphex data globally:
+rm -rf ~/.synaphex
+```
+
+To remove Synaphex from your IDE, delete the `"synaphex"` entry from your `mcp_config.json` (or `.mcp.json`) and refresh your MCP servers.
+
 ## Status
 
 Phase 1 (foundation + memory infra) implemented. Phase 2 will add the six-agent pipeline (`task`, `fix`, interactive `settings`).
