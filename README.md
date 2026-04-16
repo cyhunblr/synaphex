@@ -79,6 +79,15 @@ rm -rf ~/.synaphex/<project>
 rm -rf ~/.synaphex
 ```
 
+If you used the `npx` method and want to manually clear the downloaded package from your system cache:
+
+```bash
+# Delete the npx cache folder where the package was temporarily downloaded
+rm -rf ~/.npm/_npx
+# Or clear your entire npm cache
+npm cache clean --force
+```
+
 To remove Synaphex from your IDE, delete the `"synaphex"` entry from your `mcp_config.json` (or `.mcp.json`) and refresh your MCP servers.
 
 ## Status
