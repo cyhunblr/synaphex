@@ -107,7 +107,7 @@ When moving from one agent to another (e.g., from **Coder** to **Reviewer**), Sy
 3. **Starting a Task (Pipeline)**
    To use the multi-agent pipeline:
 
-   > _"Run the 'task' tool on 'my_app' for the requirement 'Create a login API endpoint'."_
+   > _"Run the 'task_start' tool on 'my_app' for the requirement 'Create a login API endpoint'."_
 
    The IDE model will automatically receive the task instructions. From there, it will guide you through the pipeline step-by-step using these tool calls:
    - `task_examine`
@@ -116,6 +116,6 @@ When moving from one agent to another (e.g., from **Coder** to **Reviewer**), Sy
    - `task_review`
 
 > **Note: Tool Discovery**
-> Antigravity IDE and other MCP extensions generally do **NOT** display MCP tools as slash commands. Instead, the tools are cleanly exported as `task`, `create`, `memorize`, etc. They will appear in the IDE autocomplete (e.g., `@mcp:synaphex:task`) or can be triggered via natural language.
+> Antigravity IDE and other MCP extensions generally do **NOT** display MCP tools as slash commands. Instead, the tools are cleanly exported as `task_start`, `create`, `memorize`, etc. They will appear in the IDE autocomplete (e.g., `@mcp:synaphex:task_start`) or can be triggered via natural language.
 
 Instead of Synaphex calling out to the Anthropic API internally, each step returns a prompt back to Antigravity's model, allowing the LLM _within_ the IDE (Gemini, Claude, GPT, etc.) to securely read, write, and execute the task!

@@ -6,7 +6,7 @@ All project data lives globally at `~/.synaphex/<project>/`. Each project has a 
 
 ## Commands
 
-Synaphex provides native **MCP Prompts** that appear as slash commands in Claude Code and other compatible IDEs.
+Synaphex provides native **Plugin Skills** that appear as namespaced slash commands in Claude Code.
 
 | Native Slash Command | Description                          |
 | -------------------- | ------------------------------------ |
@@ -140,16 +140,19 @@ Synaphex has transitioned to a **Standardized Plugin Architecture**. This means 
 
 If you are updating from an older version and see broken or duplicate commands, follow these cleanup steps:
 
-```bash
-# 1. Clear old standalone skill links (no longer used)
-rm -rf ~/.claude/skills/synaphex
+1. **Run the new automated setup**:
 
-# 2. Clear NPX cache to ensure you pull v1.6.0+
-rm -rf ~/.npm/_npx
+   ```bash
+   npx -y synaphex@latest setup claude
+   ```
 
-# 3. Run the new automated setup to install the Plugin
-npx -y synaphex@latest setup claude
-```
+   _The setup wizard now handles cleaning up legacy standalone links automatically._
+
+2. **Clear NPX cache**:
+
+   ```bash
+   rm -rf ~/.npm/_npx
+   ```
 
 After running these, restart your IDE (`Developer: Reload Window` in VSCode).
 

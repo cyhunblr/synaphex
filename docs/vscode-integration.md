@@ -124,25 +124,9 @@ Please switch your IDE model to "GPT-5.2 (Copilot)" using the model picker befor
 
 Copilot does not support automated model switching via MCP — switch manually using the model picker before calling the next tool.
 
-## 4. Native MCP Commands (Claude Code)
-
-If you are using the **Claude Code** extension, Synaphex exports **MCP Prompts**. These are natively discovered by Claude and appear in the `/` slash-menu automatically as soon as the MCP server is connected.
-
-| Command                    | Usage Example                                            |
-| -------------------------- | -------------------------------------------------------- |
-| `/mcp__synaphex__task`     | `/mcp__synaphex__task project:"my-app" task:"Add login"` |
-| `/mcp__synaphex__create`   | `/mcp__synaphex__create project:"new-project"`           |
-| `/mcp__synaphex__memorize` | `/mcp__synaphex__memorize project:"p1" path:"/src"`      |
-
-**Why use native Prompts?**
-
-- **Zero Configuration**: No need to manually copy folders to `~/.claude/skills`.
-- **Arguments Support**: Better parameter validation and autocomplete for arguments like `project`.
-- **Native Context**: Injected directly into the conversation pipeline.
-
 ---
 
-## 5. Troubleshooting: Restoring Slash Commands (`/`)
+## 4. Troubleshooting: Restoring Slash Commands (`/`)
 
 If you are using the **VSCode Extension** or **Antigravity** and do not see the slash commands (like `/synaphex:task` or `/synaphex:create`) in your menu, follow these steps:
 
@@ -166,17 +150,21 @@ npx -y synaphex setup antigravity
 > [!IMPORTANT]
 > In Plugin Mode, commands are namespaced with the plugin name. Instead of `/create`, you should type **`/synaphex:create`**. This prevents conflicts with other installed plugins.
 
-### Cleaning Up Old Commands
+If you see duplicate commands or "Command not found" errors:
 
-If you see duplicate commands or "Command not found" errors for old `/create` or `/task` calls:
+1. **Run the new automated setup**:
 
-```bash
-# Remove legacy standalone skill links
-rm -rf ~/.claude/skills/synaphex
+   ```bash
+   npx -y synaphex@latest setup claude
+   ```
 
-# Clear NPX cache to ensure fresh pull of v1.6.0+
-rm -rf ~/.npm/_npx
-```
+   _The setup wizard now handles cleaning up legacy links and creating a resilient multi-path registration._
+
+2. **Clear NPX cache**:
+
+   ```bash
+   rm -rf ~/.npm/_npx
+   ```
 
 Then reload the window again.
 

@@ -32,163 +32,6 @@ const server = new McpServer(
   },
 );
 
-// === Prompts: Native Slash Commands (Claude Code Integration) ===
-
-server.registerPrompt(
-  "create",
-  {
-    description: "Create a new synaphex project",
-    argsSchema: {
-      project: z
-        .string()
-        .describe(
-          "Project name (lowercase alphanumeric, hyphens, underscores)",
-        ),
-    },
-  },
-  ({ project }) => ({
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: `Please run the synaphex 'create' tool for the project '${project}'.`,
-        },
-      },
-    ],
-  }),
-);
-
-server.registerPrompt(
-  "load",
-  {
-    description: "Load a synaphex project's memory",
-    argsSchema: {
-      project: z.string().describe("Project name"),
-    },
-  },
-  ({ project }) => ({
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: `Please run the synaphex 'load' tool for the project '${project}'.`,
-        },
-      },
-    ],
-  }),
-);
-
-server.registerPrompt(
-  "memorize",
-  {
-    description: "Analyze a codebase and update memory",
-    argsSchema: {
-      project: z.string().describe("Project name"),
-      path: z.string().describe("Absolute path to source directory"),
-    },
-  },
-  ({ project, path }) => ({
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: `Please run the synaphex 'memorize' tool for project '${project}' at path '${path}'.`,
-        },
-      },
-    ],
-  }),
-);
-
-server.registerPrompt(
-  "remember",
-  {
-    description: "Link memory from another project",
-    argsSchema: {
-      parent: z.string().describe("Source project"),
-      child: z.string().describe("Target project"),
-    },
-  },
-  ({ parent, child }) => ({
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: `Please run the synaphex 'remember' tool to link '${parent}' into '${child}'.`,
-        },
-      },
-    ],
-  }),
-);
-
-server.registerPrompt(
-  "settings",
-  {
-    description: "View or edit agent settings",
-    argsSchema: {
-      project: z.string().describe("Project name"),
-    },
-  },
-  ({ project }) => ({
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: `Please run the synaphex 'settings' tool for project '${project}'.`,
-        },
-      },
-    ],
-  }),
-);
-
-server.registerPrompt(
-  "task",
-  {
-    description: "Run the full synaphex multi-agent task pipeline",
-    argsSchema: {
-      project: z.string().describe("Project name"),
-      task: z.string().describe("Task description"),
-    },
-  },
-  ({ project, task }) => ({
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: `Please run the synaphex 'task' tool for project '${project}' with task: '${task}'. Mode: task.`,
-        },
-      },
-    ],
-  }),
-);
-
-server.registerPrompt(
-  "fix",
-  {
-    description: "Run the synaphex bug-fix pipeline",
-    argsSchema: {
-      project: z.string().describe("Project name"),
-      description: z.string().describe("Issue description"),
-    },
-  },
-  ({ project, description }) => ({
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: `Please run the synaphex 'task' tool for project '${project}' with description: '${description}'. Mode: fix.`,
-        },
-      },
-    ],
-  }),
-);
-
 // === Tool: synaphex_create ===
 
 server.registerTool(
@@ -442,7 +285,7 @@ server.registerTool(
 // === Tool: synaphex_task_start ===
 
 server.registerTool(
-  "task",
+  "task_start",
   {
     description:
       "Initialize a new synaphex task pipeline. Creates task directory, returns memory digest and settings.",
@@ -471,7 +314,7 @@ server.registerTool(
 // === Tool: synaphex_task_examine ===
 
 server.registerTool(
-  "examine",
+  "task_examine",
   {
     description:
       "Run the Examiner agent to analyze codebase and memory for a task. " +
@@ -508,7 +351,7 @@ server.registerTool(
 // === Tool: synaphex_task_plan ===
 
 server.registerTool(
-  "plan",
+  "task_plan",
   {
     description:
       "Run the Planner agent to create an implementation plan from examiner output.",
@@ -565,7 +408,7 @@ server.registerTool(
 // === Tool: synaphex_task_implement ===
 
 server.registerTool(
-  "implement",
+  "task_implement",
   {
     description:
       "Run the Coder agent to implement the plan. " +
@@ -623,7 +466,7 @@ server.registerTool(
 // === Tool: synaphex_task_review ===
 
 server.registerTool(
-  "review",
+  "task_review",
   {
     description:
       "Run the Reviewer agent to check implementation quality. " +
