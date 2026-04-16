@@ -10,6 +10,7 @@ import type {
   AgentName,
   SynaphexSettings,
 } from "./settings-schema.js";
+import { MODEL_CAPABILITIES } from "./settings-schema.js";
 
 /** Agent display names for user-friendly output */
 const AGENT_LABELS: Record<string, string> = {
@@ -45,25 +46,30 @@ function buildTransitionNote(
   const current = settings.agents[currentAgent];
   const next = settings.agents[nextAgentName];
 
-  const sameConfig =
-    current.model === next.model &&
-    current.think === next.think &&
-    current.effort === next.effort;
+  const sameModel = current.model === next.model;
+  const sameThink = current.think === next.think;
 
-  if (sameConfig) {
+  if (sameModel && sameThink) {
     return [
       "",
-      `> ✅ Sıradaki agent (**${AGENT_LABELS[nextAgentName]}**) aynı model ayarlarını kullanıyor. Devam edebilirsin.`,
+      `> ✅ Next agent (**${AGENT_LABELS[nextAgentName]}**) uses the same model — no switch needed.`,
     ].join("\n");
   }
 
+  const nextLabel = MODEL_CAPABILITIES[next.model]?.label ?? next.model;
+  const currentLabel =
+    MODEL_CAPABILITIES[current.model]?.label ?? current.model;
+
+  const thinkNote = next.think
+    ? " with extended thinking enabled"
+    : " with thinking disabled";
+
   return [
     "",
-    `> ⚠️ **Model Değişikliği Önerisi**`,
-    `> Sıradaki agent (**${AGENT_LABELS[nextAgentName]}**) farklı ayarlar kullanıyor:`,
-    `> - Şu an: \`${current.model}\` (think: ${current.think}, effort: ${current.effort})`,
-    `> - Sonraki: \`${next.model}\` (think: ${next.think}, effort: ${next.effort})`,
-    `> Geçiş yapmadan önce IDE'de model değiştirmeyi düşünebilirsin.`,
+    `> ⚠️ **Model Switch Recommended**`,
+    `> Next agent: **${AGENT_LABELS[nextAgentName]}** — configured for **${nextLabel}**${thinkNote}.`,
+    `> Current model: ${currentLabel} (think: ${current.think}, effort: ${current.effort})`,
+    `> Please switch your IDE model to **"${nextLabel}"** before calling the next pipeline step.`,
   ].join("\n");
 }
 
@@ -80,44 +86,44 @@ function buildNextStepHint(
   switch (agentName) {
     case "examiner":
       return [
-        `## Sonraki Adım`,
-        `Analizini tamamladığında sonucunu şu komutla ilerlet:`,
+        `## Next Step`,
+        `Once your analysis is complete, pass the result to the Planner:`,
         "```",
-        `synaphex_task_plan(project: "${project}", slug: "${slug}",`,
+        `task_plan(project: "${project}", slug: "${slug}",`,
         `  task: "${task}", cwd: "${cwd}",`,
-        `  examiner_compact: "SENIN_KOMPAKTanaliz_ÇIKTIN")`,
+        `  examiner_compact: "YOUR_COMPACT_ANALYSIS_OUTPUT")`,
         "```",
       ].join("\n");
 
     case "planner":
       return [
-        `## Sonraki Adım`,
-        `Planını tamamladığında sonucunu şu komutla ilerlet:`,
+        `## Next Step`,
+        `Once your plan is ready, pass it to the Coder:`,
         "```",
-        `synaphex_task_implement(project: "${project}", slug: "${slug}",`,
+        `task_implement(project: "${project}", slug: "${slug}",`,
         `  task: "${task}", cwd: "${cwd}",`,
-        `  plan: "SENIN_PLAN_ÇIKTIN",`,
+        `  plan: "YOUR_PLAN_OUTPUT",`,
         `  examiner_compact: "...", memory_digest: "...")`,
         "```",
       ].join("\n");
 
     case "coder":
       return [
-        `## Sonraki Adım`,
-        `Implementasyonu tamamladığında sonucunu şu komutla ilerlet:`,
+        `## Next Step`,
+        `Once implementation is complete, pass a summary to the Reviewer:`,
         "```",
-        `synaphex_task_review(project: "${project}", slug: "${slug}",`,
+        `task_review(project: "${project}", slug: "${slug}",`,
         `  task: "${task}", cwd: "${cwd}",`,
-        `  plan: "...", implementation_summary: "SENIN_IMPLEMENTASYON_ÖZETIN",`,
+        `  plan: "...", implementation_summary: "YOUR_IMPLEMENTATION_SUMMARY",`,
         `  examiner_compact: "...")`,
         "```",
       ].join("\n");
 
     case "reviewer":
       return [
-        `## Sonraki Adım`,
-        `- Eğer APPROVED → Pipeline tamamlandı! 🎉`,
-        `- Eğer NEEDS_CHANGES → Feedback'i synaphex_task_plan'a reviewer_feedback olarak aktar.`,
+        `## Next Step`,
+        `- If APPROVED → Pipeline complete! 🎉`,
+        `- If NEEDS_CHANGES → Pass the feedback back to task_plan as reviewer_feedback.`,
       ].join("\n");
 
     default:
@@ -155,15 +161,15 @@ export function buildDelegatedPrompt(opts: DelegatedPromptOptions): string {
   return [
     `═══ SYNAPHEX AGENT: ${label.toUpperCase()} (Delegated Mode) ═══`,
     "",
-    `## Senin Rolün`,
-    `Aşağıdaki system prompt'a uygun şekilde davran. Kendi dosya araçlarını`,
-    `(view_file, grep_search, list_dir, write_to_file, replace_file_content vb.)`,
-    `kullanarak görevi gerçekleştir.`,
+    `## Your Role`,
+    `Act according to the system prompt below. Use your available file tools`,
+    `(view_file, grep_search, list_dir, write_to_file, replace_file_content, etc.)`,
+    `to complete the task.`,
     "",
     `## System Prompt`,
     opts.systemPrompt,
     "",
-    `## Bağlam`,
+    `## Context`,
     opts.userContext,
     "",
     nextStep,

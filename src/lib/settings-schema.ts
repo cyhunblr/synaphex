@@ -5,7 +5,7 @@
 
 export const SETTINGS_VERSION = 1;
 
-export type Provider = "claude";
+export type Provider = "claude" | "gemini" | "openai";
 
 export type AgentMode = "direct" | "delegated";
 
@@ -50,16 +50,59 @@ export const MODEL_CAPABILITIES: Record<
   {
     thinking: boolean;
     adaptiveThinking: boolean;
+    /** Human-readable label shown in the IDE model switcher */
+    label?: string;
     /** alias for the canonical model ID, if any */
     aliases?: string[];
   }
 > = {
-  "claude-opus-4-6": { thinking: true, adaptiveThinking: true },
-  "claude-sonnet-4-6": { thinking: true, adaptiveThinking: true },
+  // ── Anthropic (Direct Mode) ──────────────────────────────────────────
+  "claude-opus-4-6": {
+    thinking: true,
+    adaptiveThinking: true,
+    label: "Claude Opus 4.6",
+  },
+  "claude-sonnet-4-6": {
+    thinking: true,
+    adaptiveThinking: true,
+    label: "Claude Sonnet 4.6",
+  },
   "claude-haiku-4-5": {
     thinking: true,
     adaptiveThinking: false,
+    label: "Claude Haiku 4.5",
     aliases: ["claude-haiku-4-5-20251001"],
+  },
+  // ── Antigravity IDE models (Delegated Mode) ──────────────────────────
+  "claude-opus-4-6-thinking": {
+    thinking: true,
+    adaptiveThinking: true,
+    label: "Claude Opus 4.6 (Thinking)",
+  },
+  "claude-sonnet-4-6-thinking": {
+    thinking: true,
+    adaptiveThinking: true,
+    label: "Claude Sonnet 4.6 (Thinking)",
+  },
+  "gemini-3.1-pro-high": {
+    thinking: true,
+    adaptiveThinking: true,
+    label: "Gemini 3.1 Pro (high)",
+  },
+  "gemini-3.1-pro-low": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "Gemini 3.1 Pro (low)",
+  },
+  "gemini-3-flash": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "Gemini 3 Flash",
+  },
+  "gpt-oss-120b": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "GPT-OSS-120b",
   },
 };
 
@@ -92,44 +135,50 @@ export function createDefaultSettings(
     version: SETTINGS_VERSION,
     createdAt: now.toISOString(),
     agents: {
+      // Fast scan — Sonnet-level, no extended thinking needed
       examiner: {
         provider: "claude",
-        model: "claude-sonnet-4-6",
+        model: "claude-sonnet-4-6-thinking",
         think: false,
         effort: 2,
         mode: "delegated",
       },
+      // Deep research — Sonnet with thinking
       researcher: {
         provider: "claude",
-        model: "claude-sonnet-4-6",
+        model: "claude-sonnet-4-6-thinking",
         think: true,
         effort: 3,
         mode: "delegated",
       },
+      // Architecture planning — Opus with thinking for best reasoning
       planner: {
         provider: "claude",
-        model: "claude-opus-4-6",
+        model: "claude-opus-4-6-thinking",
         think: true,
         effort: 3,
         mode: "delegated",
       },
+      // Fast code generation — Sonnet, no thinking overhead
       coder: {
         provider: "claude",
-        model: "claude-sonnet-4-6",
+        model: "claude-sonnet-4-6-thinking",
         think: false,
         effort: 2,
         mode: "delegated",
       },
+      // Quick Q&A — Flash is sufficient
       answerer: {
-        provider: "claude",
-        model: "claude-sonnet-4-6",
+        provider: "gemini",
+        model: "gemini-3-flash",
         think: false,
         effort: 1,
         mode: "delegated",
       },
+      // Review quality — Opus with thinking for thorough critique
       reviewer: {
         provider: "claude",
-        model: "claude-opus-4-6",
+        model: "claude-opus-4-6-thinking",
         think: true,
         effort: 3,
         mode: "delegated",
