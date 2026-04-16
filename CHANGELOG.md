@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/cyhunblr/synaphex/compare/v1.7.0...v1.7.1) (2026-04-16)
+
+
+### Bug Fixes
+
+* finalize linting and plugin transition ([9ac47e5](https://github.com/cyhunblr/synaphex/commit/9ac47e5889f1d6a2af8053058b51976d5604b633))
+
 # [1.7.0](https://github.com/cyhunblr/synaphex/compare/v1.6.3...v1.7.0) (2026-04-16)
 
 
