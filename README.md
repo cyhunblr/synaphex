@@ -6,15 +6,20 @@ All project data lives globally at `~/.synaphex/<project>/`. Each project has a 
 
 ## Commands
 
-| Command                        | Description                                                                                           |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `/create <project>`            | Create a new project with memory scaffold and default settings. Errors if the project already exists. |
-| `/load <project>`              | Load a project's settings + memory digest into the session.                                           |
-| `/memorize <project> <path>`   | Analyze a source directory and populate / update the project's topic-based memory files.              |
-| `/remember <parent> <child>`   | Symlink `<parent>`'s `memory/internal/` into `<child>`'s `memory/external/<parent>_memory`.           |
-| `/settings <project>`          | View current agent configurations                                                                     |
-| `/task <project> <task>`       | Run the full multi-agent task pipeline                                                                |
-| `/fix <project> <description>` | Run the multi-agent bug-fix pipeline                                                                  |
+Synaphex provides native **MCP Prompts** that appear as slash commands in Claude Code and other compatible IDEs.
+
+| Native Command (MCP Prompt) | Tool Fallback | Description                          |
+| --------------------------- | ------------- | ------------------------------------ |
+| `/mcp__synaphex__create`    | `create`      | Create a new synaphex project        |
+| `/mcp__synaphex__load`      | `load`        | Load project settings + memory       |
+| `/mcp__synaphex__memorize`  | `memorize`    | Analyze codebase and update memory   |
+| `/mcp__synaphex__remember`  | `remember`    | Link memory from another project     |
+| `/mcp__synaphex__settings`  | `settings`    | View current agent configurations    |
+| `/mcp__synaphex__task`      | `task`        | Run the multi-agent task pipeline    |
+| `/mcp__synaphex__fix`       | `task`        | Run the multi-agent bug-fix pipeline |
+
+> [!TIP]
+> Many IDEs (like Claude Code) will autocomplete these. You can also trigger them by just asking Claude: _"Run synaphex task for project X: [your task]"_.
 
 ## Usage
 

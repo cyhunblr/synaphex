@@ -124,9 +124,25 @@ Please switch your IDE model to "GPT-5.2 (Copilot)" using the model picker befor
 
 Copilot does not support automated model switching via MCP — switch manually using the model picker before calling the next tool.
 
+## 4. Native MCP Commands (Claude Code)
+
+If you are using the **Claude Code** extension, Synaphex exports **MCP Prompts**. These are natively discovered by Claude and appear in the `/` slash-menu automatically as soon as the MCP server is connected.
+
+| Command                    | Usage Example                                            |
+| -------------------------- | -------------------------------------------------------- |
+| `/mcp__synaphex__task`     | `/mcp__synaphex__task project:"my-app" task:"Add login"` |
+| `/mcp__synaphex__create`   | `/mcp__synaphex__create project:"new-project"`           |
+| `/mcp__synaphex__memorize` | `/mcp__synaphex__memorize project:"p1" path:"/src"`      |
+
+**Why use native Prompts?**
+
+- **Zero Configuration**: No need to manually copy folders to `~/.claude/skills`.
+- **Arguments Support**: Better parameter validation and autocomplete for arguments like `project`.
+- **Native Context**: Injected directly into the conversation pipeline.
+
 ---
 
-## 4. Troubleshooting: Cleaning Up Legacy Commands
+## 5. Troubleshooting: Cleaning Up Legacy Commands
 
 If you still see old `/synaphex:*` commands in your autocomplete list after an update:
 

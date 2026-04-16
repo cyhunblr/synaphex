@@ -19,10 +19,175 @@ import { handleWriteMemory } from "./commands/write-memory.js";
 
 // === Server setup ===
 
-const server = new McpServer({
-  name: "synaphex",
-  version: "0.1.0",
-});
+const server = new McpServer(
+  {
+    name: "synaphex",
+    version: "1.3.0",
+  },
+  {
+    capabilities: {
+      prompts: {},
+      resources: {},
+    },
+  },
+);
+
+// === Prompts: Native Slash Commands (Claude Code Integration) ===
+
+server.registerPrompt(
+  "create",
+  {
+    description: "Create a new synaphex project",
+    argsSchema: {
+      project: z
+        .string()
+        .describe(
+          "Project name (lowercase alphanumeric, hyphens, underscores)",
+        ),
+    },
+  },
+  ({ project }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Please run the synaphex 'create' tool for the project '${project}'.`,
+        },
+      },
+    ],
+  }),
+);
+
+server.registerPrompt(
+  "load",
+  {
+    description: "Load a synaphex project's memory",
+    argsSchema: {
+      project: z.string().describe("Project name"),
+    },
+  },
+  ({ project }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Please run the synaphex 'load' tool for the project '${project}'.`,
+        },
+      },
+    ],
+  }),
+);
+
+server.registerPrompt(
+  "memorize",
+  {
+    description: "Analyze a codebase and update memory",
+    argsSchema: {
+      project: z.string().describe("Project name"),
+      path: z.string().describe("Absolute path to source directory"),
+    },
+  },
+  ({ project, path }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Please run the synaphex 'memorize' tool for project '${project}' at path '${path}'.`,
+        },
+      },
+    ],
+  }),
+);
+
+server.registerPrompt(
+  "remember",
+  {
+    description: "Link memory from another project",
+    argsSchema: {
+      parent: z.string().describe("Source project"),
+      child: z.string().describe("Target project"),
+    },
+  },
+  ({ parent, child }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Please run the synaphex 'remember' tool to link '${parent}' into '${child}'.`,
+        },
+      },
+    ],
+  }),
+);
+
+server.registerPrompt(
+  "settings",
+  {
+    description: "View or edit agent settings",
+    argsSchema: {
+      project: z.string().describe("Project name"),
+    },
+  },
+  ({ project }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Please run the synaphex 'settings' tool for project '${project}'.`,
+        },
+      },
+    ],
+  }),
+);
+
+server.registerPrompt(
+  "task",
+  {
+    description: "Run the full synaphex multi-agent task pipeline",
+    argsSchema: {
+      project: z.string().describe("Project name"),
+      task: z.string().describe("Task description"),
+    },
+  },
+  ({ project, task }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Please run the synaphex 'task' tool for project '${project}' with task: '${task}'. Mode: task.`,
+        },
+      },
+    ],
+  }),
+);
+
+server.registerPrompt(
+  "fix",
+  {
+    description: "Run the synaphex bug-fix pipeline",
+    argsSchema: {
+      project: z.string().describe("Project name"),
+      description: z.string().describe("Issue description"),
+    },
+  },
+  ({ project, description }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Please run the synaphex 'task' tool for project '${project}' with description: '${description}'. Mode: fix.`,
+        },
+      },
+    ],
+  }),
+);
 
 // === Tool: synaphex_create ===
 
