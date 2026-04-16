@@ -1,5 +1,6 @@
 /**
- * synaphex_task_plan — runs the Planner agent (single call, no tools).
+ * synaphex_task_plan — runs the Planner agent (direct)
+ * or returns the prompt for the IDE model (delegated).
  */
 
 import { promises as fs } from "node:fs";
@@ -17,6 +18,7 @@ import {
 } from "../agents/planner.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
+import { buildDelegatedPrompt } from "../lib/delegated-prompt.js";
 
 export async function handleTaskPlan(
   project: string,
@@ -52,7 +54,22 @@ export async function handleTaskPlan(
     iter,
   );
 
-  // Run the Planner (no tools)
+  // === DELEGATED MODE ===
+  if (config.mode === "delegated") {
+    return buildDelegatedPrompt({
+      agentName: "planner",
+      systemPrompt: PLANNER_SYSTEM_PROMPT,
+      userContext: userMessage,
+      project,
+      slug,
+      task,
+      cwd,
+      settings,
+      config,
+    });
+  }
+
+  // === DIRECT MODE (existing behavior) ===
   const result = await runAgent({
     config,
     systemPrompt: PLANNER_SYSTEM_PROMPT,
@@ -61,7 +78,6 @@ export async function handleTaskPlan(
 
   const plan = result.textOutput.trim();
 
-  // Save plan
   await fs.writeFile(`${taskDir}/plan-v${iter}.md`, plan, "utf-8");
 
   const usage = result.usage;

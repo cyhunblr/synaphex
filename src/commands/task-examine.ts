@@ -1,5 +1,6 @@
 /**
- * synaphex_task_examine — runs the Examiner agent via Anthropic API.
+ * synaphex_task_examine — runs the Examiner agent via Anthropic API (direct)
+ * or returns the prompt for the IDE model (delegated).
  */
 
 import { promises as fs } from "node:fs";
@@ -20,6 +21,7 @@ import {
 } from "../agents/examiner.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
+import { buildDelegatedPrompt } from "../lib/delegated-prompt.js";
 
 export async function handleTaskExamine(
   project: string,
@@ -45,7 +47,22 @@ export async function handleTaskExamine(
   // Build user message
   const userMessage = buildExaminerPrompt(task, memoryDigest, cwd);
 
-  // Tool call handler
+  // === DELEGATED MODE ===
+  if (config.mode === "delegated") {
+    return buildDelegatedPrompt({
+      agentName: "examiner",
+      systemPrompt: EXAMINER_SYSTEM_PROMPT,
+      userContext: userMessage,
+      project,
+      slug,
+      task,
+      cwd,
+      settings,
+      config,
+    });
+  }
+
+  // === DIRECT MODE (existing behavior) ===
   const onToolCall = async (name: string, input: Record<string, unknown>) => {
     try {
       switch (name) {
@@ -81,7 +98,6 @@ export async function handleTaskExamine(
     }
   };
 
-  // Run the Examiner
   const result = await runAgent({
     config,
     systemPrompt: EXAMINER_SYSTEM_PROMPT,
@@ -91,7 +107,6 @@ export async function handleTaskExamine(
     maxToolRounds: 25,
   });
 
-  // Parse raw and compact sections
   const fullOutput = result.textOutput;
   const compactMarker = "=== COMPACT ANALYSIS ===";
   const rawMarker = "=== RAW ANALYSIS ===";
@@ -113,7 +128,6 @@ export async function handleTaskExamine(
     rawOutput = fullOutput.slice(rawIdx + rawMarker.length).trim();
   }
 
-  // Save outputs to task dir
   await fs.writeFile(`${taskDir}/examiner-raw.md`, rawOutput, "utf-8");
   await fs.writeFile(`${taskDir}/examiner-compact.md`, compactOutput, "utf-8");
 

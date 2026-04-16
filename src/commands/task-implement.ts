@@ -1,7 +1,6 @@
 /**
- * synaphex_task_implement — runs the Coder agent with tool-use loop.
- * Coder has 6 tools: read_file, write_file, edit_file, list_files, search_code, ask_answerer.
- * ask_answerer internally runs the Answerer agent.
+ * synaphex_task_implement — runs the Coder agent with tool-use loop (direct)
+ * or returns the prompt for the IDE model (delegated).
  */
 
 import { promises as fs } from "node:fs";
@@ -33,6 +32,7 @@ import {
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
 import { addUsage, emptyUsage } from "../lib/pipeline-types.js";
+import { buildDelegatedPrompt } from "../lib/delegated-prompt.js";
 
 export async function handleTaskImplement(
   project: string,
@@ -62,7 +62,31 @@ export async function handleTaskImplement(
 
   const iter = iteration ?? 1;
 
-  // Track file modifications
+  // Build user message
+  const userMessage = buildCoderPrompt(
+    task,
+    plan,
+    examinerCompact,
+    memoryDigest,
+    cwd,
+  );
+
+  // === DELEGATED MODE ===
+  if (coderConfig.mode === "delegated") {
+    return buildDelegatedPrompt({
+      agentName: "coder",
+      systemPrompt: CODER_SYSTEM_PROMPT,
+      userContext: userMessage,
+      project,
+      slug,
+      task,
+      cwd,
+      settings,
+      config: coderConfig,
+    });
+  }
+
+  // === DIRECT MODE (existing behavior) ===
   const filesCreated: Set<string> = new Set();
   const filesModified: Set<string> = new Set();
   let answererUsage = emptyUsage();
@@ -71,7 +95,6 @@ export async function handleTaskImplement(
     context: string;
   } | null;
 
-  // Tool call handler
   const onToolCall = async (name: string, input: Record<string, unknown>) => {
     try {
       switch (name) {
@@ -81,7 +104,6 @@ export async function handleTaskImplement(
         }
         case "write_file": {
           const filePath = input.path as string;
-          // Check if file exists to distinguish create vs modify
           try {
             await fs.access(`${cwd}/${filePath}`);
             filesModified.add(filePath);
@@ -115,7 +137,6 @@ export async function handleTaskImplement(
           return { content: result };
         }
         case "ask_answerer": {
-          // Run the Answerer agent internally
           const question = input.question as string;
           const ctx = input.context as string | undefined;
 
@@ -151,16 +172,6 @@ export async function handleTaskImplement(
     }
   };
 
-  // Build user message
-  const userMessage = buildCoderPrompt(
-    task,
-    plan,
-    examinerCompact,
-    memoryDigest,
-    cwd,
-  );
-
-  // Run the Coder
   const result = await runAgent({
     config: coderConfig,
     systemPrompt: CODER_SYSTEM_PROMPT,
@@ -172,7 +183,6 @@ export async function handleTaskImplement(
 
   const totalUsage = addUsage(result.usage, answererUsage);
 
-  // Save implementation log
   const log = [
     `# Implementation Log v${iter}`,
     "",
@@ -196,7 +206,6 @@ export async function handleTaskImplement(
 
   await fs.writeFile(`${taskDir}/implementation-log-v${iter}.md`, log, "utf-8");
 
-  // Build response
   const parts = [
     `Implementation v${iter} complete.`,
     "",

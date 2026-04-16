@@ -1,5 +1,6 @@
 /**
- * synaphex_task_review — runs the Reviewer agent to check implementation quality.
+ * synaphex_task_review — runs the Reviewer agent (direct)
+ * or returns the prompt for the IDE model (delegated).
  */
 
 import { promises as fs } from "node:fs";
@@ -20,6 +21,7 @@ import {
 } from "../agents/reviewer.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
+import { buildDelegatedPrompt } from "../lib/delegated-prompt.js";
 
 export async function handleTaskReview(
   project: string,
@@ -48,7 +50,31 @@ export async function handleTaskReview(
 
   const iter = iteration ?? 1;
 
-  // Tool call handler
+  // Build user message
+  const userMessage = buildReviewerPrompt(
+    task,
+    plan,
+    implementationSummary,
+    examinerCompact,
+    cwd,
+  );
+
+  // === DELEGATED MODE ===
+  if (config.mode === "delegated") {
+    return buildDelegatedPrompt({
+      agentName: "reviewer",
+      systemPrompt: REVIEWER_SYSTEM_PROMPT,
+      userContext: userMessage,
+      project,
+      slug,
+      task,
+      cwd,
+      settings,
+      config,
+    });
+  }
+
+  // === DIRECT MODE (existing behavior) ===
   const onToolCall = async (name: string, input: Record<string, unknown>) => {
     try {
       switch (name) {
@@ -76,16 +102,6 @@ export async function handleTaskReview(
     }
   };
 
-  // Build user message
-  const userMessage = buildReviewerPrompt(
-    task,
-    plan,
-    implementationSummary,
-    examinerCompact,
-    cwd,
-  );
-
-  // Run the Reviewer
   const result = await runAgent({
     config,
     systemPrompt: REVIEWER_SYSTEM_PROMPT,
@@ -95,17 +111,14 @@ export async function handleTaskReview(
     maxToolRounds: 15,
   });
 
-  // Parse verdict
   const parsed = parseReviewerResponse(result.textOutput);
 
-  // Save review
   await fs.writeFile(
     `${taskDir}/review-v${iter}.md`,
     result.textOutput,
     "utf-8",
   );
 
-  // If done, update task status
   if (parsed.verdict === "approved") {
     const updatedMeta = await readJsonFile<TaskMeta>(metaPath);
     updatedMeta.status = "done";

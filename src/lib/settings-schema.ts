@@ -7,6 +7,8 @@ export const SETTINGS_VERSION = 1;
 
 export type Provider = "claude";
 
+export type AgentMode = "direct" | "delegated";
+
 export interface AgentConfig {
   provider: Provider;
   /** Anthropic Messages API model ID (e.g. claude-opus-4-6) */
@@ -15,6 +17,8 @@ export interface AgentConfig {
   think: boolean;
   /** 0=disabled, 1=low, 2=medium, 3=high, 4=max — interpreted by Phase 2 */
   effort: 0 | 1 | 2 | 3 | 4;
+  /** "direct" = call Anthropic API internally, "delegated" = return prompt to IDE */
+  mode: AgentMode;
 }
 
 export type AgentName =
@@ -93,36 +97,42 @@ export function createDefaultSettings(
         model: "claude-sonnet-4-6",
         think: false,
         effort: 2,
+        mode: "delegated",
       },
       researcher: {
         provider: "claude",
         model: "claude-sonnet-4-6",
         think: true,
         effort: 3,
+        mode: "delegated",
       },
       planner: {
         provider: "claude",
         model: "claude-opus-4-6",
         think: true,
         effort: 3,
+        mode: "delegated",
       },
       coder: {
         provider: "claude",
         model: "claude-sonnet-4-6",
         think: false,
         effort: 2,
+        mode: "delegated",
       },
       answerer: {
         provider: "claude",
         model: "claude-sonnet-4-6",
         think: false,
         effort: 1,
+        mode: "delegated",
       },
       reviewer: {
         provider: "claude",
         model: "claude-opus-4-6",
         think: true,
         effort: 3,
+        mode: "delegated",
       },
     },
   };

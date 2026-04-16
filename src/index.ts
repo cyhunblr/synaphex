@@ -247,6 +247,12 @@ server.registerTool(
                 .literal("claude")
                 .optional()
                 .describe("Provider (claude only)"),
+              mode: z
+                .enum(["direct", "delegated"])
+                .optional()
+                .describe(
+                  "Agent mode: direct (API call) or delegated (IDE model)",
+                ),
             })
             .strict(),
         )

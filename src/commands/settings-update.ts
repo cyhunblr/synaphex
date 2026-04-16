@@ -16,6 +16,7 @@ interface AgentUpdate {
   think?: boolean;
   effort?: number;
   provider?: "claude";
+  mode?: "direct" | "delegated";
 }
 
 export async function handleSettingsUpdate(
@@ -83,6 +84,11 @@ export async function handleSettingsUpdate(
       agent.provider = update.provider;
     }
 
+    // 6. Mode
+    if (update.mode !== undefined) {
+      agent.mode = update.mode;
+    }
+
     // Build diff
     const diffs: string[] = [];
     if (before.model !== agent.model)
@@ -95,6 +101,8 @@ export async function handleSettingsUpdate(
       diffs.push(`effort: ${before.effort} → ${agent.effort}`);
     if (before.provider !== agent.provider)
       diffs.push(`provider: ${before.provider} → ${agent.provider}`);
+    if (before.mode !== agent.mode)
+      diffs.push(`mode: ${before.mode} → ${agent.mode}`);
 
     if (diffs.length > 0) {
       changes.push(`[${agentName}] ${diffs.join(", ")}`);
