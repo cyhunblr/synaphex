@@ -1,9 +1,14 @@
 ---
 name: settings
-description: View and interactively edit per-agent settings for a synaphex project.
+description: Read or update a synaphex project's agent settings.
 argument-hint: <project-name>
-allowed-tools: mcp__synaphex__settings mcp__synaphex__update_settings
+allowed-tools:
+  [
+    "mcp__synaphex__synaphex_settings",
+    "mcp__synaphex__synaphex_update_settings",
+  ]
 disable-model-invocation: true
+user-invocable: true
 ---
 
 View and edit synaphex agent settings interactively.

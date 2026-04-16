@@ -39,8 +39,13 @@ export async function handleSetup(platform?: string): Promise<void> {
       await processTarget(target, npxPath, rl);
     }
 
-    // Always attempt to link skills
-    await setupSkills(skillsSrc, rl);
+    // Create plugin link for Claude
+    if (platform?.toLowerCase() === "claude") {
+      await setupPlugin(packageRoot, rl);
+    } else {
+      // Always attempt to link skills for other platforms (standalone mode)
+      await setupSkills(skillsSrc, rl);
+    }
 
     console.log(
       "\n✅ Setup complete! Please reload your IDE for changes to take effect.",
@@ -126,6 +131,41 @@ async function processTarget(
     console.log(`✅ Updated ${filePath}`);
   } else {
     console.log(`⏭️ Skipped ${filePath}`);
+  }
+}
+
+async function setupPlugin(
+  packageRoot: string,
+  rl: readline.Interface,
+): Promise<void> {
+  const home = os.homedir();
+  const pluginDest = path.join(home, ".claude", "plugins", "synaphex");
+
+  console.log(`\n--- Plugin Installation ---`);
+  console.log(`Source: ${packageRoot}`);
+  console.log(`Destination: ${pluginDest}`);
+
+  const confirm = await rl.question(
+    `Register Synaphex as a Claude Code Plugin? [y/N] `,
+  );
+  if (confirm.toLowerCase() === "y") {
+    try {
+      await fs.mkdir(path.dirname(pluginDest), { recursive: true });
+      // Remove existing symlink or folder if present
+      await execSync(`rm -rf "${pluginDest}"`);
+      await fs.symlink(packageRoot, pluginDest, "dir");
+      console.log(`✅ Plugin registered successfully.`);
+
+      // Cleanup old skills link to avoid conflicts
+      const oldSkillsLink = path.join(home, ".claude", "skills", "synaphex");
+      await execSync(`rm -rf "${oldSkillsLink}"`);
+    } catch (err) {
+      console.warn(
+        `⚠️ Warning: Failed to register plugin: ${(err as Error).message}`,
+      );
+    }
+  } else {
+    console.log(`⏭️ Plugin registration skipped.`);
   }
 }
 

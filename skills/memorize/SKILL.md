@@ -1,9 +1,10 @@
 ---
 name: memorize
-description: Analyze a source directory and populate or update a synaphex project's memory files.
+description: Analyze a source path and return structured memory update instructions.
 argument-hint: <project-name> <source-path>
-allowed-tools: mcp__synaphex__memorize
+allowed-tools: ["mcp__synaphex__synaphex_memorize"]
 disable-model-invocation: true
+user-invocable: true
 ---
 
 Memorize a source directory into a synaphex project's memory.

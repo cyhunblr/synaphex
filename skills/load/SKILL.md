@@ -1,9 +1,10 @@
 ---
 name: load
-description: Load a synaphex project's memory and settings into the current session.
+description: Load a synaphex project and return its memory + settings digest.
 argument-hint: <project-name>
-allowed-tools: mcp__synaphex__load
+allowed-tools: ["mcp__synaphex__synaphex_load"]
 disable-model-invocation: true
+user-invocable: true
 ---
 
 Load a synaphex project into the current session.

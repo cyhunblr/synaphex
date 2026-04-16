@@ -31,10 +31,10 @@ npx -y synaphex
 
 ### IDE / VSCode Setup (Automated) [RECOMMENDED]
 
-Synaphex now provides an automated setup wizard to configure your IDE and enable slash commands instantly. Run the command for your preferred platform:
+Synaphex is now a full **Claude Code Plugin**. Run the automated setup to configure the plugin and the MCP server:
 
 ```bash
-# For Claude Code (CLI & Desktop)
+# For Claude Code (Plugin Mode)
 npx -y synaphex setup claude
 
 # For GitHub Copilot / VS Code
@@ -43,6 +43,9 @@ npx -y synaphex setup copilot
 # For Antigravity
 npx -y synaphex setup antigravity
 ```
+
+> [!NOTE]
+> In Plugin Mode (Claude Code), slash commands are namespaced. Use `/synaphex:create`, `/synaphex:task`, etc.
 
 ### Manual Setup (Slash Commands)
 

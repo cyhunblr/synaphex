@@ -1,8 +1,17 @@
 ---
 name: fix
-description: Run the synaphex pipeline in streamlined fix mode — quick fixes with optional review skip.
-argument-hint: <project> <fix description>
-allowed-tools: mcp__synaphex__task mcp__synaphex__examine mcp__synaphex__plan mcp__synaphex__implement mcp__synaphex__review
+description: Use the 6-agent pipeline to fix a bug or a lint error in a project.
+argument-hint: <project-name> "<bug-description>"
+allowed-tools:
+  [
+    "mcp__synaphex__synaphex_task_start",
+    "mcp__synaphex__synaphex_task_examine",
+    "mcp__synaphex__synaphex_task_plan",
+    "mcp__synaphex__synaphex_task_implement",
+    "mcp__synaphex__synaphex_task_review",
+    "mcp__synaphex__synaphex_write_memory",
+  ]
+user-invocable: true
 ---
 
 Run the synaphex pipeline in fix mode: streamlined for quick bug fixes and small changes.

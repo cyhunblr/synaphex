@@ -2,8 +2,9 @@
 name: create
 description: Create a new synaphex project with memory scaffold and default settings.
 argument-hint: <project-name>
-allowed-tools: mcp__synaphex__create
+allowed-tools: ["mcp__synaphex__create"]
 disable-model-invocation: true
+user-invocable: true
 ---
 
 Create a new synaphex project.

@@ -1,9 +1,10 @@
 ---
 name: remember
-description: Link one synaphex project's memory into another project's external memory.
+description: Link one project's memory into another project's external memory.
 argument-hint: <parent-project> <child-project>
-allowed-tools: mcp__synaphex__remember
+allowed-tools: ["mcp__synaphex__synaphex_remember"]
 disable-model-invocation: true
+user-invocable: true
 ---
 
 Link one project's memory into another.

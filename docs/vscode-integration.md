@@ -144,11 +144,13 @@ If you are using the **Claude Code** extension, Synaphex exports **MCP Prompts**
 
 ## 5. Troubleshooting: Restoring Slash Commands (`/`)
 
-If you are using the **VSCode Extension** or **Antigravity** and do not see the slash commands (like `/task` or `/create`) in your menu, follow these steps:
+If you are using the **VSCode Extension** or **Antigravity** and do not see the slash commands (like `/synaphex:task` or `/synaphex:create`) in your menu, follow these steps:
 
-### The Easy Way: Automated Setup [RECOMMENDED]
+### The Easy Way: Automated Plugin Setup [RECOMMENDED]
 
-Synaphex can automatically configure itself for your platform. Run the appropriate command in your terminal:
+Synaphex is now a full **Claude Code Plugin**. This is the standard way to ensure all slash commands are registered correctly in v4.6+.
+
+Run the appropriate command in your terminal:
 
 ```bash
 # For Claude Code
@@ -161,25 +163,8 @@ npx -y synaphex setup copilot
 npx -y synaphex setup antigravity
 ```
 
-### The Manual Way: Linking the Skills Folder
-
-If you prefer to link manually:
-
-1. **Create the target directory (if it doesn't exist):**
-
-   ```bash
-   mkdir -p ~/.claude/skills
-   ```
-
-2. **Link the skills folder:**
-   If you have the Synaphex repo cloned:
-
-   ```bash
-   ln -sf $(pwd)/skills ~/.claude/skills/synaphex
-   ```
-
-3. **Reload VSCode:**
-   Press `F1` or `Ctrl+Shift+P`, type **"Developer: Reload Window"**, and press Enter.
+> [!IMPORTANT]
+> In Plugin Mode, commands are namespaced with the plugin name. Instead of `/create`, you should type **`/synaphex:create`**. This prevents conflicts with other installed plugins.
 
 ### Cleaning Up Old Commands
 

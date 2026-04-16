@@ -1,8 +1,17 @@
 ---
 name: task
-description: Run the synaphex 6-agent pipeline to implement a task in a project.
-argument-hint: <project> <task description>
-allowed-tools: mcp__synaphex__task mcp__synaphex__examine mcp__synaphex__plan mcp__synaphex__implement mcp__synaphex__review
+description: Start and run a multi-agent development pipeline for a specific task.
+argument-hint: <project-name> "<task-description>"
+allowed-tools:
+  [
+    "mcp__synaphex__synaphex_task_start",
+    "mcp__synaphex__synaphex_task_examine",
+    "mcp__synaphex__synaphex_task_plan",
+    "mcp__synaphex__synaphex_task_implement",
+    "mcp__synaphex__synaphex_task_review",
+    "mcp__synaphex__synaphex_write_memory",
+  ]
+user-invocable: true
 ---
 
 Run the full synaphex agent pipeline: Examiner → Planner → Coder → Reviewer.
