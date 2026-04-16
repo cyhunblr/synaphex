@@ -142,22 +142,47 @@ If you are using the **Claude Code** extension, Synaphex exports **MCP Prompts**
 
 ---
 
-## 5. Troubleshooting: Cleaning Up Legacy Commands
+## 5. Troubleshooting: Restoring Slash Commands (`/`)
 
-If you still see old `/synaphex:*` commands in your autocomplete list after an update:
+If you are using the **VSCode Extension** or **Antigravity** and do not see the slash commands (like `/task` or `/create`) in your menu, follow these steps:
 
-1. **Clear Global Cache:**
+### Why is this happening?
+
+Currently, IDE extensions like Claude Code for VSCode do not natively support "MCP Prompts" in the `/` menu. They still require "Skill" metadata files to be placed in specific system folders.
+
+### The Fix: Linking the Skills Folder
+
+Run the following command in your terminal to link the Synaphex skills to your IDE's command directory:
+
+1. **Create the target directory (if it doesn't exist):**
 
    ```bash
-   rm -rf ~/.claude/skills
-   rm -rf ~/.npm/_npx
+   mkdir -p ~/.claude/skills
    ```
 
-2. **Uninstall Legacy Globals:**
+2. **Link the skills folder:**
+   If you have the Synaphex repo cloned:
 
    ```bash
-   npm uninstall -g synaphex
+   ln -s $(pwd)/skills ~/.claude/skills/synaphex
    ```
+
+   _Note: If you installed via npm global, you'll need to link from your global node_modules path._
 
 3. **Reload VSCode:**
-   Use the `Developer: Reload Window` command (`Ctrl+Shift+P`) to refresh all MCP tool registries.
+   Press `F1` or `Ctrl+Shift+P`, type **"Developer: Reload Window"**, and press Enter.
+
+### Cleaning Up Old Commands
+
+If you still see old `/synaphex:*` commands (with colons):
+
+```bash
+rm -rf ~/.claude/skills/synaphex:*
+rm -rf ~/.npm/_npx
+```
+
+Then reload the window again.
+
+---
+
+## 6. Model Switching in VSCode

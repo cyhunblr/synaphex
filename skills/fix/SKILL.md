@@ -2,7 +2,7 @@
 name: fix
 description: Run the synaphex pipeline in streamlined fix mode — quick fixes with optional review skip.
 argument-hint: <project> <fix description>
-allowed-tools: mcp__synaphex__task_start mcp__synaphex__task_examine mcp__synaphex__task_plan mcp__synaphex__task_implement mcp__synaphex__task_review
+allowed-tools: mcp__synaphex__task mcp__synaphex__examine mcp__synaphex__plan mcp__synaphex__implement mcp__synaphex__review
 ---
 
 Run the synaphex pipeline in fix mode: streamlined for quick bug fixes and small changes.

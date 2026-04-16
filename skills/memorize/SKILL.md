@@ -2,7 +2,7 @@
 name: memorize
 description: Analyze a source directory and populate or update a synaphex project's memory files.
 argument-hint: <project-name> <source-path>
-allowed-tools: mcp__synaphex__memorize mcp__synaphex__write_memory Read Glob Grep
+allowed-tools: mcp__synaphex__memorize
 disable-model-invocation: true
 ---
 
