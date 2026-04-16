@@ -45,22 +45,25 @@ Since Synaphex defaults to **Delegated Mode**, you get a seamless experience lev
 1. **Creating a Project**
    In your chat window, ask the agent:
 
-   > _"Run the synaphex_create tool to create a project named 'my_app'."_
+   > _"Run the create tool for a new synaphex project named 'my_app'."_
 
 2. **Building Context Memory**
    Initialize memory by analyzing your source code:
 
-   > _"Use synaphex_memorize to analyze the directory /path/to/my_app for the 'my_app' project."_
+   > _"Use the memorize tool to analyze the directory /path/to/my_app for the 'my_app' project."_
 
 3. **Starting a Task (Pipeline)**
    To use the multi-agent pipeline:
 
-   > _"Run synaphex_task_start on 'my_app' for the task 'Create a login API endpoint'."_
+   > _"Run the task tool on 'my_app' for the requirement 'Create a login API endpoint'."_
 
-   The IDE model will automatically receive the task instructions. From there, execute the pipeline step-by-step:
-   - Request `synaphex_task_examine`
-   - Request `synaphex_task_plan`
-   - Request `synaphex_task_implement`
-   - Request `synaphex_task_review`
+   The IDE model will automatically receive the task instructions. From there, execute the pipeline step-by-step using these tools:
+   - Request `examine`
+   - Request `plan`
+   - Request `implement`
+   - Request `review`
+
+> **IMPORTANT NOTE: Slash Commands**
+> Antigravity IDE and other MCP extensions generally do **NOT** display MCP tools as `/synaphex:XXX` slash commands (this is specific to the Claude Code CLI plugin). Instead, the tools are cleanly exported as `@mcp:synaphex:task`, `@mcp:synaphex:create`, etc., which you can select from the IDE autocomplete or simply trigger via natural language.
 
 Instead of Synaphex calling out to the Anthropic API internally, each step returns a prompt back to Antigravity's model, allowing the LLM _within_ the IDE (Gemini, Claude, GPT, etc.) to securely read, write, and execute the task!

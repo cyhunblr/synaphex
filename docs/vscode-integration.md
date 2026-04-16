@@ -30,6 +30,9 @@ Claude Code will automatically register all `/synaphex:XXX` endpoints. Once insi
 
 _Note: Make sure your system `node` on `PATH` is NodeJS 18+. If you are using `fnm` or `nvm`, invoke Claude Code wrapped with it, e.g., `eval "$(fnm env)" && claude ...`_
 
+> **IMPORTANT NOTE: Slash Commands vs MCP Tools**
+> The `/synaphex:XXX` slash command syntax is a custom feature of the **Claude Code CLI**. VSCode extensions like Copilot or Cline, and other standard MCP clients do **NOT** show tools as slash commands. In those IDEs, you must ask the AI to invoke the tool naturally (e.g. "Run the `create` tool", "Run the `task` tool"). And since the tool names are exported purely without the `synaphex_` prefix (e.g. `task`, `examine`, `implement`, `create`), they will appear cleanly as `@mcp:synaphex:task` inside your editor.
+
 ## 2. Setting Up `.mcp.json` / VSCode Extensions
 
 If you are using a VSCode extension (like Claude for VSCode, Cline, or Copilot MCP configurations), you can use the standard MCP configuration format to wire Synaphex up.

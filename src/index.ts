@@ -27,7 +27,7 @@ const server = new McpServer({
 // === Tool: synaphex_create ===
 
 server.registerTool(
-  "synaphex_create",
+  "create",
   {
     description:
       "Create a new synaphex project with memory scaffold and default settings",
@@ -60,7 +60,7 @@ server.registerTool(
 // === Tool: synaphex_load ===
 
 server.registerTool(
-  "synaphex_load",
+  "load",
   {
     description:
       "Load a synaphex project and return its memory + settings digest",
@@ -86,7 +86,7 @@ server.registerTool(
 // === Tool: synaphex_memorize ===
 
 server.registerTool(
-  "synaphex_memorize",
+  "memorize",
   {
     description:
       "Analyze a source path and return structured memory update instructions for a project",
@@ -116,7 +116,7 @@ server.registerTool(
 // === Tool: synaphex_remember ===
 
 server.registerTool(
-  "synaphex_remember",
+  "remember",
   {
     description:
       "Link one project's memory into another project's external memory",
@@ -151,7 +151,7 @@ server.registerTool(
 // === Tool: synaphex_write_memory ===
 
 server.registerTool(
-  "synaphex_write_memory",
+  "write_memory",
   {
     description:
       "Write content to a synaphex project's internal memory file. " +
@@ -185,7 +185,7 @@ server.registerTool(
 // === Tool: synaphex_settings ===
 
 server.registerTool(
-  "synaphex_settings",
+  "settings",
   {
     description:
       "Read a synaphex project's agent settings and return a formatted table " +
@@ -212,7 +212,7 @@ server.registerTool(
 // === Tool: synaphex_update_settings ===
 
 server.registerTool(
-  "synaphex_update_settings",
+  "update_settings",
   {
     description:
       "Update one or more agent configs in a synaphex project's settings.json. " +
@@ -277,7 +277,7 @@ server.registerTool(
 // === Tool: synaphex_task_start ===
 
 server.registerTool(
-  "synaphex_task_start",
+  "task",
   {
     description:
       "Initialize a new synaphex task pipeline. Creates task directory, returns memory digest and settings.",
@@ -306,7 +306,7 @@ server.registerTool(
 // === Tool: synaphex_task_examine ===
 
 server.registerTool(
-  "synaphex_task_examine",
+  "examine",
   {
     description:
       "Run the Examiner agent to analyze codebase and memory for a task. " +
@@ -343,7 +343,7 @@ server.registerTool(
 // === Tool: synaphex_task_plan ===
 
 server.registerTool(
-  "synaphex_task_plan",
+  "plan",
   {
     description:
       "Run the Planner agent to create an implementation plan from examiner output.",
@@ -400,7 +400,7 @@ server.registerTool(
 // === Tool: synaphex_task_implement ===
 
 server.registerTool(
-  "synaphex_task_implement",
+  "implement",
   {
     description:
       "Run the Coder agent to implement the plan. " +
@@ -458,7 +458,7 @@ server.registerTool(
 // === Tool: synaphex_task_review ===
 
 server.registerTool(
-  "synaphex_task_review",
+  "review",
   {
     description:
       "Run the Reviewer agent to check implementation quality. " +
