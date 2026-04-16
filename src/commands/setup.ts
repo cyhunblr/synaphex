@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import { execSync } from "child_process";
 import os from "os";
 import readline from "readline/promises";
+import { fileURLToPath } from "url";
 
 interface McpConfig {
   mcpServers?: Record<string, unknown>;
@@ -17,7 +18,9 @@ export async function handleSetup(platform?: string): Promise<void> {
   try {
     const npxPath = getNpxPath();
     const cwd = process.cwd();
-    const skillsSrc = path.join(cwd, "skills");
+    const scriptPath = fileURLToPath(import.meta.url);
+    const packageRoot = path.resolve(path.dirname(scriptPath), "..", "..");
+    const skillsSrc = path.join(packageRoot, "skills");
 
     console.log(`\n🚀 Synaphex Setup Assistant`);
     console.log(`--------------------------`);
