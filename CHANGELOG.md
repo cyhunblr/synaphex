@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/cyhunblr/synaphex/compare/v1.6.0...v1.6.1) (2026-04-16)
+
+
+### Bug Fixes
+
+* align documentation with plugin architecture and namespaced commands ([3d0485f](https://github.com/cyhunblr/synaphex/commit/3d0485ff196c417eb19d41056ed09659e08a31e2))
+
 # [1.6.0](https://github.com/cyhunblr/synaphex/compare/v1.5.1...v1.6.0) (2026-04-16)
 
 ### Features
