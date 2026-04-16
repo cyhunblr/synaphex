@@ -14,6 +14,16 @@ All project data lives globally at `~/.synaphex/<project>/`. Each project has a 
 | `/synaphex:remember <parent> <child>` | Symlink `<parent>`'s `memory/internal/` into `<child>`'s `memory/external/<parent>_memory`.           |
 | `/synaphex:settings <project>`        | **Phase 2** — placeholder. Edit `~/.synaphex/<project>/settings.json` directly for now.               |
 
+## Usage
+
+Synaphex is published as an npm package and can be run instantly as an MCP server via `npx` (requires Node 18+):
+
+```bash
+npx -y synaphex
+```
+
+For platform-specific instructions on how to use Synaphex with your editor, see the [IDE Integrations](#ide-integrations--documentation) section.
+
 ## Local development
 
 ```bash
