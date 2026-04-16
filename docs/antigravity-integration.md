@@ -6,25 +6,26 @@ Synaphex can be easily integrated into **Antigravity IDE** as an MCP server. Sin
 
 Synaphex can be run globally via `npx` (recommended for production) or built locally from source.
 
-### Option A: Using NPX (Recommended)
+### Option A: Using NPX (Requires Shell Wrapper in Antigravity)
 
-You can directly execute the published package without cloning the repository.
-In your `mcp_config.json`, simply configure npx to execute `synaphex`:
+Because Antigravity packages an ancient Node version (v10), directly setting `"command": "npx"` will cause a `node:path` error since the IDE forces its own Node.js into the execution path instead of your system's Node.
+
+To use the global `npx` command, you must trigger a login shell so that your modern Node version managers (`fnm` / `nvm`) take priority:
 
 ```json
 {
   "mcpServers": {
     "synaphex": {
-      "command": "npx",
-      "args": ["-y", "synaphex"]
+      "command": "bash",
+      "args": ["-ic", "npx -y synaphex"]
     }
   }
 }
 ```
 
-_(Note: Ensure your system's global `npx` is running on Node 18+)_
+_(Note: `-ic` ensures bash loads interactive configurations like your `fnm env` bindings)_
 
-### Option B: Local Development Build
+### Option B: Local Development Build (Safest Alternative)
 
 If you are developing Synaphex locally:
 
