@@ -2,15 +2,25 @@
 
 Synaphex can be easily integrated into **Antigravity IDE** as an MCP server. Since Synaphex uses its **Delegated Mode** by default, it perfectly pairs with Antigravity to utilize the IDE's built-in conversational models to execute the agent pipeline without needing any `ANTHROPIC_API_KEY`.
 
-## Installation & Configuration
+## 1. Installation & Configuration
 
-Synaphex can be run globally via `npx` (recommended for production) or built locally from source.
+### Option A: Automated Setup [RECOMMENDED]
 
-### Option A: Using NPX (Requires Shell Wrapper in Antigravity)
+Synaphex can automatically configure itself for Antigravity, including absolute path detection for Node/NVM. Run the following in your terminal:
 
-Because Antigravity packages an ancient Node version (v10), directly setting `"command": "npx"` will cause a `node:path` error since the IDE forces its own Node.js into the execution path instead of your system's Node.
+```bash
+npx -y synaphex setup antigravity
+```
 
-To use the global `npx` command, you must trigger a login shell so that your modern Node version managers (`fnm` / `nvm`) take priority:
+This will:
+
+1. Detect your modern Node.js path (avoiding Antigravity's internal v10 conflicts).
+2. Update **`~/.gemini/antigravity/mcp_config.json`** with the correct server entry.
+3. Automatically link the Synaphex skills to your home directory.
+
+### Option B: Manual Using NPX (Requires Shell Wrapper)
+
+If you prefer to configure manually, you must trigger a login shell so that your modern Node version managers take priority:
 
 ```json
 {
@@ -97,15 +107,15 @@ When moving from one agent to another (e.g., from **Coder** to **Reviewer**), Sy
 3. **Starting a Task (Pipeline)**
    To use the multi-agent pipeline:
 
-   > _"Run the 'task_start' tool on 'my_app' for the requirement 'Create a login API endpoint'."_
+   > _"Run the 'task' tool on 'my_app' for the requirement 'Create a login API endpoint'."_
 
    The IDE model will automatically receive the task instructions. From there, it will guide you through the pipeline step-by-step using these tool calls:
-   - `task_examine`
-   - `task_plan`
-   - `task_implement`
-   - `task_review`
+   - `examine`
+   - `plan`
+   - `implement`
+   - `review`
 
 > **Note: Tool Discovery**
-> Antigravity IDE and other MCP extensions generally do **NOT** display MCP tools as slash commands. Instead, the tools are cleanly exported as `task_start`, `create`, `memorize`, etc. They will appear in the IDE autocomplete (e.g., `@mcp:synaphex:task_start`) or can be triggered via natural language.
+> Antigravity IDE and other MCP extensions generally do **NOT** display MCP tools as slash commands. Instead, the tools are cleanly exported as `task`, `create`, `memorize`, etc. They will appear in the IDE autocomplete (e.g., `@mcp:synaphex:task`) or can be triggered via natural language.
 
 Instead of Synaphex calling out to the Anthropic API internally, each step returns a prompt back to Antigravity's model, allowing the LLM _within_ the IDE (Gemini, Claude, GPT, etc.) to securely read, write, and execute the task!

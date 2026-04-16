@@ -29,16 +29,34 @@ Synaphex is published as an npm package and can be run instantly as an MCP serve
 npx -y synaphex
 ```
 
-### IDE / VSCode Setup (Slash Commands)
+### IDE / VSCode Setup (Automated) [RECOMMENDED]
 
-If you are using the **Claude Code VSCode Extension** or **Antigravity**, you need to link the skills to enable slash commands (`/task`, `/create`, etc.):
+Synaphex now provides an automated setup wizard to configure your IDE and enable slash commands instantly. Run the command for your preferred platform:
 
 ```bash
-mkdir -p ~/.claude/skills
-ln -sf $(pwd)/skills ~/.claude/skills/synaphex
+# For Claude Code (CLI & Desktop)
+npx -y synaphex setup claude
+
+# For GitHub Copilot / VS Code
+npx -y synaphex setup copilot
+
+# For Antigravity
+npx -y synaphex setup antigravity
 ```
 
-_Then press `F1`, type **"Developer: Reload Window"**, and press Enter._
+### Manual Setup (Slash Commands)
+
+If you prefer manual configuration, follow these steps:
+
+1. **Link the skills folder:**
+
+   ```bash
+   mkdir -p ~/.claude/skills
+   ln -sf $(pwd)/skills ~/.claude/skills/synaphex
+   ```
+
+2. **Reload VSCode:**
+   _Press `F1`, type **"Developer: Reload Window"**, and press Enter._
 
 For platform-specific instructions on how to use Synaphex with your editor, see the [IDE Integrations](#ide-integrations--documentation) section.
 

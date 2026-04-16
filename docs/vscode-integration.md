@@ -146,13 +146,24 @@ If you are using the **Claude Code** extension, Synaphex exports **MCP Prompts**
 
 If you are using the **VSCode Extension** or **Antigravity** and do not see the slash commands (like `/task` or `/create`) in your menu, follow these steps:
 
-### Why is this happening?
+### The Easy Way: Automated Setup [RECOMMENDED]
 
-Currently, IDE extensions like Claude Code for VSCode do not natively support "MCP Prompts" in the `/` menu. They still require "Skill" metadata files to be placed in specific system folders.
+Synaphex can automatically configure itself for your platform. Run the appropriate command in your terminal:
 
-### The Fix: Linking the Skills Folder
+```bash
+# For Claude Code
+npx -y synaphex setup claude
 
-Run the following command in your terminal to link the Synaphex skills to your IDE's command directory:
+# For GitHub Copilot / VS Code
+npx -y synaphex setup copilot
+
+# For Antigravity
+npx -y synaphex setup antigravity
+```
+
+### The Manual Way: Linking the Skills Folder
+
+If you prefer to link manually:
 
 1. **Create the target directory (if it doesn't exist):**
 
@@ -164,10 +175,8 @@ Run the following command in your terminal to link the Synaphex skills to your I
    If you have the Synaphex repo cloned:
 
    ```bash
-   ln -s $(pwd)/skills ~/.claude/skills/synaphex
+   ln -sf $(pwd)/skills ~/.claude/skills/synaphex
    ```
-
-   _Note: If you installed via npm global, you'll need to link from your global node_modules path._
 
 3. **Reload VSCode:**
    Press `F1` or `Ctrl+Shift+P`, type **"Developer: Reload Window"**, and press Enter.

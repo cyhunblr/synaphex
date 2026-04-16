@@ -682,7 +682,16 @@ server.registerTool(
 
 // === Start server ===
 
+import { handleSetup } from "./commands/setup.js";
+
 async function main(): Promise<void> {
+  const arg = process.argv[2];
+  if (arg === "setup") {
+    const platform = process.argv[3];
+    await handleSetup(platform);
+    process.exit(0);
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("[synaphex] MCP server started on stdio");
