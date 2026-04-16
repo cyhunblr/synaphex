@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/cyhunblr/synaphex/compare/v1.5.1...v1.6.0) (2026-04-16)
+
+
+### Features
+
+* transition to Claude Code plugin with namespaced commands ([de6d8bf](https://github.com/cyhunblr/synaphex/commit/de6d8bfa83db1263850bef60b2cc478a0ed732d7))
+
 ## [1.5.1](https://github.com/cyhunblr/synaphex/compare/v1.5.0...v1.5.1) (2026-04-16)
 
 
