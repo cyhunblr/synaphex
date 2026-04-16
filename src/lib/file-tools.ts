@@ -24,8 +24,13 @@ export async function safePath(cwd: string, relative: string): Promise<string> {
 
   // Check it's within CWD (before realpath, to catch obvious escapes)
   const normalizedCwd = path.resolve(cwd);
-  if (!resolved.startsWith(normalizedCwd + path.sep) && resolved !== normalizedCwd) {
-    throw new Error(`Path '${relative}' resolves outside the working directory.`);
+  if (
+    !resolved.startsWith(normalizedCwd + path.sep) &&
+    resolved !== normalizedCwd
+  ) {
+    throw new Error(
+      `Path '${relative}' resolves outside the working directory.`,
+    );
   }
 
   // If the file exists, also check realpath (catches symlink escapes)
@@ -33,7 +38,9 @@ export async function safePath(cwd: string, relative: string): Promise<string> {
     const real = await fs.realpath(resolved);
     const realCwd = await fs.realpath(normalizedCwd);
     if (!real.startsWith(realCwd + path.sep) && real !== realCwd) {
-      throw new Error(`Path '${relative}' resolves outside the working directory (via symlink).`);
+      throw new Error(
+        `Path '${relative}' resolves outside the working directory (via symlink).`,
+      );
     }
   } catch (err) {
     // File doesn't exist yet — that's OK for write operations
@@ -45,8 +52,14 @@ export async function safePath(cwd: string, relative: string): Promise<string> {
     try {
       const realParent = await fs.realpath(parentDir);
       const realCwd = await fs.realpath(normalizedCwd);
-      if (!realParent.startsWith(realCwd + path.sep) && realParent !== realCwd) {
-        throw new Error(`Path '${relative}' parent resolves outside the working directory.`);
+      if (
+        !realParent.startsWith(realCwd + path.sep) &&
+        realParent !== realCwd
+      ) {
+        throw new Error(
+          `Path '${relative}' parent resolves outside the working directory.`,
+          { cause: err },
+        );
       }
     } catch {
       // Parent doesn't exist either — will be created by write_file
@@ -57,18 +70,28 @@ export async function safePath(cwd: string, relative: string): Promise<string> {
 }
 
 /** Read a file, capped at MAX_FILE_SIZE */
-export async function readFile(cwd: string, relativePath: string): Promise<string> {
+export async function readFile(
+  cwd: string,
+  relativePath: string,
+): Promise<string> {
   const abs = await safePath(cwd, relativePath);
   const stat = await fs.stat(abs);
   if (stat.size > MAX_FILE_SIZE) {
     const content = await fs.readFile(abs, "utf-8");
-    return content.slice(0, MAX_FILE_SIZE) + `\n\n[... truncated at ${MAX_FILE_SIZE} bytes]`;
+    return (
+      content.slice(0, MAX_FILE_SIZE) +
+      `\n\n[... truncated at ${MAX_FILE_SIZE} bytes]`
+    );
   }
   return await fs.readFile(abs, "utf-8");
 }
 
 /** Write a file, creating parent directories */
-export async function writeFile(cwd: string, relativePath: string, content: string): Promise<void> {
+export async function writeFile(
+  cwd: string,
+  relativePath: string,
+  content: string,
+): Promise<void> {
   const abs = await safePath(cwd, relativePath);
   await fs.mkdir(path.dirname(abs), { recursive: true });
   await fs.writeFile(abs, content, "utf-8");
@@ -85,25 +108,51 @@ export async function editFile(
   const content = await fs.readFile(abs, "utf-8");
   const idx = content.indexOf(oldText);
   if (idx === -1) {
-    throw new Error(`old_text not found in '${relativePath}'. Make sure it matches exactly.`);
+    throw new Error(
+      `old_text not found in '${relativePath}'. Make sure it matches exactly.`,
+    );
   }
-  const updated = content.slice(0, idx) + newText + content.slice(idx + oldText.length);
+  const updated =
+    content.slice(0, idx) + newText + content.slice(idx + oldText.length);
   await fs.writeFile(abs, updated, "utf-8");
 }
 
 /** List files matching a glob pattern using find */
-export async function listFiles(cwd: string, pattern: string): Promise<string[]> {
+export async function listFiles(
+  cwd: string,
+  pattern: string,
+): Promise<string[]> {
   try {
     // Use find for simple patterns, or rely on shell glob
-    const { stdout } = await execFileAsync("find", [
-      ".", "-type", "f", "-name", pattern || "*",
-      "-not", "-path", "./.git/*",
-      "-not", "-path", "./node_modules/*",
-      "-not", "-path", "./__pycache__/*",
-      "-not", "-path", "./dist/*",
-      "-not", "-path", "./.venv/*",
-      "-not", "-path", "./build/*",
-    ], { cwd, maxBuffer: 1024 * 1024 });
+    const { stdout } = await execFileAsync(
+      "find",
+      [
+        ".",
+        "-type",
+        "f",
+        "-name",
+        pattern || "*",
+        "-not",
+        "-path",
+        "./.git/*",
+        "-not",
+        "-path",
+        "./node_modules/*",
+        "-not",
+        "-path",
+        "./__pycache__/*",
+        "-not",
+        "-path",
+        "./dist/*",
+        "-not",
+        "-path",
+        "./.venv/*",
+        "-not",
+        "-path",
+        "./build/*",
+      ],
+      { cwd, maxBuffer: 1024 * 1024 },
+    );
 
     return stdout
       .split("\n")
@@ -130,8 +179,10 @@ export async function searchCode(
 
     const lines = stdout.split("\n").filter((l) => l.length > 0);
     if (lines.length > MAX_SEARCH_RESULTS) {
-      return lines.slice(0, MAX_SEARCH_RESULTS).join("\n") +
-        `\n\n[... ${lines.length - MAX_SEARCH_RESULTS} more results truncated]`;
+      return (
+        lines.slice(0, MAX_SEARCH_RESULTS).join("\n") +
+        `\n\n[... ${lines.length - MAX_SEARCH_RESULTS} more results truncated]`
+      );
     }
     return lines.join("\n") || "No matches found.";
   } catch {

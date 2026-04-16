@@ -11,6 +11,7 @@ Load a synaphex project into the current session.
 Call the `synaphex_load` MCP tool with the project name from `$ARGUMENTS`.
 
 The tool returns a markdown digest containing:
+
 - Project settings summary (agent configuration)
 - All internal memory files with status (empty or populated)
 - All external memory files (linked from other projects)

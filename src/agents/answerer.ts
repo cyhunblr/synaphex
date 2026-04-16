@@ -26,10 +26,7 @@ export function buildAnswererPrompt(
   memoryDigest: string,
   questionContext?: string,
 ): string {
-  const parts = [
-    `## Question from Coder`,
-    question,
-  ];
+  const parts = [`## Question from Coder`, question];
 
   if (questionContext) {
     parts.push("", `## Additional Context`, questionContext);
@@ -55,7 +52,9 @@ export function buildAnswererPrompt(
  */
 export function parseAnswererResponse(
   text: string,
-): { answer: string; escalation: null } | { answer: null; escalation: { question: string; context: string } } {
+):
+  | { answer: string; escalation: null }
+  | { answer: null; escalation: { question: string; context: string } } {
   const escalateMatch = text.match(/^ESCALATE:\s*(.+)/m);
   const contextMatch = text.match(/^CONTEXT:\s*(.+)/m);
 
@@ -64,7 +63,9 @@ export function parseAnswererResponse(
       answer: null,
       escalation: {
         question: escalateMatch[1].trim(),
-        context: contextMatch ? contextMatch[1].trim() : "No additional context provided.",
+        context: contextMatch
+          ? contextMatch[1].trim()
+          : "No additional context provided.",
       },
     };
   }

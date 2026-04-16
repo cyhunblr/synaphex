@@ -11,6 +11,7 @@ Create a new synaphex project.
 Call the `synaphex_create` MCP tool with the project name from `$ARGUMENTS`.
 
 The tool will:
+
 1. Create `~/.synaphex/<project>/` with `settings.json`, `meta.json`, and memory scaffold
 2. Pre-populate topic-based memory files (overview, architecture, interfaces, build, conventions, security, glossary)
 3. Create empty `memory/internal/packages/` and `memory/external/` directories

@@ -3,7 +3,7 @@
  * Tools: read_file, list_files, search_code, write_memory
  */
 
-import type { AgentToolDef, ToolCallHandler } from "../lib/pipeline-types.js";
+import type { AgentToolDef } from "../lib/pipeline-types.js";
 
 export const EXAMINER_SYSTEM_PROMPT = `You are the Examiner agent in the synaphex pipeline. Your job is to analyze the user's codebase and project memory to produce a thorough understanding of the context needed for a given task.
 
@@ -44,7 +44,8 @@ The compact section is what gets passed to the Planner and Coder agents, so make
 export const EXAMINER_TOOLS: AgentToolDef[] = [
   {
     name: "read_file",
-    description: "Read the contents of a file. Path is relative to the working directory.",
+    description:
+      "Read the contents of a file. Path is relative to the working directory.",
     input_schema: {
       type: "object",
       properties: {
@@ -55,13 +56,15 @@ export const EXAMINER_TOOLS: AgentToolDef[] = [
   },
   {
     name: "list_files",
-    description: "List files matching a glob pattern in the working directory. Returns up to 200 results.",
+    description:
+      "List files matching a glob pattern in the working directory. Returns up to 200 results.",
     input_schema: {
       type: "object",
       properties: {
         pattern: {
           type: "string",
-          description: "Glob pattern (e.g. '**/*.ts', 'src/**/*.py'). Defaults to '**/*' if empty.",
+          description:
+            "Glob pattern (e.g. '**/*.ts', 'src/**/*.py'). Defaults to '**/*' if empty.",
         },
       },
       required: ["pattern"],
@@ -69,27 +72,36 @@ export const EXAMINER_TOOLS: AgentToolDef[] = [
   },
   {
     name: "search_code",
-    description: "Search for a regex pattern in files. Returns up to 50 matching lines with file paths and line numbers.",
+    description:
+      "Search for a regex pattern in files. Returns up to 50 matching lines with file paths and line numbers.",
     input_schema: {
       type: "object",
       properties: {
         pattern: { type: "string", description: "Regex pattern to search for" },
-        glob: { type: "string", description: "Optional glob to filter files (e.g. '*.ts')" },
+        glob: {
+          type: "string",
+          description: "Optional glob to filter files (e.g. '*.ts')",
+        },
       },
       required: ["pattern"],
     },
   },
   {
     name: "write_memory",
-    description: "Update a project memory file. Use when you find outdated information in the memory digest.",
+    description:
+      "Update a project memory file. Use when you find outdated information in the memory digest.",
     input_schema: {
       type: "object",
       properties: {
         filename: {
           type: "string",
-          description: "Relative filename within memory/internal/ (e.g. 'overview.md')",
+          description:
+            "Relative filename within memory/internal/ (e.g. 'overview.md')",
         },
-        content: { type: "string", description: "Full markdown content to write" },
+        content: {
+          type: "string",
+          description: "Full markdown content to write",
+        },
       },
       required: ["filename", "content"],
     },

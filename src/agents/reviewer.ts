@@ -44,7 +44,8 @@ VERDICT: NEEDS_CHANGES
 export const REVIEWER_TOOLS: AgentToolDef[] = [
   {
     name: "read_file",
-    description: "Read the contents of a file. Path is relative to the working directory.",
+    description:
+      "Read the contents of a file. Path is relative to the working directory.",
     input_schema: {
       type: "object",
       properties: {
@@ -55,18 +56,23 @@ export const REVIEWER_TOOLS: AgentToolDef[] = [
   },
   {
     name: "list_files",
-    description: "List files matching a glob pattern. Returns up to 200 results.",
+    description:
+      "List files matching a glob pattern. Returns up to 200 results.",
     input_schema: {
       type: "object",
       properties: {
-        pattern: { type: "string", description: "Glob pattern (e.g. '**/*.ts')" },
+        pattern: {
+          type: "string",
+          description: "Glob pattern (e.g. '**/*.ts')",
+        },
       },
       required: ["pattern"],
     },
   },
   {
     name: "search_code",
-    description: "Search for a regex pattern in files. Returns up to 50 matching lines.",
+    description:
+      "Search for a regex pattern in files. Returns up to 50 matching lines.",
     input_schema: {
       type: "object",
       properties: {
@@ -113,9 +119,11 @@ export function buildReviewerPrompt(
 /**
  * Parse a Reviewer response to extract the verdict and feedback.
  */
-export function parseReviewerResponse(
-  text: string,
-): { verdict: "approved" | "needs_changes"; reviewText: string; feedbackForPlanner: string } {
+export function parseReviewerResponse(text: string): {
+  verdict: "approved" | "needs_changes";
+  reviewText: string;
+  feedbackForPlanner: string;
+} {
   const verdictMatch = text.match(/VERDICT:\s*(APPROVED|NEEDS_CHANGES)/i);
 
   if (!verdictMatch) {
@@ -123,14 +131,18 @@ export function parseReviewerResponse(
     return {
       verdict: "needs_changes",
       reviewText: text,
-      feedbackForPlanner: "Reviewer did not provide a clear verdict. Please review the output and address any concerns.",
+      feedbackForPlanner:
+        "Reviewer did not provide a clear verdict. Please review the output and address any concerns.",
     };
   }
 
-  const verdict = verdictMatch[1].toUpperCase() === "APPROVED" ? "approved" : "needs_changes";
+  const verdict =
+    verdictMatch[1].toUpperCase() === "APPROVED" ? "approved" : "needs_changes";
 
   // Extract feedback for planner (everything after "Feedback for Planner:")
-  const feedbackMatch = text.match(/\*\*Feedback for Planner:\*\*\s*([\s\S]*?)(?:\n#{2,}|\n*$)/i);
+  const feedbackMatch = text.match(
+    /\*\*Feedback for Planner:\*\*\s*([\s\S]*?)(?:\n#{2,}|\n*$)/i,
+  );
   const feedbackForPlanner = feedbackMatch
     ? feedbackMatch[1].trim()
     : verdict === "needs_changes"

@@ -13,11 +13,25 @@ import {
   settingsPath,
 } from "../lib/project-store.js";
 import { runAgent } from "../lib/agent-runtime.js";
-import { readFile, writeFile, editFile, listFiles, searchCode } from "../lib/file-tools.js";
-import { CODER_SYSTEM_PROMPT, CODER_TOOLS, buildCoderPrompt } from "../agents/coder.js";
-import { ANSWERER_SYSTEM_PROMPT, buildAnswererPrompt, parseAnswererResponse } from "../agents/answerer.js";
+import {
+  readFile,
+  writeFile,
+  editFile,
+  listFiles,
+  searchCode,
+} from "../lib/file-tools.js";
+import {
+  CODER_SYSTEM_PROMPT,
+  CODER_TOOLS,
+  buildCoderPrompt,
+} from "../agents/coder.js";
+import {
+  ANSWERER_SYSTEM_PROMPT,
+  buildAnswererPrompt,
+  parseAnswererResponse,
+} from "../agents/answerer.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
-import type { TaskMeta, TokenUsage } from "../lib/pipeline-types.js";
+import type { TaskMeta } from "../lib/pipeline-types.js";
 import { addUsage, emptyUsage } from "../lib/pipeline-types.js";
 
 export async function handleTaskImplement(
@@ -52,7 +66,10 @@ export async function handleTaskImplement(
   const filesCreated: Set<string> = new Set();
   const filesModified: Set<string> = new Set();
   let answererUsage = emptyUsage();
-  let escalation: { question: string; context: string } | null = null as { question: string; context: string } | null;
+  let escalation: { question: string; context: string } | null = null as {
+    question: string;
+    context: string;
+  } | null;
 
   // Tool call handler
   const onToolCall = async (name: string, input: Record<string, unknown>) => {
@@ -76,7 +93,12 @@ export async function handleTaskImplement(
         }
         case "edit_file": {
           const filePath = input.path as string;
-          await editFile(cwd, filePath, input.old_text as string, input.new_text as string);
+          await editFile(
+            cwd,
+            filePath,
+            input.old_text as string,
+            input.new_text as string,
+          );
           filesModified.add(filePath);
           return { content: `File edited: ${filePath}` };
         }
@@ -85,7 +107,11 @@ export async function handleTaskImplement(
           return { content: files.join("\n") || "No files found." };
         }
         case "search_code": {
-          const result = await searchCode(cwd, input.pattern as string, input.glob as string | undefined);
+          const result = await searchCode(
+            cwd,
+            input.pattern as string,
+            input.glob as string | undefined,
+          );
           return { content: result };
         }
         case "ask_answerer": {
@@ -93,7 +119,12 @@ export async function handleTaskImplement(
           const question = input.question as string;
           const ctx = input.context as string | undefined;
 
-          const answererMessage = buildAnswererPrompt(question, task, memoryDigest, ctx);
+          const answererMessage = buildAnswererPrompt(
+            question,
+            task,
+            memoryDigest,
+            ctx,
+          );
           const answererResult = await runAgent({
             config: answererConfig,
             systemPrompt: ANSWERER_SYSTEM_PROMPT,
@@ -121,7 +152,13 @@ export async function handleTaskImplement(
   };
 
   // Build user message
-  const userMessage = buildCoderPrompt(task, plan, examinerCompact, memoryDigest, cwd);
+  const userMessage = buildCoderPrompt(
+    task,
+    plan,
+    examinerCompact,
+    memoryDigest,
+    cwd,
+  );
 
   // Run the Coder
   const result = await runAgent({
@@ -140,10 +177,14 @@ export async function handleTaskImplement(
     `# Implementation Log v${iter}`,
     "",
     `## Files Created`,
-    ...(filesCreated.size > 0 ? [...filesCreated].map((f) => `- ${f}`) : ["(none)"]),
+    ...(filesCreated.size > 0
+      ? [...filesCreated].map((f) => `- ${f}`)
+      : ["(none)"]),
     "",
     `## Files Modified`,
-    ...(filesModified.size > 0 ? [...filesModified].map((f) => `- ${f}`) : ["(none)"]),
+    ...(filesModified.size > 0
+      ? [...filesModified].map((f) => `- ${f}`)
+      : ["(none)"]),
     "",
     `## Coder Output`,
     result.textOutput,

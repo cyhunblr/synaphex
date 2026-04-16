@@ -12,7 +12,12 @@ import {
 } from "../lib/project-store.js";
 import { runAgent } from "../lib/agent-runtime.js";
 import { readFile, listFiles, searchCode } from "../lib/file-tools.js";
-import { REVIEWER_SYSTEM_PROMPT, REVIEWER_TOOLS, buildReviewerPrompt, parseReviewerResponse } from "../agents/reviewer.js";
+import {
+  REVIEWER_SYSTEM_PROMPT,
+  REVIEWER_TOOLS,
+  buildReviewerPrompt,
+  parseReviewerResponse,
+} from "../agents/reviewer.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
 
@@ -56,7 +61,11 @@ export async function handleTaskReview(
           return { content: files.join("\n") || "No files found." };
         }
         case "search_code": {
-          const result = await searchCode(cwd, input.pattern as string, input.glob as string | undefined);
+          const result = await searchCode(
+            cwd,
+            input.pattern as string,
+            input.glob as string | undefined,
+          );
           return { content: result };
         }
         default:
@@ -68,7 +77,13 @@ export async function handleTaskReview(
   };
 
   // Build user message
-  const userMessage = buildReviewerPrompt(task, plan, implementationSummary, examinerCompact, cwd);
+  const userMessage = buildReviewerPrompt(
+    task,
+    plan,
+    implementationSummary,
+    examinerCompact,
+    cwd,
+  );
 
   // Run the Reviewer
   const result = await runAgent({
@@ -84,7 +99,11 @@ export async function handleTaskReview(
   const parsed = parseReviewerResponse(result.textOutput);
 
   // Save review
-  await fs.writeFile(`${taskDir}/review-v${iter}.md`, result.textOutput, "utf-8");
+  await fs.writeFile(
+    `${taskDir}/review-v${iter}.md`,
+    result.textOutput,
+    "utf-8",
+  );
 
   // If done, update task status
   if (parsed.verdict === "approved") {

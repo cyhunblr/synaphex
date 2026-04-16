@@ -6,13 +6,13 @@ All project data lives globally at `~/.synaphex/<project>/`. Each project has a 
 
 ## Phase 1 commands
 
-| Command | Description |
-| --- | --- |
-| `/synaphex:create <project>` | Create a new project with memory scaffold and default settings. Errors if the project already exists. |
-| `/synaphex:load <project>` | Load a project's settings + memory digest into the session. |
-| `/synaphex:memorize <project> <path>` | Analyze a source directory and populate / update the project's topic-based memory files. |
-| `/synaphex:remember <parent> <child>` | Symlink `<parent>`'s `memory/internal/` into `<child>`'s `memory/external/<parent>_memory`. |
-| `/synaphex:settings <project>` | **Phase 2** — placeholder. Edit `~/.synaphex/<project>/settings.json` directly for now. |
+| Command                               | Description                                                                                           |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `/synaphex:create <project>`          | Create a new project with memory scaffold and default settings. Errors if the project already exists. |
+| `/synaphex:load <project>`            | Load a project's settings + memory digest into the session.                                           |
+| `/synaphex:memorize <project> <path>` | Analyze a source directory and populate / update the project's topic-based memory files.              |
+| `/synaphex:remember <parent> <child>` | Symlink `<parent>`'s `memory/internal/` into `<child>`'s `memory/external/<parent>_memory`.           |
+| `/synaphex:settings <project>`        | **Phase 2** — placeholder. Edit `~/.synaphex/<project>/settings.json` directly for now.               |
 
 ## Local development
 

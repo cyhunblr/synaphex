@@ -10,6 +10,7 @@ Run the synaphex pipeline in fix mode: streamlined for quick bug fixes and small
 ## Step 1: Parse arguments
 
 Split `$ARGUMENTS` into:
+
 - **project**: first token
 - **task**: everything after the first token
 
@@ -28,7 +29,9 @@ Tell the user: "Fix **{slug}** initialized for project **{project}**."
 ## Step 3: Ask about review mode
 
 Ask the user:
+
 > Review mode?
+>
 > - **agent** — Automatic code review
 > - **user** — You review the changes
 > - **skip** — No review (fastest)
@@ -46,6 +49,7 @@ Extract `examiner_compact`. Briefly summarize findings (1-2 sentences).
 Call `synaphex_task_plan` with `project`, `slug`, `task`, `cwd`, `examiner_compact`.
 
 Extract `plan`. Present it to the user:
+
 > **Fix plan:**
 > {plan summary}
 >
@@ -70,6 +74,7 @@ Otherwise, handle the same as the task skill's Step 7. Review iterations capped 
 ## Step 8: Done
 
 Report:
+
 - Fix description
 - Files changed
 - Iterations (if any)

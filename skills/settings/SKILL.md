@@ -17,6 +17,7 @@ Present the returned table to the user exactly as received. It shows all six age
 ## Step 2: Ask what to change
 
 Ask the user which agent(s) they want to configure. Accept any of these interaction styles:
+
 - A specific agent name: "change planner"
 - Multiple agents: "set examiner and coder to opus"
 - All agents: "set all agents to sonnet"
@@ -37,10 +38,12 @@ If the user's request would create an invalid combination (e.g., enabling thinki
 ## Step 4: Apply changes
 
 Call the `synaphex_update_settings` MCP tool with:
+
 - `project`: the project name
 - `updates`: an object mapping each agent name to the fields being changed
 
 Example call for changing planner to sonnet with thinking off:
+
 ```json
 {
   "project": "my-project",
@@ -55,6 +58,7 @@ Example call for changing planner to sonnet with thinking off:
 ```
 
 When resolving shorthand model names, always pass the full canonical ID to the tool:
+
 - "opus" or "opus 4.6" -> `claude-opus-4-6`
 - "sonnet" or "sonnet 4.6" -> `claude-sonnet-4-6`
 - "haiku" or "haiku 4.5" -> `claude-haiku-4-5`

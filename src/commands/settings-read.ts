@@ -7,11 +7,15 @@ import {
   type SynaphexSettings,
   type AgentName,
   MODEL_CAPABILITIES,
-  EFFORT_BUDGET_TOKENS,
 } from "../lib/settings-schema.js";
 
 const AGENT_ORDER: AgentName[] = [
-  "examiner", "researcher", "planner", "coder", "answerer", "reviewer",
+  "examiner",
+  "researcher",
+  "planner",
+  "coder",
+  "answerer",
+  "reviewer",
 ];
 
 function capabilitiesLabel(model: string): string {

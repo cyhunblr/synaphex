@@ -8,7 +8,10 @@ import {
   validateProjectName,
 } from "../lib/project-store.js";
 
-export async function handleRemember(parentProject: string, childProject: string): Promise<string> {
+export async function handleRemember(
+  parentProject: string,
+  childProject: string,
+): Promise<string> {
   const parentValidation = validateProjectName(parentProject);
   if (!parentValidation.valid) {
     throw new Error(`Invalid parent project name: ${parentValidation.error}`);
@@ -67,7 +70,7 @@ export async function handleRemember(parentProject: string, childProject: string
   let usedCopy = false;
   try {
     await fs.symlink(sourceDir, destPath, "dir");
-  } catch (err: unknown) {
+  } catch {
     // Fallback to recursive copy
     usedCopy = true;
     await copyDir(sourceDir, destPath);

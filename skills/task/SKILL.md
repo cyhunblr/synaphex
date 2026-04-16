@@ -10,6 +10,7 @@ Run the full synaphex agent pipeline: Examiner → Planner → Coder → Reviewe
 ## Step 1: Parse arguments
 
 Split `$ARGUMENTS` into:
+
 - **project**: first token
 - **task**: everything after the first token
 
@@ -22,6 +23,7 @@ Get the current working directory using `pwd` in the terminal — this is the CW
 Call `synaphex_task_start` with `project`, `task`, `cwd`, and `mode: "task"`.
 
 Extract from the response:
+
 - `slug` (from `<task_meta>`)
 - `memory_digest` (from `<memory_digest>`)
 - Brief settings summary
@@ -31,7 +33,9 @@ Tell the user: "Task **{slug}** initialized for project **{project}**."
 ## Step 3: Ask about review mode
 
 Ask the user:
+
 > How should code review be handled?
+>
 > - **agent** — Reviewer agent checks the code automatically
 > - **user** — You review the code yourself after implementation
 > - **ask** — Reviewer agent reviews, then asks you to confirm
@@ -53,7 +57,9 @@ Call `synaphex_task_plan` with `project`, `slug`, `task`, `cwd`, `examiner_compa
 Extract `plan` from the `<plan>` tag in the response.
 
 Present the plan to the user and ask:
+
 > Do you want to:
+>
 > - **approve** — Proceed with implementation
 > - **modify** — Give feedback to adjust the plan
 > - **reject** — Cancel the task
@@ -67,6 +73,7 @@ If **reject**: tell the user the task is cancelled and stop.
 Call `synaphex_task_implement` with `project`, `slug`, `task`, `cwd`, `plan`, `examiner_compact`, `memory_digest`, and `iteration`.
 
 Check the response for:
+
 - `<escalation>` tag — if present, show the user the question and context. Get their answer, then call `synaphex_task_implement` again with the user's answer appended to the plan.
 - `<implementation_summary>` tag — extract the summary.
 
@@ -76,22 +83,27 @@ Report to the user: files created/modified and a brief summary of what was done.
 
 Based on the review mode chosen in Step 3:
 
-### If "agent" or "ask":
+### If "agent" or "ask"
+
 Call `synaphex_task_review` with `project`, `slug`, `task`, `cwd`, `plan`, `implementation_summary`, `examiner_compact`, and `iteration`.
 
 Check the `<review>` tag for the verdict:
+
 - **APPROVED**: Tell the user the review passed. If mode is "ask", show the review and ask the user to confirm.
 - **NEEDS_CHANGES**: Extract `<feedback_for_planner>`. If iteration < 3, tell the user and loop back to Step 5 with the feedback. If iteration >= 3, present all feedback to the user and stop.
 
-### If "user":
+### If "user"
+
 Present the implementation summary and list of changed files. Ask the user to review. If they approve, mark done. If they want changes, collect feedback and loop back to Step 5.
 
-### If "skip" (fix mode only):
+### If "skip" (fix mode only)
+
 Skip review entirely.
 
 ## Step 8: Done
 
 Report final summary:
+
 - Task description
 - Files created/modified
 - Number of iterations

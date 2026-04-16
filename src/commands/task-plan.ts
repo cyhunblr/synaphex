@@ -11,7 +11,10 @@ import {
   settingsPath,
 } from "../lib/project-store.js";
 import { runAgent } from "../lib/agent-runtime.js";
-import { PLANNER_SYSTEM_PROMPT, buildPlannerPrompt } from "../agents/planner.js";
+import {
+  PLANNER_SYSTEM_PROMPT,
+  buildPlannerPrompt,
+} from "../agents/planner.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
 
@@ -42,7 +45,12 @@ export async function handleTaskPlan(
   const iter = iteration ?? 1;
 
   // Build user message
-  const userMessage = buildPlannerPrompt(task, examinerCompact, reviewerFeedback, iter);
+  const userMessage = buildPlannerPrompt(
+    task,
+    examinerCompact,
+    reviewerFeedback,
+    iter,
+  );
 
   // Run the Planner (no tools)
   const result = await runAgent({

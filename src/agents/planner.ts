@@ -50,13 +50,7 @@ export function buildPlannerPrompt(
   reviewerFeedback?: string,
   iteration?: number,
 ): string {
-  const parts = [
-    `## Task`,
-    task,
-    "",
-    `## Examiner Analysis`,
-    examinerCompact,
-  ];
+  const parts = [`## Task`, task, "", `## Examiner Analysis`, examinerCompact];
 
   if (reviewerFeedback && iteration && iteration > 1) {
     parts.push(

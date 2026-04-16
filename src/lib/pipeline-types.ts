@@ -15,7 +15,14 @@ export interface TaskMeta {
   createdAt: string;
   reviewMode?: "agent" | "user" | "ask" | "skip";
   iteration: number;
-  status: "created" | "examining" | "planning" | "implementing" | "reviewing" | "done" | "cancelled";
+  status:
+    | "created"
+    | "examining"
+    | "planning"
+    | "implementing"
+    | "reviewing"
+    | "done"
+    | "cancelled";
 }
 
 // === Token accounting ===
@@ -48,8 +55,18 @@ export interface AgentMessage {
 export type AgentContentBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
-  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
+  | {
+      type: "tool_use";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+    }
+  | {
+      type: "tool_result";
+      tool_use_id: string;
+      content: string;
+      is_error?: boolean;
+    };
 
 export interface AgentToolDef {
   name: string;

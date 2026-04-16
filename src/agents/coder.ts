@@ -44,7 +44,8 @@ If an escalation occurred:
 export const CODER_TOOLS: AgentToolDef[] = [
   {
     name: "read_file",
-    description: "Read the contents of a file. Path is relative to the working directory.",
+    description:
+      "Read the contents of a file. Path is relative to the working directory.",
     input_schema: {
       type: "object",
       properties: {
@@ -55,7 +56,8 @@ export const CODER_TOOLS: AgentToolDef[] = [
   },
   {
     name: "write_file",
-    description: "Create or overwrite a file. Creates parent directories automatically. Path is relative to the working directory.",
+    description:
+      "Create or overwrite a file. Creates parent directories automatically. Path is relative to the working directory.",
     input_schema: {
       type: "object",
       properties: {
@@ -67,12 +69,16 @@ export const CODER_TOOLS: AgentToolDef[] = [
   },
   {
     name: "edit_file",
-    description: "Replace a specific text snippet in a file. The old_text must match exactly (including whitespace).",
+    description:
+      "Replace a specific text snippet in a file. The old_text must match exactly (including whitespace).",
     input_schema: {
       type: "object",
       properties: {
         path: { type: "string", description: "Relative path to the file" },
-        old_text: { type: "string", description: "Exact text to find and replace" },
+        old_text: {
+          type: "string",
+          description: "Exact text to find and replace",
+        },
         new_text: { type: "string", description: "Replacement text" },
       },
       required: ["path", "old_text", "new_text"],
@@ -80,18 +86,23 @@ export const CODER_TOOLS: AgentToolDef[] = [
   },
   {
     name: "list_files",
-    description: "List files matching a glob pattern. Returns up to 200 results.",
+    description:
+      "List files matching a glob pattern. Returns up to 200 results.",
     input_schema: {
       type: "object",
       properties: {
-        pattern: { type: "string", description: "Glob pattern (e.g. '**/*.ts')" },
+        pattern: {
+          type: "string",
+          description: "Glob pattern (e.g. '**/*.ts')",
+        },
       },
       required: ["pattern"],
     },
   },
   {
     name: "search_code",
-    description: "Search for a regex pattern in files. Returns up to 50 matching lines.",
+    description:
+      "Search for a regex pattern in files. Returns up to 50 matching lines.",
     input_schema: {
       type: "object",
       properties: {
@@ -103,12 +114,16 @@ export const CODER_TOOLS: AgentToolDef[] = [
   },
   {
     name: "ask_answerer",
-    description: "Ask the Answerer agent a question about the project. Use when you need clarification about requirements, conventions, or architecture. If the Answerer can't answer, it will escalate to the user.",
+    description:
+      "Ask the Answerer agent a question about the project. Use when you need clarification about requirements, conventions, or architecture. If the Answerer can't answer, it will escalate to the user.",
     input_schema: {
       type: "object",
       properties: {
         question: { type: "string", description: "Your question" },
-        context: { type: "string", description: "Optional context about what you're trying to do" },
+        context: {
+          type: "string",
+          description: "Optional context about what you're trying to do",
+        },
       },
       required: ["question"],
     },

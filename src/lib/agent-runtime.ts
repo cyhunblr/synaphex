@@ -5,7 +5,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { AgentConfig } from "./settings-schema.js";
-import { EFFORT_BUDGET_TOKENS, MODEL_CAPABILITIES } from "./settings-schema.js";
+import { EFFORT_BUDGET_TOKENS } from "./settings-schema.js";
 import type {
   AgentRunOptions,
   AgentRunResult,
@@ -43,9 +43,7 @@ function buildThinkingParam(
 }
 
 /** Map our tool defs to Anthropic's format */
-function toAnthropicTools(
-  tools: AgentToolDef[],
-): Anthropic.Tool[] {
+function toAnthropicTools(tools: AgentToolDef[]): Anthropic.Tool[] {
   return tools.map((t) => ({
     name: t.name,
     description: t.description,
@@ -75,16 +73,11 @@ function sleep(ms: number): Promise<void> {
  */
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const client = getClient();
-  const {
-    config,
-    systemPrompt,
-    tools,
-    onToolCall,
-    maxToolRounds = 25,
-  } = opts;
+  const { config, systemPrompt, tools, onToolCall, maxToolRounds = 25 } = opts;
 
   const thinking = buildThinkingParam(config);
-  const anthropicTools = tools && tools.length > 0 ? toAnthropicTools(tools) : undefined;
+  const anthropicTools =
+    tools && tools.length > 0 ? toAnthropicTools(tools) : undefined;
 
   // Build initial messages in Anthropic format
   const messages: Anthropic.MessageParam[] = opts.messages.map((m) => {

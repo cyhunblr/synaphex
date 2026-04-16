@@ -5,9 +5,9 @@
 export function generateTaskSlug(sentence: string): string {
   let slug = sentence
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")   // non-alphanumeric → hyphens
-    .replace(/-{2,}/g, "-")         // collapse runs
-    .replace(/^-|-$/g, "");         // trim leading/trailing
+    .replace(/[^a-z0-9]+/g, "-") // non-alphanumeric → hyphens
+    .replace(/-{2,}/g, "-") // collapse runs
+    .replace(/^-|-$/g, ""); // trim leading/trailing
 
   if (slug.length === 0) {
     return `task-${Date.now()}`;

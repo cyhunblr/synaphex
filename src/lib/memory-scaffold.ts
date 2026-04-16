@@ -79,6 +79,9 @@ export const TOPIC_FILES: ScaffoldFile[] = [
  * Used by `memorize` to decide initial vs update run, and by `load` to mark
  * files as "(empty)".
  */
-export function isScaffoldOnly(content: string, scaffoldContents: string): boolean {
+export function isScaffoldOnly(
+  content: string,
+  scaffoldContents: string,
+): boolean {
   return content.trim() === scaffoldContents.trim();
 }

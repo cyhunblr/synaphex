@@ -56,10 +56,16 @@ export async function handleCreate(project: string): Promise<string> {
 
   // Write topic-based memory scaffold
   for (const file of TOPIC_FILES) {
-    await fs.writeFile(path.join(internal, file.relPath), file.contents, "utf-8");
+    await fs.writeFile(
+      path.join(internal, file.relPath),
+      file.contents,
+      "utf-8",
+    );
   }
 
-  const topicList = TOPIC_FILES.map((f) => `  - memory/internal/${f.relPath}`).join("\n");
+  const topicList = TOPIC_FILES.map(
+    (f) => `  - memory/internal/${f.relPath}`,
+  ).join("\n");
   return [
     `Created synaphex project '${project}' at ${root}`,
     "",

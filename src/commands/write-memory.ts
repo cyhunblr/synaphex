@@ -18,7 +18,9 @@ export async function handleWriteMemory(
   // Sanitize filename: no path traversal
   const normalized = path.normalize(filename);
   if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
-    throw new Error(`Invalid filename: ${filename}. Must be a relative path within memory/internal/.`);
+    throw new Error(
+      `Invalid filename: ${filename}. Must be a relative path within memory/internal/.`,
+    );
   }
 
   const internalDir = internalMemoryDir(project);

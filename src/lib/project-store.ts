@@ -58,7 +58,10 @@ export async function projectExists(project: string): Promise<boolean> {
 export async function listProjects(): Promise<string[]> {
   try {
     const entries = await fs.readdir(SYNAPHEX_HOME, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    return entries
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
   } catch {
     return [];
   }
@@ -69,7 +72,10 @@ export async function readJsonFile<T>(filePath: string): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
-export async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
+export async function writeJsonFile(
+  filePath: string,
+  data: unknown,
+): Promise<void> {
   await fs.writeFile(filePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 
@@ -77,12 +83,18 @@ export async function writeJsonFile(filePath: string, data: unknown): Promise<vo
 
 const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
-export function validateProjectName(name: string): { valid: boolean; error?: string } {
+export function validateProjectName(name: string): {
+  valid: boolean;
+  error?: string;
+} {
   if (typeof name !== "string" || name.length === 0) {
     return { valid: false, error: "Project name is required." };
   }
   if (name.length > 64) {
-    return { valid: false, error: "Project name must be at most 64 characters." };
+    return {
+      valid: false,
+      error: "Project name must be at most 64 characters.",
+    };
   }
   if (!NAME_RE.test(name)) {
     return {

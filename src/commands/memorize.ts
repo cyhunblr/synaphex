@@ -28,15 +28,22 @@ interface FileEntry {
  */
 async function listSourceFiles(sourcePath: string): Promise<FileEntry[]> {
   const isGitRepo = await isGitRepository(sourcePath);
-  let files: FileEntry[] = [];
+  let files: FileEntry[];
 
   if (isGitRepo) {
     // Use git ls-files to respect .gitignore
     try {
-      const { stdout } = await execFileAsync("git", ["ls-files", "--others", "--cached"], {
-        cwd: sourcePath,
-      });
-      const paths = stdout.trim().split("\n").filter((p) => p.length > 0);
+      const { stdout } = await execFileAsync(
+        "git",
+        ["ls-files", "--others", "--cached"],
+        {
+          cwd: sourcePath,
+        },
+      );
+      const paths = stdout
+        .trim()
+        .split("\n")
+        .filter((p) => p.length > 0);
       const results = await Promise.all(
         paths.map(async (relPath) => {
           const fullPath = path.join(sourcePath, relPath);
@@ -135,8 +142,10 @@ function hashFileList(files: FileEntry[]): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-
-export async function handleMemorize(project: string, sourcePath: string): Promise<string> {
+export async function handleMemorize(
+  project: string,
+  sourcePath: string,
+): Promise<string> {
   if (!(await projectExists(project))) {
     throw new Error(
       `Project '${project}' does not exist. ` +
@@ -171,7 +180,7 @@ export async function handleMemorize(project: string, sourcePath: string): Promi
   const runType = isInitial ? "initial" : "update";
 
   // If it's an update, compute diffs (simplified: only track by mtime)
-  let diffs: { added: string[]; modified: string[]; removed: string[] } = {
+  const diffs: { added: string[]; modified: string[]; removed: string[] } = {
     added: [],
     modified: [],
     removed: [],
@@ -263,14 +272,18 @@ export async function handleMemorize(project: string, sourcePath: string): Promi
   );
   lines.push("");
   lines.push(
-    "**Use `synaphex_write_memory` with `project: \"" + project + "\"` and `filename` as shown below.** " +
+    '**Use `synaphex_write_memory` with `project: "' +
+      project +
+      '"` and `filename` as shown below.** ' +
       "Do NOT use the Write tool directly.",
   );
   lines.push("");
 
   for (const file of TOPIC_FILES) {
     lines.push(`### ${file.relPath}`);
-    lines.push(`\`synaphex_write_memory({ project: "${project}", filename: "${file.relPath}", content: "..." })\``);
+    lines.push(
+      `\`synaphex_write_memory({ project: "${project}", filename: "${file.relPath}", content: "..." })\``,
+    );
     lines.push(file.purpose);
     lines.push("");
   }
@@ -285,7 +298,9 @@ export async function handleMemorize(project: string, sourcePath: string): Promi
   );
   lines.push("");
 
-  lines.push("On UPDATE runs: preserve existing structure, update facts, remove references to deleted files.");
+  lines.push(
+    "On UPDATE runs: preserve existing structure, update facts, remove references to deleted files.",
+  );
   lines.push("");
 
   // Update meta.json with new state

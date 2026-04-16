@@ -81,17 +81,49 @@ export function resolveModelId(input: string): string | null {
   return null;
 }
 
-export function createDefaultSettings(now: Date = new Date()): SynaphexSettings {
+export function createDefaultSettings(
+  now: Date = new Date(),
+): SynaphexSettings {
   return {
     version: SETTINGS_VERSION,
     createdAt: now.toISOString(),
     agents: {
-      examiner: { provider: "claude", model: "claude-sonnet-4-6", think: false, effort: 2 },
-      researcher: { provider: "claude", model: "claude-sonnet-4-6", think: true, effort: 3 },
-      planner: { provider: "claude", model: "claude-opus-4-6", think: true, effort: 3 },
-      coder: { provider: "claude", model: "claude-sonnet-4-6", think: false, effort: 2 },
-      answerer: { provider: "claude", model: "claude-sonnet-4-6", think: false, effort: 1 },
-      reviewer: { provider: "claude", model: "claude-opus-4-6", think: true, effort: 3 },
+      examiner: {
+        provider: "claude",
+        model: "claude-sonnet-4-6",
+        think: false,
+        effort: 2,
+      },
+      researcher: {
+        provider: "claude",
+        model: "claude-sonnet-4-6",
+        think: true,
+        effort: 3,
+      },
+      planner: {
+        provider: "claude",
+        model: "claude-opus-4-6",
+        think: true,
+        effort: 3,
+      },
+      coder: {
+        provider: "claude",
+        model: "claude-sonnet-4-6",
+        think: false,
+        effort: 2,
+      },
+      answerer: {
+        provider: "claude",
+        model: "claude-sonnet-4-6",
+        think: false,
+        effort: 1,
+      },
+      reviewer: {
+        provider: "claude",
+        model: "claude-opus-4-6",
+        think: true,
+        effort: 3,
+      },
     },
   };
 }
@@ -101,7 +133,9 @@ export function summarizeAgents(settings: SynaphexSettings): string {
   return (Object.keys(settings.agents) as AgentName[])
     .map((name) => {
       const a = settings.agents[name];
-      const flags = [a.think ? "think" : null, `e${a.effort}`].filter(Boolean).join("/");
+      const flags = [a.think ? "think" : null, `e${a.effort}`]
+        .filter(Boolean)
+        .join("/");
       return `${name}=${a.model}[${flags}]`;
     })
     .join(", ");

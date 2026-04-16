@@ -13,6 +13,7 @@ Parse the arguments: the first token is the parent project (source), the second 
 Call the `synaphex_remember` MCP tool with `parent_project` = first arg and `child_project` = second arg.
 
 The tool will:
+
 1. Create a symlink (or copy as fallback) from the parent's `memory/internal/` into the child's `memory/external/<parent>_memory`
 2. If a link already exists from a previous run, replace it
 3. Return a summary of what was linked
@@ -20,6 +21,7 @@ The tool will:
 Report the result to the user.
 
 **Error cases**:
+
 - Either project does not exist → the tool returns an error
 - Trying to link a project to itself → the tool returns an error
 

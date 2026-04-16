@@ -7,10 +7,12 @@ import {
   projectExists,
   settingsPath,
   readJsonFile,
-  type ProjectMeta,
 } from "../lib/project-store.js";
 import { TOPIC_FILES, isScaffoldOnly } from "../lib/memory-scaffold.js";
-import { summarizeAgents, type SynaphexSettings } from "../lib/settings-schema.js";
+import {
+  summarizeAgents,
+  type SynaphexSettings,
+} from "../lib/settings-schema.js";
 
 const PER_FILE_CAP = 8_000; // characters per memory file
 const TOTAL_CAP = 100_000; // total digest cap
@@ -34,7 +36,6 @@ function truncateContent(content: string, maxChars: number): string {
 async function walkMemoryDir(
   dirPath: string,
   state: DigestState,
-  prefix: string,
 ): Promise<void> {
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
@@ -105,7 +106,9 @@ export async function handleLoad(project: string): Promise<string> {
     const filePath = path.join(internal, file.relPath);
     try {
       const content = await fs.readFile(filePath, "utf-8");
-      const status = isScaffoldOnly(content, file.contents) ? "(empty)" : `(${content.split("\n").length} lines)`;
+      const status = isScaffoldOnly(content, file.contents)
+        ? "(empty)"
+        : `(${content.split("\n").length} lines)`;
 
       addLine(state, `### ${file.relPath}`);
       if (status === "(empty)") {
@@ -151,7 +154,9 @@ export async function handleLoad(project: string): Promise<string> {
   addLine(state, "");
   try {
     const extEntries = await fs.readdir(external, { withFileTypes: true });
-    for (const entry of extEntries.sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const entry of extEntries.sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
       const linkPath = path.join(external, entry.name);
       let target: string | null = null;
 
@@ -170,7 +175,7 @@ export async function handleLoad(project: string): Promise<string> {
         addLine(state, `### ${entry.name} (→ ${target})`);
         // Walk the target directory and show files
         try {
-          await walkMemoryDir(target, state, entry.name);
+          await walkMemoryDir(target, state);
         } catch {
           addLine(state, "(unable to read linked memory)");
           addLine(state, "");
@@ -191,7 +196,10 @@ export async function handleLoad(project: string): Promise<string> {
   // Warn if truncated
   if (state.charCount > TOTAL_CAP) {
     addLine(state, "");
-    addLine(state, "⚠️ **Memory digest truncated.** Use Read tool to view full files at:");
+    addLine(
+      state,
+      "⚠️ **Memory digest truncated.** Use Read tool to view full files at:",
+    );
     addLine(state, `- Internal: ~/.synaphex/${project}/memory/internal/`);
     addLine(state, `- External: ~/.synaphex/${project}/memory/external/`);
   }

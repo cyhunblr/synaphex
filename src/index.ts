@@ -29,14 +29,17 @@ const server = new McpServer({
 server.registerTool(
   "synaphex_create",
   {
-    description: "Create a new synaphex project with memory scaffold and default settings",
+    description:
+      "Create a new synaphex project with memory scaffold and default settings",
     inputSchema: z.object({
       project: z
         .string()
         .min(1)
         .max(64)
         .regex(/^[a-z0-9][a-z0-9_-]*$/)
-        .describe("Project name (lowercase alphanumeric, hyphens, underscores)"),
+        .describe(
+          "Project name (lowercase alphanumeric, hyphens, underscores)",
+        ),
     }),
   },
   async ({ project }) => {
@@ -59,7 +62,8 @@ server.registerTool(
 server.registerTool(
   "synaphex_load",
   {
-    description: "Load a synaphex project and return its memory + settings digest",
+    description:
+      "Load a synaphex project and return its memory + settings digest",
     inputSchema: z.object({
       project: z.string().min(1).max(64).describe("Project name to load"),
     }),
@@ -114,7 +118,8 @@ server.registerTool(
 server.registerTool(
   "synaphex_remember",
   {
-    description: "Link one project's memory into another project's external memory",
+    description:
+      "Link one project's memory into another project's external memory",
     inputSchema: z.object({
       parent_project: z
         .string()
@@ -217,15 +222,33 @@ server.registerTool(
       updates: z
         .record(
           z.enum([
-            "examiner", "researcher", "planner",
-            "coder", "answerer", "reviewer",
+            "examiner",
+            "researcher",
+            "planner",
+            "coder",
+            "answerer",
+            "reviewer",
           ]),
-          z.object({
-            model: z.string().optional().describe("Model ID or alias"),
-            think: z.boolean().optional().describe("Enable extended thinking"),
-            effort: z.number().int().min(0).max(4).optional().describe("Effort tier 0-4"),
-            provider: z.literal("claude").optional().describe("Provider (claude only)"),
-          }).strict(),
+          z
+            .object({
+              model: z.string().optional().describe("Model ID or alias"),
+              think: z
+                .boolean()
+                .optional()
+                .describe("Enable extended thinking"),
+              effort: z
+                .number()
+                .int()
+                .min(0)
+                .max(4)
+                .optional()
+                .describe("Effort tier 0-4"),
+              provider: z
+                .literal("claude")
+                .optional()
+                .describe("Provider (claude only)"),
+            })
+            .strict(),
         )
         .describe("Map of agent name to partial config update"),
     }),
@@ -292,7 +315,13 @@ server.registerTool(
   },
   async ({ project, slug, cwd, task, memory_digest }) => {
     try {
-      const result = await handleTaskExamine(project, slug, cwd, task, memory_digest);
+      const result = await handleTaskExamine(
+        project,
+        slug,
+        cwd,
+        task,
+        memory_digest,
+      );
       return {
         content: [{ type: "text", text: result }],
       };
@@ -318,15 +347,37 @@ server.registerTool(
       task: z.string().min(1).describe("Task description"),
       cwd: z.string().min(1).describe("Absolute path to the working directory"),
       examiner_compact: z.string().describe("Compact analysis from Examiner"),
-      reviewer_feedback: z.string().optional().describe("Feedback from previous review iteration"),
-      iteration: z.number().int().min(1).max(10).optional().describe("Plan iteration number"),
+      reviewer_feedback: z
+        .string()
+        .optional()
+        .describe("Feedback from previous review iteration"),
+      iteration: z
+        .number()
+        .int()
+        .min(1)
+        .max(10)
+        .optional()
+        .describe("Plan iteration number"),
     }),
   },
-  async ({ project, slug, task, cwd, examiner_compact, reviewer_feedback, iteration }) => {
+  async ({
+    project,
+    slug,
+    task,
+    cwd,
+    examiner_compact,
+    reviewer_feedback,
+    iteration,
+  }) => {
     try {
       const result = await handleTaskPlan(
-        project, slug, task, cwd, examiner_compact,
-        reviewer_feedback, iteration,
+        project,
+        slug,
+        task,
+        cwd,
+        examiner_compact,
+        reviewer_feedback,
+        iteration,
       );
       return {
         content: [{ type: "text", text: result }],
@@ -356,14 +407,35 @@ server.registerTool(
       plan: z.string().describe("Implementation plan from Planner"),
       examiner_compact: z.string().describe("Compact analysis from Examiner"),
       memory_digest: z.string().describe("Memory digest"),
-      iteration: z.number().int().min(1).max(10).optional().describe("Implementation iteration"),
+      iteration: z
+        .number()
+        .int()
+        .min(1)
+        .max(10)
+        .optional()
+        .describe("Implementation iteration"),
     }),
   },
-  async ({ project, slug, task, cwd, plan, examiner_compact, memory_digest, iteration }) => {
+  async ({
+    project,
+    slug,
+    task,
+    cwd,
+    plan,
+    examiner_compact,
+    memory_digest,
+    iteration,
+  }) => {
     try {
       const result = await handleTaskImplement(
-        project, slug, task, cwd, plan,
-        examiner_compact, memory_digest, iteration,
+        project,
+        slug,
+        task,
+        cwd,
+        plan,
+        examiner_compact,
+        memory_digest,
+        iteration,
       );
       return {
         content: [{ type: "text", text: result }],
@@ -391,16 +463,39 @@ server.registerTool(
       task: z.string().min(1).describe("Task description"),
       cwd: z.string().min(1).describe("Absolute path to the working directory"),
       plan: z.string().describe("Implementation plan"),
-      implementation_summary: z.string().describe("Coder's implementation summary"),
+      implementation_summary: z
+        .string()
+        .describe("Coder's implementation summary"),
       examiner_compact: z.string().describe("Compact analysis from Examiner"),
-      iteration: z.number().int().min(1).max(10).optional().describe("Review iteration"),
+      iteration: z
+        .number()
+        .int()
+        .min(1)
+        .max(10)
+        .optional()
+        .describe("Review iteration"),
     }),
   },
-  async ({ project, slug, task, cwd, plan, implementation_summary, examiner_compact, iteration }) => {
+  async ({
+    project,
+    slug,
+    task,
+    cwd,
+    plan,
+    implementation_summary,
+    examiner_compact,
+    iteration,
+  }) => {
     try {
       const result = await handleTaskReview(
-        project, slug, task, cwd, plan,
-        implementation_summary, examiner_compact, iteration,
+        project,
+        slug,
+        task,
+        cwd,
+        plan,
+        implementation_summary,
+        examiner_compact,
+        iteration,
       );
       return {
         content: [{ type: "text", text: result }],

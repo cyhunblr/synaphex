@@ -10,7 +10,13 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write 'src/**/*.{js,ts}' '**/*.md' '*.json'",
+    "lint:md": "markdownlint '**/*.md'",
+    "lint:secrets": "secretlint '**/*'",
+    "prepare": "husky"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -21,7 +27,33 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
+    "@eslint/js": "^10.0.1",
+    "@secretlint/secretlint-rule-preset-recommend": "^11.7.1",
     "@types/node": "^20.0.0",
-    "typescript": "^5.5.0"
+    "eslint": "^10.2.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "markdownlint-cli": "^0.48.0",
+    "prettier": "^3.8.3",
+    "secretlint": "^11.7.1",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.58.2"
+  },
+  "lint-staged": {
+    "*.{js,ts}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.md": [
+      "markdownlint --fix",
+      "prettier --write"
+    ],
+    "*": [
+      "secretlint"
+    ]
   }
 }

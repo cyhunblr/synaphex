@@ -13,7 +13,11 @@ import {
 import { runAgent } from "../lib/agent-runtime.js";
 import { readFile, listFiles, searchCode } from "../lib/file-tools.js";
 import { handleWriteMemory } from "./write-memory.js";
-import { EXAMINER_SYSTEM_PROMPT, EXAMINER_TOOLS, buildExaminerPrompt } from "../agents/examiner.js";
+import {
+  EXAMINER_SYSTEM_PROMPT,
+  EXAMINER_TOOLS,
+  buildExaminerPrompt,
+} from "../agents/examiner.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
 
@@ -54,7 +58,11 @@ export async function handleTaskExamine(
           return { content: files.join("\n") || "No files found." };
         }
         case "search_code": {
-          const result = await searchCode(cwd, input.pattern as string, input.glob as string | undefined);
+          const result = await searchCode(
+            cwd,
+            input.pattern as string,
+            input.glob as string | undefined,
+          );
           return { content: result };
         }
         case "write_memory": {
@@ -97,7 +105,9 @@ export async function handleTaskExamine(
   if (compactIdx !== -1) {
     compactOutput = fullOutput.slice(compactIdx + compactMarker.length).trim();
     if (rawIdx !== -1 && rawIdx < compactIdx) {
-      rawOutput = fullOutput.slice(rawIdx + rawMarker.length, compactIdx).trim();
+      rawOutput = fullOutput
+        .slice(rawIdx + rawMarker.length, compactIdx)
+        .trim();
     }
   } else if (rawIdx !== -1) {
     rawOutput = fullOutput.slice(rawIdx + rawMarker.length).trim();

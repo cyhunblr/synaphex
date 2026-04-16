@@ -88,7 +88,9 @@ export async function handleSettingsUpdate(
     if (before.model !== agent.model)
       diffs.push(`model: ${before.model} → ${agent.model}`);
     if (before.think !== agent.think)
-      diffs.push(`think: ${before.think ? "ON" : "off"} → ${agent.think ? "ON" : "off"}`);
+      diffs.push(
+        `think: ${before.think ? "ON" : "off"} → ${agent.think ? "ON" : "off"}`,
+      );
     if (before.effort !== agent.effort)
       diffs.push(`effort: ${before.effort} → ${agent.effort}`);
     if (before.provider !== agent.provider)
