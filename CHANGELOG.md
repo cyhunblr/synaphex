@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/cyhunblr/synaphex/compare/v1.3.0...v1.4.0) (2026-04-16)
+
+
+### Features
+
+* implement native MCP prompts for Claude Code slash command integration ([dbe8ad9](https://github.com/cyhunblr/synaphex/commit/dbe8ad90137b5258e097ade5667c41098622d689))
+
 # [1.3.0](https://github.com/cyhunblr/synaphex/compare/v1.2.0...v1.3.0) (2026-04-16)
 
 ### Features
