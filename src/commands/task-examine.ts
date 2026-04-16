@@ -1,0 +1,122 @@
+/**
+ * synaphex_task_examine — runs the Examiner agent via Anthropic API.
+ */
+
+import { promises as fs } from "node:fs";
+import {
+  projectExists,
+  taskSlugDir,
+  readJsonFile,
+  writeJsonFile,
+  settingsPath,
+} from "../lib/project-store.js";
+import { runAgent } from "../lib/agent-runtime.js";
+import { readFile, listFiles, searchCode } from "../lib/file-tools.js";
+import { handleWriteMemory } from "./write-memory.js";
+import { EXAMINER_SYSTEM_PROMPT, EXAMINER_TOOLS, buildExaminerPrompt } from "../agents/examiner.js";
+import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
+import type { TaskMeta } from "../lib/pipeline-types.js";
+
+export async function handleTaskExamine(
+  project: string,
+  slug: string,
+  cwd: string,
+  task: string,
+  memoryDigest: string,
+): Promise<string> {
+  if (!(await projectExists(project))) {
+    throw new Error(`Project '${project}' does not exist.`);
+  }
+
+  const taskDir = taskSlugDir(project, slug);
+  const settings = await readJsonFile<SynaphexSettings>(settingsPath(project));
+  const config = settings.agents["examiner" as AgentName];
+
+  // Update task status
+  const metaPath = `${taskDir}/task-meta.json`;
+  const meta = await readJsonFile<TaskMeta>(metaPath);
+  meta.status = "examining";
+  await writeJsonFile(metaPath, meta);
+
+  // Build user message
+  const userMessage = buildExaminerPrompt(task, memoryDigest, cwd);
+
+  // Tool call handler
+  const onToolCall = async (name: string, input: Record<string, unknown>) => {
+    try {
+      switch (name) {
+        case "read_file": {
+          const content = await readFile(cwd, input.path as string);
+          return { content };
+        }
+        case "list_files": {
+          const files = await listFiles(cwd, input.pattern as string);
+          return { content: files.join("\n") || "No files found." };
+        }
+        case "search_code": {
+          const result = await searchCode(cwd, input.pattern as string, input.glob as string | undefined);
+          return { content: result };
+        }
+        case "write_memory": {
+          const result = await handleWriteMemory(
+            project,
+            input.filename as string,
+            input.content as string,
+          );
+          return { content: result };
+        }
+        default:
+          return { content: `Unknown tool: ${name}`, is_error: true };
+      }
+    } catch (err) {
+      return { content: `Error: ${(err as Error).message}`, is_error: true };
+    }
+  };
+
+  // Run the Examiner
+  const result = await runAgent({
+    config,
+    systemPrompt: EXAMINER_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userMessage }],
+    tools: EXAMINER_TOOLS,
+    onToolCall,
+    maxToolRounds: 25,
+  });
+
+  // Parse raw and compact sections
+  const fullOutput = result.textOutput;
+  const compactMarker = "=== COMPACT ANALYSIS ===";
+  const rawMarker = "=== RAW ANALYSIS ===";
+
+  let rawOutput = fullOutput;
+  let compactOutput = fullOutput;
+
+  const compactIdx = fullOutput.indexOf(compactMarker);
+  const rawIdx = fullOutput.indexOf(rawMarker);
+
+  if (compactIdx !== -1) {
+    compactOutput = fullOutput.slice(compactIdx + compactMarker.length).trim();
+    if (rawIdx !== -1 && rawIdx < compactIdx) {
+      rawOutput = fullOutput.slice(rawIdx + rawMarker.length, compactIdx).trim();
+    }
+  } else if (rawIdx !== -1) {
+    rawOutput = fullOutput.slice(rawIdx + rawMarker.length).trim();
+  }
+
+  // Save outputs to task dir
+  await fs.writeFile(`${taskDir}/examiner-raw.md`, rawOutput, "utf-8");
+  await fs.writeFile(`${taskDir}/examiner-compact.md`, compactOutput, "utf-8");
+
+  const usage = result.usage;
+
+  return [
+    `Examiner analysis complete.`,
+    "",
+    `- **Tool rounds**: ${result.toolRounds}`,
+    `- **Tokens**: ${usage.inputTokens} in / ${usage.outputTokens} out`,
+    "",
+    `<examiner_compact>`,
+    compactOutput,
+    `</examiner_compact>`,
+  ].join("\n");
+}

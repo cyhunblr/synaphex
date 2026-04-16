@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.js.map
+*.tgz
+.env
+.env.local
+.DS_Store
+.vscode/
