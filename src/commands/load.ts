@@ -69,7 +69,7 @@ export async function handleLoad(project: string): Promise<string> {
   if (!(await projectExists(project))) {
     throw new Error(
       `Project '${project}' does not exist. ` +
-        `Use /synaphex:create ${project} to create it first.`,
+        `Use the 'create' tool ${project} to create it first.`,
     );
   }
 
@@ -84,7 +84,7 @@ export async function handleLoad(project: string): Promise<string> {
   };
 
   // Header
-  addLine(state, `# synaphex: ${project}`);
+  addLine(state, `synaphex load ${project}`);
   addLine(state, "");
 
   // Settings summary

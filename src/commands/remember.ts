@@ -85,7 +85,7 @@ export async function handleRemember(
     `- Link type: ${linkType}`,
     "",
     `${childProject} can now access ${parentProject}'s memory via ` +
-      `/synaphex:load ${childProject}`,
+      `the 'load' tool ${childProject}`,
   ].join("\n");
 }
 

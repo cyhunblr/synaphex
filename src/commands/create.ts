@@ -27,7 +27,7 @@ export async function handleCreate(project: string): Promise<string> {
   if (await projectExists(project)) {
     throw new Error(
       `Project '${project}' already exists. Delete ~/.synaphex/${project}/ ` +
-        `manually if you want to start fresh, then run /synaphex:create again.`,
+        `manually if you want to start fresh, then run the 'create' tool again.`,
     );
   }
 
@@ -73,10 +73,10 @@ export async function handleCreate(project: string): Promise<string> {
     "  - settings.json (default agent config)",
     "  - meta.json",
     topicList,
-    "  - memory/internal/packages/  (empty — populated by /synaphex:memorize)",
-    "  - memory/external/           (empty — populated by /synaphex:remember)",
+    "  - memory/internal/packages/  (empty — populated by the 'memorize' tool)",
+    "  - memory/external/           (empty — populated by the 'remember' tool)",
     "",
-    `Next: run \`/synaphex:memorize ${project} <source-path>\` to populate memory ` +
+    `Next: run \`the 'memorize' tool ${project} <source-path>\` to populate memory ` +
       `from a codebase, or edit ~/.synaphex/${project}/settings.json to tune ` +
       `agent defaults (Phase 2).`,
   ].join("\n");

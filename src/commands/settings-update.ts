@@ -26,7 +26,7 @@ export async function handleSettingsUpdate(
   if (!(await projectExists(project))) {
     throw new Error(
       `Project '${project}' does not exist. ` +
-        `Use /synaphex:create ${project} to create it first.`,
+        `Use the 'create' tool ${project} to create it first.`,
     );
   }
 
