@@ -41,16 +41,16 @@ Synaphex can be integrated into **VSCode** via the **Claude Code extension**, **
 
 ### Slash Commands
 
-The Claude Code extension registers all Synaphex skills as clean slash commands (no prefix):
+The Claude Code extension registers Synaphex skills as namespaced slash commands:
 
-| Command                        | Description                           |
-| ------------------------------ | ------------------------------------- |
-| `/create <project>`            | Create a new Synaphex project         |
-| `/memorize <project> <path>`   | Populate memory from a codebase       |
-| `/task <project> <task>`       | Run the full agent pipeline           |
-| `/load <project>`              | Load project memory + settings digest |
-| `/settings <project>`          | View agent configuration              |
-| `/fix <project> <description>` | Run a bug-fix pipeline                |
+| Command                            | Description                           |
+| ---------------------------------- | ------------------------------------- |
+| `/synaphex:create <project>`       | Create a new Synaphex project         |
+| `/synaphex:memorize <project> <p>` | Populate memory from a codebase       |
+| `/synaphex:task <project> <task>`  | Run the full agent pipeline           |
+| `/synaphex:load <project>`         | Load project memory + settings digest |
+| `/synaphex:settings <project>`     | View agent configuration              |
+| `/synaphex:fix <project> <desc>`   | Run a bug-fix pipeline                |
 
 _Note: Ensure your `node` on `PATH` is Node.js 18+. If you use `fnm` or `nvm`, wrap the launch: `eval "$(fnm env)" && claude`_
 
@@ -168,10 +168,13 @@ npx -y synaphex setup antigravity
 
 ### Cleaning Up Old Commands
 
-If you still see old `/synaphex:*` commands (with colons):
+If you see duplicate commands or "Command not found" errors for old `/create` or `/task` calls:
 
 ```bash
-rm -rf ~/.claude/skills/synaphex:*
+# Remove legacy standalone skill links
+rm -rf ~/.claude/skills/synaphex
+
+# Clear NPX cache to ensure fresh pull of v1.6.0+
 rm -rf ~/.npm/_npx
 ```
 

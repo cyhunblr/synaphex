@@ -110,10 +110,10 @@ When moving from one agent to another (e.g., from **Coder** to **Reviewer**), Sy
    > _"Run the 'task' tool on 'my_app' for the requirement 'Create a login API endpoint'."_
 
    The IDE model will automatically receive the task instructions. From there, it will guide you through the pipeline step-by-step using these tool calls:
-   - `examine`
-   - `plan`
-   - `implement`
-   - `review`
+   - `task_examine`
+   - `task_plan`
+   - `task_implement`
+   - `task_review`
 
 > **Note: Tool Discovery**
 > Antigravity IDE and other MCP extensions generally do **NOT** display MCP tools as slash commands. Instead, the tools are cleanly exported as `task`, `create`, `memorize`, etc. They will appear in the IDE autocomplete (e.g., `@mcp:synaphex:task`) or can be triggered via natural language.

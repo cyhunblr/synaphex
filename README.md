@@ -8,18 +8,18 @@ All project data lives globally at `~/.synaphex/<project>/`. Each project has a 
 
 Synaphex provides native **MCP Prompts** that appear as slash commands in Claude Code and other compatible IDEs.
 
-| Native Command (MCP Prompt) | Tool Fallback | Description                          |
-| --------------------------- | ------------- | ------------------------------------ |
-| `/mcp__synaphex__create`    | `create`      | Create a new synaphex project        |
-| `/mcp__synaphex__load`      | `load`        | Load project settings + memory       |
-| `/mcp__synaphex__memorize`  | `memorize`    | Analyze codebase and update memory   |
-| `/mcp__synaphex__remember`  | `remember`    | Link memory from another project     |
-| `/mcp__synaphex__settings`  | `settings`    | View current agent configurations    |
-| `/mcp__synaphex__task`      | `task`        | Run the multi-agent task pipeline    |
-| `/mcp__synaphex__fix`       | `task`        | Run the multi-agent bug-fix pipeline |
+| Native Slash Command | Description                          |
+| -------------------- | ------------------------------------ |
+| `/synaphex:create`   | Create a new synaphex project        |
+| `/synaphex:load`     | Load project settings + memory       |
+| `/synaphex:memorize` | Analyze codebase and update memory   |
+| `/synaphex:remember` | Link memory from another project     |
+| `/synaphex:settings` | View current agent configurations    |
+| `/synaphex:task`     | Run the multi-agent task pipeline    |
+| `/synaphex:fix`      | Run the multi-agent bug-fix pipeline |
 
 > [!TIP]
-> Many IDEs (like Claude Code) will autocomplete these. You can also trigger them by just asking Claude: _"Run synaphex task for project X: [your task]"_.
+> These commands are natively discovered by Claude Code once the plugin is installed. You can also trigger them by just asking Claude: _"Run synaphex task for project X: [your task]"_.
 
 ## Usage
 
@@ -47,15 +47,15 @@ npx -y synaphex setup antigravity
 > [!NOTE]
 > In Plugin Mode (Claude Code), slash commands are namespaced. Use `/synaphex:create`, `/synaphex:task`, etc.
 
-### Manual Setup (Slash Commands)
+### Manual Setup (Plugin Mode)
 
 If you prefer manual configuration, follow these steps:
 
-1. **Link the skills folder:**
+1. **Link the package as a plugin:**
 
    ```bash
-   mkdir -p ~/.claude/skills
-   ln -sf $(pwd)/skills ~/.claude/skills/synaphex
+   mkdir -p ~/.claude/plugins
+   ln -sf $(pwd) ~/.claude/plugins/synaphex
    ```
 
 2. **Reload VSCode:**
@@ -134,22 +134,24 @@ _(If you happened to install it globally via `npm install -g synaphex`, you can 
 
 To remove Synaphex from your IDE, delete the `"synaphex"` entry from your `mcp_config.json` (or `.mcp.json`) and refresh your MCP servers.
 
-## Updating from Legacy Versions (v1.0.0+)
+## Updating from Legacy Versions (v1.0.0 — v1.5.0)
 
-Synaphex recently removed the `/synaphex:` prefix from its tools to improve IDE integration. If you are updating from an older version and still see legacy commands in your IDE autocomplete, you **must clear your caches**:
+Synaphex has transitioned to a **Standardized Plugin Architecture**. This means slash commands now correctly use the `/synaphex:` prefix to prevent conflicts and ensure reliable discovery in Claude Code v4.6+.
+
+If you are updating from an older version and see broken or duplicate commands, follow these cleanup steps:
 
 ```bash
-# 1. Uninstall legacy global version
-npm uninstall -g synaphex
+# 1. Clear old standalone skill links (no longer used)
+rm -rf ~/.claude/skills/synaphex
 
-# 2. Clear NPX cache to force a fresh pull of @latest
+# 2. Clear NPX cache to ensure you pull v1.6.0+
 rm -rf ~/.npm/_npx
 
-# 3. Clear Claude Code extension's cached commands (Crucial for VSCode users)
-rm -rf ~/.claude/skills
+# 3. Run the new automated setup to install the Plugin
+npx -y synaphex@latest setup claude
 ```
 
-After running these, restart your IDE (`Developer: Reload Window` in VSCode) and follow the normal NPX usage instructions.
+After running these, restart your IDE (`Developer: Reload Window` in VSCode).
 
 ## Status
 
