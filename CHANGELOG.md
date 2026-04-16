@@ -1,3 +1,11 @@
+# [1.3.0](https://github.com/cyhunblr/synaphex/compare/v1.2.0...v1.3.0) (2026-04-16)
+
+
+### Features
+
+* **docs,schema:** add vscode model IDs, remove api keys, model transition hints ([48484c7](https://github.com/cyhunblr/synaphex/commit/48484c7ab81f8ac6ba512243dfa9da3e160e2206))
+* **schema,docs:** add latest Copilot model IDs (GPT-5, Gemini 3), update vscode transitions ([e0588ac](https://github.com/cyhunblr/synaphex/commit/e0588ac42c8ea3e87310939042fe546e133b0ba5))
+
 # [1.2.0](https://github.com/cyhunblr/synaphex/compare/v1.1.1...v1.2.0) (2026-04-16)
 
 
