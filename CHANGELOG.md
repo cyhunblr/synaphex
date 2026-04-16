@@ -1,3 +1,10 @@
+## [1.6.2](https://github.com/cyhunblr/synaphex/compare/v1.6.1...v1.6.2) (2026-04-16)
+
+
+### Bug Fixes
+
+* include .claude-plugin in package distribution files ([7860ad7](https://github.com/cyhunblr/synaphex/commit/7860ad7326813765472adc7e486eedc1c09f9432))
+
 ## [1.6.1](https://github.com/cyhunblr/synaphex/compare/v1.6.0...v1.6.1) (2026-04-16)
 
 
