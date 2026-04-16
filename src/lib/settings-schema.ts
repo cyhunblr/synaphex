@@ -121,37 +121,52 @@ export const MODEL_CAPABILITIES: Record<
     adaptiveThinking: false,
     label: "Claude Haiku 4.5 (Claude Code)",
   },
-  // ── VSCode: GitHub Copilot Chat ───────────────────────────────
+  // ── VSCode: GitHub Copilot Chat ─────────────────────────────────────
   // Switch via the model picker in the Copilot Chat panel
-  "copilot-claude-opus-4-6": {
-    thinking: true,
-    adaptiveThinking: true,
-    label: "Claude Opus 4.6 (Copilot)",
+  "copilot-claude-haiku-4-5": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "Claude Haiku 4.5 (Copilot)",
   },
-  "copilot-claude-sonnet-4-6": {
+  "copilot-gemini-3-flash": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "Gemini 3 Flash Preview (Copilot)",
+  },
+  "copilot-gemini-3.1-pro": {
     thinking: true,
-    adaptiveThinking: true,
-    label: "Claude Sonnet 4.6 (Copilot)",
+    adaptiveThinking: false,
+    label: "Gemini 3.1 Pro Preview (Copilot)",
   },
   "copilot-gpt-4o": {
     thinking: false,
     adaptiveThinking: false,
     label: "GPT-4o (Copilot)",
   },
-  "copilot-gpt-4.1": {
+  "copilot-gpt-5-mini": {
     thinking: false,
     adaptiveThinking: false,
-    label: "GPT-4.1 (Copilot)",
+    label: "GPT-5 mini (Copilot)",
   },
-  "copilot-gemini-2.5-pro": {
+  "copilot-gpt-5.2": {
     thinking: true,
     adaptiveThinking: false,
-    label: "Gemini 2.5 Pro (Copilot)",
+    label: "GPT-5.2 (Copilot)",
   },
-  "copilot-gemini-2.0-flash": {
+  "copilot-gpt-5.2-codex": {
     thinking: false,
     adaptiveThinking: false,
-    label: "Gemini 2.0 Flash (Copilot)",
+    label: "GPT-5.2-Codex (Copilot)",
+  },
+  "copilot-gpt-5.3-codex": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "GPT-5.3-Codex (Copilot)",
+  },
+  "copilot-gpt-5.4-mini": {
+    thinking: false,
+    adaptiveThinking: false,
+    label: "GPT-5.4 mini (Copilot)",
   },
 };
 

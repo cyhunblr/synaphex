@@ -97,14 +97,17 @@ The pipeline will step through `task_examine` → `task_plan` → `task_implemen
 
 Configure each agent in `~/.synaphex/<project>/settings.json` using Copilot model IDs:
 
-| ID                          | Label                       | Recommended For   |
-| --------------------------- | --------------------------- | ----------------- |
-| `copilot-claude-opus-4-6`   | Claude Opus 4.6 (Copilot)   | Planner, Reviewer |
-| `copilot-claude-sonnet-4-6` | Claude Sonnet 4.6 (Copilot) | Coder, Examiner   |
-| `copilot-gpt-4.1`           | GPT-4.1 (Copilot)           | General purpose   |
-| `copilot-gpt-4o`            | GPT-4o (Copilot)            | Fast tasks        |
-| `copilot-gemini-2.5-pro`    | Gemini 2.5 Pro (Copilot)    | Complex reasoning |
-| `copilot-gemini-2.0-flash`  | Gemini 2.0 Flash (Copilot)  | Answerer          |
+| ID                         | Label                            | Recommended For    |
+| -------------------------- | -------------------------------- | ------------------ |
+| `copilot-gpt-5.2`          | GPT-5.2 (Copilot)                | Planner, Reviewer  |
+| `copilot-gemini-3.1-pro`   | Gemini 3.1 Pro Preview (Copilot) | Planner, Reviewer  |
+| `copilot-gpt-4o`           | GPT-4o (Copilot)                 | Coder, Examiner    |
+| `copilot-gpt-5.2-codex`    | GPT-5.2-Codex (Copilot)          | Coder              |
+| `copilot-gpt-5.3-codex`    | GPT-5.3-Codex (Copilot)          | Coder              |
+| `copilot-claude-haiku-4-5` | Claude Haiku 4.5 (Copilot)       | Answerer, Examiner |
+| `copilot-gemini-3-flash`   | Gemini 3 Flash Preview (Copilot) | Answerer           |
+| `copilot-gpt-5-mini`       | GPT-5 mini (Copilot)             | Answerer           |
+| `copilot-gpt-5.4-mini`     | GPT-5.4 mini (Copilot)           | Answerer           |
 
 **How to switch models:** Use the model picker dropdown at the top of the Copilot Chat panel.
 
@@ -114,9 +117,9 @@ When an agent transition requires a different model, Synaphex shows an advisory 
 
 ```
 ⚠️ Model Switch Recommended
-Next agent: Reviewer — configured for Claude Opus 4.6 (Copilot) with extended thinking enabled.
-Current model: GPT-4o (Copilot).
-Please switch your IDE model to "Claude Opus 4.6 (Copilot)" using the model picker before calling the next step.
+Next agent: Reviewer — configured for GPT-5.2 (Copilot) with extended thinking enabled.
+Current model: GPT-5.2-Codex (Copilot).
+Please switch your IDE model to "GPT-5.2 (Copilot)" using the model picker before calling the next step.
 ```
 
 Copilot does not support automated model switching via MCP — switch manually using the model picker before calling the next tool.
