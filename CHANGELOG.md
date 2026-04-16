@@ -1,9 +1,8 @@
 ## [1.5.1](https://github.com/cyhunblr/synaphex/compare/v1.5.0...v1.5.1) (2026-04-16)
 
-
 ### Bug Fixes
 
-* resolve skills path relative to package root instead of cwd ([5092ef7](https://github.com/cyhunblr/synaphex/commit/5092ef700db978f64889fccf478b702ea6ec5468))
+- resolve skills path relative to package root instead of cwd ([5092ef7](https://github.com/cyhunblr/synaphex/commit/5092ef700db978f64889fccf478b702ea6ec5468))
 
 # [1.5.0](https://github.com/cyhunblr/synaphex/compare/v1.4.0...v1.5.0) (2026-04-16)
 

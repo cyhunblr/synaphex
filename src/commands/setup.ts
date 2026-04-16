@@ -22,11 +22,26 @@ export async function handleSetup(platform?: string): Promise<void> {
     const packageRoot = path.resolve(path.dirname(scriptPath), "..", "..");
     const skillsSrc = path.join(packageRoot, "skills");
 
-    console.log(`\n🚀 Synaphex Setup Assistant`);
-    console.log(`--------------------------`);
-    console.log(`Node Environment: ${process.version}`);
-    console.log(`npx path: ${npxPath}`);
-    console.log(`Project path: ${cwd}\n`);
+    console.log(
+      "\n╭─────────────────────────────────────────────────────────────╮",
+    );
+    console.log(
+      "│                                                             │",
+    );
+    console.log(
+      "│         🚀  SYNAPHEX: INTEGRATION & SETUP WIZARD            │",
+    );
+    console.log(
+      "│                                                             │",
+    );
+    console.log(
+      "╰─────────────────────────────────────────────────────────────╯",
+    );
+
+    console.log("\nSYSTEM ENVIRONMENT:");
+    console.log(` • Node version     : ${process.version}`);
+    console.log(` • Binary Path      : ${npxPath}`);
+    console.log(` • Active Directory : ${cwd}\n`);
 
     if (!platform) {
       console.log("Usage: npx synaphex setup <claude|copilot|antigravity>");
@@ -35,23 +50,29 @@ export async function handleSetup(platform?: string): Promise<void> {
 
     const targets = getTargets(platform);
 
+    console.log(`[1/2] CONFIGURING MCP SERVERS...`);
     for (const target of targets) {
       await processTarget(target, npxPath, rl);
     }
 
     // Create plugin link for Claude
     if (platform?.toLowerCase() === "claude") {
+      console.log(`\n[2/2] INSTALLING CLAUDE PLUGIN...`);
       await setupPlugin(packageRoot, rl);
     } else {
-      // Always attempt to link skills for other platforms (standalone mode)
+      console.log(`\n[2/2] LINKING SKILLS...`);
       await setupSkills(skillsSrc, rl);
     }
 
+    console.log("\n" + "─".repeat(61));
+    console.log("✨  SETUP COMPLETE!");
+    console.log("Your environment is now powered by Synaphex.");
     console.log(
-      "\n✅ Setup complete! Please reload your IDE for changes to take effect.",
+      "Please reload your IDE/VSCode to activate the slash commands.",
     );
+    console.log("─".repeat(61) + "\n");
   } catch (err) {
-    console.error(`\n❌ Setup failed: ${(err as Error).message}`);
+    console.error(`\n❌ ERROR: ${(err as Error).message}\n`);
   } finally {
     rl.close();
   }
@@ -94,11 +115,9 @@ async function processTarget(
     .catch(() => false);
 
   if (!fileExists) {
-    // If it's a deep path like .gemini/antigravity, we might want to skip instead of create?
-    // For now, let's ask to create.
     const parent = path.dirname(filePath);
     const answer = await rl.question(
-      `Target file ${filePath} doesn't exist. Create it? [y/N] `,
+      `  → File ${filePath} not found. Create? [y/N] `,
     );
     if (answer.toLowerCase() !== "y") return;
     await fs.mkdir(parent, { recursive: true });
@@ -110,7 +129,7 @@ async function processTarget(
   try {
     config = JSON.parse(content);
   } catch {
-    console.warn(`⚠️ Warning: Could not parse ${filePath}. Skipping.`);
+    console.warn(`  ⚠️ Warning: Could not parse ${filePath}. Skipping.`);
     return;
   }
 
@@ -121,16 +140,20 @@ async function processTarget(
     args: ["-y", "synaphex@latest"],
   };
 
-  console.log(`\nProposed update for ${filePath}:`);
-  console.log(JSON.stringify({ synaphex: synaphexEntry }, null, 2));
+  console.log(`\n  PROPOSED UPDATE FOR ${filePath}:`);
+  const diffStr = JSON.stringify({ synaphex: synaphexEntry }, null, 2)
+    .split("\n")
+    .map((line) => "    " + line)
+    .join("\n");
+  console.log(diffStr);
 
-  const confirm = await rl.question(`Apply this update? [y/N] `);
+  const confirm = await rl.question(`\n  Apply this update? [y/N] `);
   if (confirm.toLowerCase() === "y") {
     config.mcpServers["synaphex"] = synaphexEntry;
     await fs.writeFile(filePath, JSON.stringify(config, null, 2));
-    console.log(`✅ Updated ${filePath}`);
+    console.log(`  ✔ Successfully updated ${filePath}`);
   } else {
-    console.log(`⏭️ Skipped ${filePath}`);
+    console.log(`  ⏭️ Skipped ${filePath}`);
   }
 }
 
@@ -141,31 +164,29 @@ async function setupPlugin(
   const home = os.homedir();
   const pluginDest = path.join(home, ".claude", "plugins", "synaphex");
 
-  console.log(`\n--- Plugin Installation ---`);
-  console.log(`Source: ${packageRoot}`);
-  console.log(`Destination: ${pluginDest}`);
+  console.log(`  → Source      : ${packageRoot}`);
+  console.log(`  → Destination : ${pluginDest}`);
 
   const confirm = await rl.question(
-    `Register Synaphex as a Claude Code Plugin? [y/N] `,
+    `\n  Register Synaphex as an official plugin? [y/N] `,
   );
   if (confirm.toLowerCase() === "y") {
     try {
       await fs.mkdir(path.dirname(pluginDest), { recursive: true });
-      // Remove existing symlink or folder if present
       await execSync(`rm -rf "${pluginDest}"`);
       await fs.symlink(packageRoot, pluginDest, "dir");
-      console.log(`✅ Plugin registered successfully.`);
+      console.log(`  ✔ Plugin registered successfully.`);
 
-      // Cleanup old skills link to avoid conflicts
       const oldSkillsLink = path.join(home, ".claude", "skills", "synaphex");
       await execSync(`rm -rf "${oldSkillsLink}"`);
+      console.log(`  ✔ Legacy skills cleaned up.`);
     } catch (err) {
       console.warn(
-        `⚠️ Warning: Failed to register plugin: ${(err as Error).message}`,
+        `  ⚠️ Warning: Failed to register plugin: ${(err as Error).message}`,
       );
     }
   } else {
-    console.log(`⏭️ Plugin registration skipped.`);
+    console.log(`  ⏭️ Plugin registration skipped.`);
   }
 }
 
@@ -176,24 +197,24 @@ async function setupSkills(
   const home = os.homedir();
   const skillsDest = path.join(home, ".claude", "skills", "synaphex");
 
-  console.log(`\n--- Skills Installation ---`);
-  console.log(`Source: ${skillsSrc}`);
-  console.log(`Destination: ${skillsDest}`);
+  console.log(`  → Source      : ${skillsSrc}`);
+  console.log(`  → Destination : ${skillsDest}`);
 
-  const confirm = await rl.question(`Link Synaphex skills to your IDE? [y/N] `);
+  const confirm = await rl.question(
+    `\n  Link Synaphex skills to your environment? [y/N] `,
+  );
   if (confirm.toLowerCase() === "y") {
     try {
       await fs.mkdir(path.dirname(skillsDest), { recursive: true });
-      // Remove existing symlink or folder if present
       await execSync(`rm -rf "${skillsDest}"`);
       await fs.symlink(skillsSrc, skillsDest, "dir");
-      console.log(`✅ Skills linked successfully.`);
+      console.log(`  ✔ Skills linked successfully.`);
     } catch (err) {
       console.warn(
-        `⚠️ Warning: Failed to link skills: ${(err as Error).message}`,
+        `  ⚠️ Warning: Failed to link skills: ${(err as Error).message}`,
       );
     }
   } else {
-    console.log(`⏭️ Skills linking skipped.`);
+    console.log(`  ⏭️ Skills linking skipped.`);
   }
 }
