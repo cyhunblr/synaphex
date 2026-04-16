@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/cyhunblr/synaphex/compare/v1.1.1...v1.2.0) (2026-04-16)
+
+
+### Features
+
+* **settings:** add Antigravity model IDs, update defaults, translate delegated prompts to English ([3a1fec5](https://github.com/cyhunblr/synaphex/commit/3a1fec52d26cacc1e946b39b320f793797776ac5))
+
 ## [1.1.1](https://github.com/cyhunblr/synaphex/compare/v1.1.0...v1.1.1) (2026-04-16)
 
 
