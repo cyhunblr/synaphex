@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/cyhunblr/.claude/**)",
+      "Read(//home/cyhunblr/**)",
+      "Bash(npm list *)",
+      "Bash(npm info *)",
+      "Bash(node -e \"console.log\\(process.version\\)\")",
+      "Read(//usr/local/bin/**)",
+      "Bash(npx --version)",
+      "Read(//snap/**)",
+      "Read(//opt/**)",
+      "Read(//usr/local/**)",
+      "WebSearch",
+      "Bash(openspec status *)",
+      "Bash(openspec instructions *)",
+      "WebFetch(domain:github.com)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(openspec list *)",
+      "Bash(openspec archive *)",
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git reset *)",
+      "Bash(git commit --no-verify -m 'chore\\(phase-3\\): Mark task 4.12 complete - question marker infrastructure in place *)",
+      "Bash(git stash *)",
+      "Bash(git pull *)",
+      "Bash(npx markdownlint *)",
+      "Bash(git commit -m 'fix: resolve markdown linting errors \\(MD036, MD060\\) *)",
+      "Bash(git checkout *)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "synaphex"
+  ]
+}
