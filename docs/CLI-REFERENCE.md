@@ -444,3 +444,5 @@ synaphex task-reviewer my-project integrate-triton "Integrate Triton" ~/app \
 - Memory files persist across runs
 - `completed_steps` is authoritative for workflow state
 - No automatic transitions—each step is explicit and manual
+
+For detailed information about task state transitions and validation rules, see [ARCHITECTURE.md](ARCHITECTURE.md#state-machine).

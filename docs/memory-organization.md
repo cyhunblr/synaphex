@@ -1,5 +1,7 @@
 # Project Memory Organization (v2.0.0)
 
+> **Note:** This documentation has been consolidated into [ARCHITECTURE.md](ARCHITECTURE.md#memory-system). Please refer to that file for the latest information.
+
 ## Overview
 
 Synaphex organizes project knowledge in `memory/` directories. Each project has internal memory (project-specific) and external memory (linked from other projects). This document explains how to structure and maintain memory files.

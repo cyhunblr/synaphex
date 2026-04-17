@@ -1,22 +1,20 @@
 # [2.0.0](https://github.com/cyhunblr/synaphex/compare/v1.8.1...v2.0.0) (2026-04-17)
 
-
 ### Features
 
-* major refactoring for Phase 3 architecture ([4112d23](https://github.com/cyhunblr/synaphex/commit/4112d23aa0e07839a36a86dc80914f156300a8bd))
-
+- major refactoring for Phase 3 architecture ([4112d23](https://github.com/cyhunblr/synaphex/commit/4112d23aa0e07839a36a86dc80914f156300a8bd))
+- comprehensive documentation overhaul for v2.0.0 release (INSTALLATION.md, GETTING-STARTED.md, HOW-TO-GUIDE.md, EXAMPLES.md, ARCHITECTURE.md, TROUBLESHOOTING.md, CLI-REFERENCE.md)
 
 ### BREAKING CHANGES
 
-* Major architectural changes including task workflow state
-validation, researcher and answerer agents, and comprehensive error handling.
+- Major architectural changes including task workflow state
+  validation, researcher and answerer agents, and comprehensive error handling.
 
 ## [1.8.1](https://github.com/cyhunblr/synaphex/compare/v1.8.0...v1.8.1) (2026-04-17)
 
-
 ### Bug Fixes
 
-* version ([23fc960](https://github.com/cyhunblr/synaphex/commit/23fc9602939b8a8bb8492aca1e67fb38c3ca0937))
+- version ([23fc960](https://github.com/cyhunblr/synaphex/commit/23fc9602939b8a8bb8492aca1e67fb38c3ca0937))
 
 # [1.8.0](https://github.com/cyhunblr/synaphex/compare/v1.7.1...v1.8.0) (2026-04-17)
 

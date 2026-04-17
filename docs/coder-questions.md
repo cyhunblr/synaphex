@@ -1,5 +1,7 @@
 # Coder Questions & Escalation (v2.0.0)
 
+> **Note:** This documentation has been consolidated into [ARCHITECTURE.md](ARCHITECTURE.md#question-escalation). Please refer to that file for the latest information.
+
 ## Overview
 
 During implementation, the Coder can embed questions directly in code. These questions are answered by the Answerer agent, which can escalate architectural decisions to the user for clarification.

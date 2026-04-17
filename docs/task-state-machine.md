@@ -1,5 +1,7 @@
 # Task State Machine (v2.0.0)
 
+> **Note:** This documentation has been consolidated into [ARCHITECTURE.md](ARCHITECTURE.md#state-machine). Please refer to that file for the latest information.
+
 ## Overview
 
 Synaphex v2.0.0 implements a user-orchestrated task workflow where users explicitly invoke commands in sequence. Each command validates prior state and appends to a `completed_steps` array in `task-meta.json`.

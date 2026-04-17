@@ -1,5 +1,7 @@
 # Answerer Escalation (v2.0.0)
 
+> **Note:** This documentation has been consolidated into [ARCHITECTURE.md](ARCHITECTURE.md#question-escalation). Please refer to that file for the latest information.
+
 ## Overview
 
 During implementation, the Coder may embed questions in code. The Answerer agent responds to these questions, but **escalates** architectural decisions to the user for clarification. This document explains when escalation happens and how to handle it.

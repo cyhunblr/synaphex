@@ -53,7 +53,15 @@
       "Bash(npx markdownlint-cli2 *)",
       "Bash(python3 /tmp/fix_markdown.py)",
       "Bash(python3 /tmp/fix_markdown2.py)",
-      "Bash(git commit -m 'fix: resolve all markdown linting errors *)"
+      "Bash(git commit -m 'fix: resolve all markdown linting errors *)",
+      "Bash(npx eslint *)",
+      "Bash(git commit -m 'docs: create OpenSpec change for v2.0.0 documentation overhaul *)",
+      "Bash(git commit -m 'fix: resolve eslint error handling issues *)",
+      "Bash(git commit -m 'chore\\(release\\): 2.0.0 [skip ci] *)",
+      "Bash(git commit *)",
+      "Bash(claude skills *)",
+      "Bash(grep -E \"\\\\.\\(md\\)$\")",
+      "Bash([ ! -f \"/home/cyhunblr/PROJECTs/synaphex/docs/$file\" ])"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -98,23 +98,50 @@ memory/internal/
 └── research/<slug>.md   # Phase 2 — Researcher output
 ```
 
+## Installation
+
+Install Synaphex v2.0.0 globally via npm or from source:
+
+```bash
+npm install -g synaphex
+synaphex --version
+```
+
+For detailed installation instructions for all platforms (macOS, Linux, Windows) and IDE plugins, see [INSTALLATION.md](docs/INSTALLATION.md).
+
+## Getting Started
+
+New to Synaphex? Start here:
+
+1. **[Getting Started (5 minutes)](docs/GETTING-STARTED.md)** — Quick start guide with step-by-step instructions
+2. **[How-To Guide](docs/HOW-TO-GUIDE.md)** — Task-based workflows for common scenarios
+3. **[Examples](docs/EXAMPLES.md)** — Real-world workflows: password reset, GraphQL integration, real-time notifications, multi-project inheritance, and refactoring
+
 ## Documentation
 
-Comprehensive guides for using Synaphex v2.0.0:
+Complete reference guides for Synaphex v2.0.0:
 
-### Workflow & Usage
+### Quick Links
 
-- **[Workflow Guide](docs/workflow-guide.md)** — Complete guide with 8-step workflow, 4 real-world examples, memory management, state management, and error recovery
-- **[CLI Reference](docs/cli-reference.md)** — All 8 commands with usage examples and prerequisites
-- **[Task State Machine](docs/task-state-machine.md)** — State diagram with transitions and validation rules
-- **[Memory Organization](docs/memory-organization.md)** — How to structure and maintain memory files
+- **[INSTALLATION.md](docs/INSTALLATION.md)** — Install on macOS, Linux, Windows, and IDE plugins
+- **[GETTING-STARTED.md](docs/GETTING-STARTED.md)** — 5-minute quick start
+- **[HOW-TO-GUIDE.md](docs/HOW-TO-GUIDE.md)** — Common task-based workflows
+- **[EXAMPLES.md](docs/EXAMPLES.md)** — Real-world workflow examples
 
-### Troubleshooting & Migration
+### Advanced
 
-- **[Error Handling](docs/error-handling.md)** — Common errors, recovery procedures, and debugging
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** — System design, agent pipeline, state machine, memory system, and question escalation
+- **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** — Common errors and recovery procedures
+- **[Workflow Guide](docs/workflow-guide.md)** — Complete workflow guide with step-by-step instructions
+- **[CLI Reference](docs/cli-reference.md)** — All commands with usage examples
 - **[Migration Guide](docs/MIGRATION.md)** — Upgrade from v1.x to v2.0.0
-- **[Answerer Escalation](docs/answerer-escalation.md)** — When and how architectural decisions are escalated
-- **[Coder Questions](docs/coder-questions.md)** — Question marker syntax and escalation flow
+
+### Legacy Documentation (Archived)
+
+- **[Task State Machine](docs/task-state-machine.md)** — _Consolidated into ARCHITECTURE.md_
+- **[Memory Organization](docs/memory-organization.md)** — _Consolidated into ARCHITECTURE.md_
+- **[Answerer Escalation](docs/answerer-escalation.md)** — _Consolidated into ARCHITECTURE.md_
+- **[Coder Questions](docs/coder-questions.md)** — _Consolidated into ARCHITECTURE.md_
 
 ### IDE Integrations
 
