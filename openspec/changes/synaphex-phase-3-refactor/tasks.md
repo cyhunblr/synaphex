@@ -73,10 +73,10 @@ Phase 3 Refactoring addresses architectural misalignment: Synaphex was designed 
 - [x] 6.1 Implement validateTaskSequence(): Check completed_steps against required order
 - [x] 6.2 Implement validateStepNotDuplicated(): Prevent running same step twice
 - [x] 6.3 Implement helpfulErrorMessage(): Format validation errors with hints
-- [ ] 6.4 Test validation: Cannot run planner before examine
-- [ ] 6.5 Test validation: Can skip researcher
-- [ ] 6.6 Test validation: Cannot skip examine
-- [ ] 6.7 Test validation: Cannot run coder before planner
+- [x] 6.4 Test validation: Cannot run planner before examine
+- [x] 6.5 Test validation: Can skip researcher
+- [x] 6.6 Test validation: Cannot skip examine
+- [x] 6.7 Test validation: Cannot run coder before planner
 
 ## 7. Implement Researcher Agent
 

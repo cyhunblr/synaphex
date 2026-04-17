@@ -29,7 +29,9 @@
       "Bash(npx markdownlint *)",
       "Bash(git commit -m 'fix: resolve markdown linting errors \\(MD036, MD060\\) *)",
       "Bash(git checkout *)",
-      "Bash(git commit --amend -m ' *)"
+      "Bash(git commit --amend -m ' *)",
+      "Bash(npm install *)",
+      "Bash(npm test *)"
     ]
   },
   "enableAllProjectMcpServers": true,
