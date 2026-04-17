@@ -1,3 +1,10 @@
+## [1.8.1](https://github.com/cyhunblr/synaphex/compare/v1.8.0...v1.8.1) (2026-04-17)
+
+
+### Bug Fixes
+
+* version ([23fc960](https://github.com/cyhunblr/synaphex/commit/23fc9602939b8a8bb8492aca1e67fb38c3ca0937))
+
 # [1.8.0](https://github.com/cyhunblr/synaphex/compare/v1.7.1...v1.8.0) (2026-04-17)
 
 ### Bug Fixes
