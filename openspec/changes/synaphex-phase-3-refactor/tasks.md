@@ -49,7 +49,7 @@ Phase 3 Refactoring addresses architectural misalignment: Synaphex was designed 
 - [x] 4.9 Update task-planner.ts: Validate required prior steps
 - [x] 4.10 Rename src/commands/task-implement.ts → task-coder.ts
 - [x] 4.11 Update task-coder.ts: Append "coder" to completed_steps
-- [ ] 4.12 Update task-coder.ts: Embed question markers (SYNAPHEX_QUESTION, SYNAPHEX_ARCHITECTURAL)
+- [x] 4.12 Update task-coder.ts: Embed question markers (SYNAPHEX_QUESTION, SYNAPHEX_ARCHITECTURAL)
 - [x] 4.13 Rename src/commands/task-review.ts → task-reviewer.ts
 - [x] 4.14 Update task-reviewer.ts: Append "reviewer" to completed_steps
 - [x] 4.15 Create src/commands/task-researcher.ts: Runner for Researcher agent
