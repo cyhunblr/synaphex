@@ -61,7 +61,7 @@ If you prefer manual configuration, follow these steps:
 2. **Reload VSCode:**
    _Press `F1`, type **"Developer: Reload Window"**, and press Enter._
 
-For platform-specific instructions on how to use Synaphex with your editor, see the [IDE Integrations](#ide-integrations--documentation) section.
+For platform-specific instructions on how to use Synaphex with your editor, see the [IDE Integrations](#ide-integrations) section.
 
 ## Local development
 
@@ -98,7 +98,25 @@ memory/internal/
 └── research/<slug>.md   # Phase 2 — Researcher output
 ```
 
-## IDE Integrations & Documentation
+## Documentation
+
+Comprehensive guides for using Synaphex v2.0.0:
+
+### Workflow & Usage
+
+- **[Workflow Guide](docs/workflow-guide.md)** — Complete guide with 8-step workflow, 4 real-world examples, memory management, state management, and error recovery
+- **[CLI Reference](docs/cli-reference.md)** — All 8 commands with usage examples and prerequisites
+- **[Task State Machine](docs/task-state-machine.md)** — State diagram with transitions and validation rules
+- **[Memory Organization](docs/memory-organization.md)** — How to structure and maintain memory files
+
+### Troubleshooting & Migration
+
+- **[Error Handling](docs/error-handling.md)** — Common errors, recovery procedures, and debugging
+- **[Migration Guide](docs/MIGRATION.md)** — Upgrade from v1.x to v2.0.0
+- **[Answerer Escalation](docs/answerer-escalation.md)** — When and how architectural decisions are escalated
+- **[Coder Questions](docs/coder-questions.md)** — Question marker syntax and escalation flow
+
+### IDE Integrations
 
 Synaphex supports a **Delegated Mode**, allowing IDE models (like Gemini in Antigravity, or Copilot/Claude in VSCode) to natively run the Synaphex agent pipelines without requiring Anthropic API keys.
 
