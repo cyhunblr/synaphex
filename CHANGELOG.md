@@ -1,37 +1,52 @@
-## [1.7.1](https://github.com/cyhunblr/synaphex/compare/v1.7.0...v1.7.1) (2026-04-16)
-
-
-### Bug Fixes
-
-* finalize linting and plugin transition ([9ac47e5](https://github.com/cyhunblr/synaphex/commit/9ac47e5889f1d6a2af8053058b51976d5604b633))
-
-# [1.7.0](https://github.com/cyhunblr/synaphex/compare/v1.6.3...v1.7.0) (2026-04-16)
-
+# [2.0.0](https://github.com/cyhunblr/synaphex/compare/v1.7.1...v2.0.0) (2026-04-17)
 
 ### Features
 
-* namespace task-related tools and remove native MCP prompts in favor of plugin-based skills ([6ab0d17](https://github.com/cyhunblr/synaphex/commit/6ab0d1719a7afa2049dac3222c8c2d9c1557ff6f))
+- implement Phase 3 refactoring with task workflow state validation ([#48](https://github.com/cyhunblr/synaphex/issues/48))
+- add researcher agent for knowledge gap research and web search integration ([#47](https://github.com/cyhunblr/synaphex/issues/47))
+- introduce task state machine with sequential workflow validation ([#46](https://github.com/cyhunblr/synaphex/issues/46))
+- add answerer agent for question answering and escalation handling ([#45](https://github.com/cyhunblr/synaphex/issues/45))
+- add comprehensive error handling documentation and guidelines ([#44](https://github.com/cyhunblr/synaphex/issues/44))
+- add memory organization guidelines for project memory management ([#43](https://github.com/cyhunblr/synaphex/issues/43))
+
+### Bug Fixes
+
+- resolve all markdown and eslint linting errors for codebase compliance ([#50](https://github.com/cyhunblr/synaphex/issues/50))
+- fix error handling in examiner agent with proper cause preservation ([#49](https://github.com/cyhunblr/synaphex/issues/49))
+
+### BREAKING CHANGES
+
+- Major architectural refactoring for Phase 3 — task workflow and agent pipeline changes
+
+## [1.7.1](https://github.com/cyhunblr/synaphex/compare/v1.7.0...v1.7.1) (2026-04-16)
+
+### Bug Fixes
+
+- finalize linting and plugin transition ([9ac47e5](https://github.com/cyhunblr/synaphex/commit/9ac47e5889f1d6a2af8053058b51976d5604b633))
+
+# [1.7.0](https://github.com/cyhunblr/synaphex/compare/v1.6.3...v1.7.0) (2026-04-16)
+
+### Features
+
+- namespace task-related tools and remove native MCP prompts in favor of plugin-based skills ([6ab0d17](https://github.com/cyhunblr/synaphex/commit/6ab0d1719a7afa2049dac3222c8c2d9c1557ff6f))
 
 ## [1.6.3](https://github.com/cyhunblr/synaphex/compare/v1.6.2...v1.6.3) (2026-04-16)
 
-
 ### Bug Fixes
 
-* finalize bulletproof multi-path plugin and skills discovery ([330efbf](https://github.com/cyhunblr/synaphex/commit/330efbf8341ce68f0c4975206d48a2205df71656))
+- finalize bulletproof multi-path plugin and skills discovery ([330efbf](https://github.com/cyhunblr/synaphex/commit/330efbf8341ce68f0c4975206d48a2205df71656))
 
 ## [1.6.2](https://github.com/cyhunblr/synaphex/compare/v1.6.1...v1.6.2) (2026-04-16)
 
-
 ### Bug Fixes
 
-* include .claude-plugin in package distribution files ([7860ad7](https://github.com/cyhunblr/synaphex/commit/7860ad7326813765472adc7e486eedc1c09f9432))
+- include .claude-plugin in package distribution files ([7860ad7](https://github.com/cyhunblr/synaphex/commit/7860ad7326813765472adc7e486eedc1c09f9432))
 
 ## [1.6.1](https://github.com/cyhunblr/synaphex/compare/v1.6.0...v1.6.1) (2026-04-16)
 
-
 ### Bug Fixes
 
-* align documentation with plugin architecture and namespaced commands ([3d0485f](https://github.com/cyhunblr/synaphex/commit/3d0485ff196c417eb19d41056ed09659e08a31e2))
+- align documentation with plugin architecture and namespaced commands ([3d0485f](https://github.com/cyhunblr/synaphex/commit/3d0485ff196c417eb19d41056ed09659e08a31e2))
 
 # [1.6.0](https://github.com/cyhunblr/synaphex/compare/v1.5.1...v1.6.0) (2026-04-16)
 
