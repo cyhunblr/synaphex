@@ -233,6 +233,7 @@ cat ~/.synaphex/service-a/memory/internal/tasks/add-user-authentication/plan.md
 ### Iteration 2
 
 **Planner** runs again with feedback. **Coder** re-implements:
+
 - Adds Prisma transactions
 - Improves cache invalidation
 - Adds slow query monitoring
@@ -258,13 +259,13 @@ diff ~/.synaphex/refactor-database/memory/internal/tasks/refactor-database-queri
 
 ## Summary
 
-| Example | Level | Duration | Key Feature |
-|---------|-------|----------|------------|
-| 1: Simple Feature | Beginner | 3-5 min | Basic workflow |
-| 2: Research | Intermediate | 5-10 min | Technology research |
-| 3: Architectural | Intermediate | 5-10 min | Design decisions |
-| 4: Multi-Project | Advanced | 5 min + | Pattern inheritance |
-| 5: Feedback Loop | Advanced | 10-15 min | Review iteration |
+| Example           | Level        | Duration  | Key Feature         |
+| ----------------- | ------------ | --------- | ------------------- |
+| 1: Simple Feature | Beginner     | 3-5 min   | Basic workflow      |
+| 2: Research       | Intermediate | 5-10 min  | Technology research |
+| 3: Architectural  | Intermediate | 5-10 min  | Design decisions    |
+| 4: Multi-Project  | Advanced     | 5 min +   | Pattern inheritance |
+| 5: Feedback Loop  | Advanced     | 10-15 min | Review iteration    |
 
 ---
 

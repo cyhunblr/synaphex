@@ -1,11 +1,13 @@
 ## Context
 
 Synaphex v2.0.0 ships with MCP server (`dist/index.js`) that:
+
 - Registers 6 tools: `create`, `load`, `memorize`, `remember`, `settings`, `update_settings`
 - Works correctly when called via CLI or direct MCP calls
 - Does NOT expose tools as `/synaphex:*` skills in VS Code Claude Code extension
 
 The VS Code extension tries to invoke `/synaphex:create` but fails with "skill isn't directly available" error, suggesting:
+
 1. MCP tools not being discovered/registered as skills by the IDE
 2. Skill name mapping issue (tool names vs skill names)
 3. MCP server not starting or communication failing in IDE environment
@@ -13,39 +15,44 @@ The VS Code extension tries to invoke `/synaphex:create` but fails with "skill i
 ## Goals / Non-Goals
 
 **Goals:**
+
 - Make synaphex MCP tools accessible as `/synaphex:*` skills in VS Code
 - Ensure `/synaphex:create`, `/synaphex:load`, `/synaphex:settings` work as documented
 - Verify IDE-MCP server communication is working correctly
 - Test end-to-end: user runs `/synaphex:create project` → project is created
 
 **Non-Goals:**
+
 - Add new tools (only fix existing ones)
 - Change MCP server API
 - Modify VS Code extension source (work within current extension capabilities)
 
 ## Decisions
 
-#### Decision 1: Investigate MCP Server Registration
+### Decision 1: Investigate MCP Server Registration
 
 Check if MCP server is properly registering tools with correct schema. Verify:
+
 - Tool names in `server.registerTool()` calls match expected skill names
 - Input schema is valid (Zod validation)
 - Tool descriptions are present
 
 **Rationale**: If tools aren't registered correctly, IDE can't discover them.
 
-#### Decision 2: Check IDE-MCP Communication
+### Decision 2: Check IDE-MCP Communication
 
 Verify MCP server is running and responding in VS Code environment:
+
 - Check if MCP server process starts when IDE loads synaphex
 - Verify stdio transport is working (MCP uses stdin/stdout)
 - Check for errors in MCP server logs or IDE console
 
 **Rationale**: Even if registration is correct, if MCP server isn't running, tools won't be available.
 
-#### Decision 3: Verify Skill Name Mapping
+### Decision 3: Verify Skill Name Mapping
 
 Check if tool names need to be mapped to skill names:
+
 - MCP tools are named: `create`, `load`, `memorize`, etc.
 - Skills are invoked as: `/synaphex:create`, `/synaphex:load`, etc.
 - May need to verify name mapping in IDE integration layer

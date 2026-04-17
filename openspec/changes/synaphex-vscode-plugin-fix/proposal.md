@@ -15,10 +15,12 @@ Fix the synaphex skill registration and accessibility in VS Code Claude Code ext
 ## Capabilities
 
 ### New Capabilities
+
 - `vscode-skill-registration`: Proper skill registration in VS Code extension
 - `mcp-tool-integration`: Correct MCP tool-to-skill binding in IDE
 
 ### Modified Capabilities
+
 - `synaphex-create-command`: Fix skill invocation for `/synaphex:create`
 - `synaphex-load-command`: Fix skill invocation for `/synaphex:load`
 - `synaphex-settings-command`: Fix skill invocation for `/synaphex:settings`

@@ -21,6 +21,7 @@ Task-focused guides for common Synaphex workflows.
 ### Step 1: Choose a project name
 
 Pick a lowercase name with letters, numbers, hyphens, or underscores. Examples:
+
 - `my-api`
 - `web_app_2024`
 - `rtp_receiver`
@@ -67,6 +68,7 @@ A task goes through these steps:
 ```
 
 The system will ask:
+
 - "Activate researcher?" (yes/no) — Say `no` for simple tasks
 - "How should review work?" (user/agent/ask) — Say `agent` for automated review
 
@@ -111,6 +113,7 @@ Activate researcher? (yes/no): yes
 ### Step 2: Wait for research phase
 
 The **Researcher** agent will:
+
 - Search the web for relevant solutions
 - Ask if you want a specific implementation method or further research
 - Offer to save findings to project memory
@@ -147,6 +150,7 @@ Researcher findings are passed to Planner, which incorporates them into the impl
 ### Step 1: Recognize escalation
 
 Coder might ask architectural questions like:
+
 - "Should we use REST or GraphQL?"
 - "Should data be cached in-memory or in Redis?"
 
@@ -170,7 +174,7 @@ Your options:
   A) Yes, use Event Sourcing
   B) No, use traditional audit table
   C) Hybrid approach
-  
+
 What's your decision?
 ```
 
@@ -202,6 +206,7 @@ Planner runs again (iteration 2) with your decision, and Coder implements using 
 ### Scenario
 
 You have:
+
 - **Parent project**: `backend-api` with established Node.js + GraphQL patterns
 - **Child project**: `backend-service` that should follow same patterns
 
@@ -218,6 +223,7 @@ You have:
 ```
 
 This creates a symbolic link from:
+
 - `backend-api/memory/internal/` → `backend-service/memory/external/backend-api_memory`
 
 ### Step 3: Run tasks in child project
@@ -229,12 +235,14 @@ When you run tasks in child project:
 ```
 
 The Examiner will read:
+
 - Child project memory (`memory/internal/`)
 - Inherited parent patterns (`memory/external/backend-api_memory`)
 
 ### Step 4: Planner sees parent patterns
 
 Planner automatically references parent project's:
+
 - Code conventions
 - Architecture decisions
 - API design patterns
@@ -254,35 +262,41 @@ Result: Child project implementations are consistent with parent patterns.
 ### Check the error type
 
 **Validation Error** (happens before agents run):
+
 ```
 Error: Project 'my-project' not found
 ```
+
 → Check project exists: `ls ~/.synaphex/my-project/`
 → See [Installation Guide troubleshooting](./INSTALLATION.md#troubleshooting)
 
 **Execution Error** (happens during agent run):
+
 ```
 Error: Cannot run 'coder' - 'planner' not completed yet
 ```
+
 → Check task state: `cat ~/.synaphex/my-project/memory/internal/tasks/slug/task-meta.json`
 → Task steps must run in order
 
 **Escalation Error** (architectural question):
+
 ```
 Awaiting user decision on architectural question...
 Timeout: User decision not provided
 ```
+
 → You need to provide decision
 → See [How to handle architectural questions](#how-to-handle-architectural-questions)
 
 ### Common issues
 
-| Error | Solution |
-|-------|----------|
-| `command not found: synaphex` | Check installation: `npm list -g synaphex` |
-| `Invalid project name` | Use lowercase letters, numbers, hyphens, underscores |
-| `Project already exists` | Delete it: `rm -rf ~/.synaphex/project-name` |
-| `Step X already completed` | Task state is locked. Check memory for step order. |
+| Error                         | Solution                                     |
+| ----------------------------- | -------------------------------------------- |
+| `command not found: synaphex` | Check: `npm list -g synaphex`                |
+| `Invalid project name`        | Use lowercase, numbers, hyphens, underscores |
+| `Project already exists`      | Delete: `rm -rf ~/.synaphex/project-name`    |
+| `Step X already completed`    | Check memory for step execution order.       |
 
 ### Enable detailed logging
 
@@ -333,6 +347,7 @@ npm install
 ### Step 2: Review contribution guidelines
 
 Read [CONTRIBUTING.md](../CONTRIBUTING.md) for:
+
 - Code style (TypeScript, linting rules)
 - Test requirements (Jest)
 - Commit message format
@@ -355,6 +370,7 @@ npm run lint
 ### Step 5: Submit a pull request
 
 Push to GitHub and open a PR:
+
 - Title: concise description (`fix: agent pipeline deadlock`)
 - Description: why this change (reference issues if applicable)
 - Reviewers will provide feedback

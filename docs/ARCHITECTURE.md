@@ -28,14 +28,14 @@ COMPLETED or FEEDBACK LOOP
 
 ### Agent Roles
 
-| Agent | Role | Required? |
-|-------|------|-----------|
-| **Examiner** | Reads project context and memory | Yes |
-| **Researcher** | Researches technologies (web search) | No |
-| **Planner** | Creates step-by-step implementation plan | Yes |
-| **Coder** | Writes code and tests | Yes |
-| **Answerer** | Answers technical questions | Yes |
-| **Reviewer** | Reviews code quality | No |
+| Agent          | Role                             | Required? |
+| -------------- | -------------------------------- | --------- |
+| **Examiner**   | Reads project context and memory | Yes       |
+| **Researcher** | Researches tech (web search)     | No        |
+| **Planner**    | Creates implementation plan      | Yes       |
+| **Coder**      | Writes code and tests            | Yes       |
+| **Answerer**   | Answers technical questions      | Yes       |
+| **Reviewer**   | Reviews code quality             | No        |
 
 ---
 
@@ -46,6 +46,7 @@ Tasks follow a strict state machine with required steps and order constraints.
 ### State Requirements
 
 **Required steps** (must run in order):
+
 1. `create` — Create project
 2. `examine` — Read codebase and memory
 3. `planner` — Plan implementation
@@ -53,6 +54,7 @@ Tasks follow a strict state machine with required steps and order constraints.
 5. `answerer` — Handle questions
 
 **Optional steps** (can be skipped or run conditionally):
+
 - `remember` — Link parent project memory (before examine)
 - `researcher` — Research technology (before planner)
 - `reviewer` — Review code (after answerer)
@@ -181,7 +183,14 @@ Re-planning (iteration 2) uses this decision.
   "slug": "add-password-reset",
   "status": "completed",
   "iteration": 1,
-  "completed_steps": ["create", "examine", "planner", "coder", "answerer", "reviewer"],
+  "completed_steps": [
+    "create",
+    "examine",
+    "planner",
+    "coder",
+    "answerer",
+    "reviewer"
+  ],
   "answerer_escalation": []
 }
 ```
@@ -237,6 +246,7 @@ Answerer detects questions using this regex pattern:
 ```
 
 Matches:
+
 - Opening: `<!--`
 - Marker type: `QUESTION` or `ARCHITECTURAL`
 - Question text (multiline)
