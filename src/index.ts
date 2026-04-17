@@ -10,19 +10,21 @@ import { handleMemorize } from "./commands/memorize.js";
 import { handleRemember } from "./commands/remember.js";
 import { handleSettingsRead } from "./commands/settings-read.js";
 import { handleSettingsUpdate } from "./commands/settings-update.js";
-import { handleTaskStart } from "./commands/task-start.js";
+import { handleTaskStart as handleTaskCreate } from "./commands/task-create.js";
 import { handleTaskExamine } from "./commands/task-examine.js";
-import { handleTaskPlan } from "./commands/task-plan.js";
-import { handleTaskImplement } from "./commands/task-implement.js";
-import { handleTaskReview } from "./commands/task-review.js";
-import { handleWriteMemory } from "./commands/write-memory.js";
+import { handleTaskPlan as handleTaskPlanner } from "./commands/task-planner.js";
+import { handleTaskImplement as handleTaskCoder } from "./commands/task-coder.js";
+import { handleTaskReview as handleTaskReviewer } from "./commands/task-reviewer.js";
+import { handleTaskResearcher } from "./commands/task-researcher.js";
+import { handleTaskAnswerer } from "./commands/task-answerer.js";
+import { handleTaskRemember } from "./commands/task-remember.js";
 
 // === Server setup ===
 
 const server = new McpServer(
   {
     name: "synaphex",
-    version: "1.3.0",
+    version: "2.0.0",
   },
   {
     capabilities: {
@@ -156,40 +158,6 @@ server.registerTool(
   },
 );
 
-// === Tool: synaphex_write_memory ===
-
-server.registerTool(
-  "write_memory",
-  {
-    description:
-      "Write content to a synaphex project's internal memory file. " +
-      "Use this instead of the Write tool to save memory files — it handles path resolution automatically.",
-    inputSchema: z.object({
-      project: z.string().min(1).max(64).describe("Project name"),
-      filename: z
-        .string()
-        .min(1)
-        .describe(
-          "Relative filename within memory/internal/ (e.g. 'overview.md', 'packages/my_pkg.md')",
-        ),
-      content: z.string().describe("Full markdown content to write"),
-    }),
-  },
-  async ({ project, filename, content }) => {
-    try {
-      const result = await handleWriteMemory(project, filename, content);
-      return {
-        content: [{ type: "text", text: result }],
-      };
-    } catch (err) {
-      return {
-        content: [{ type: "text", text: `Error: ${(err as Error).message}` }],
-        isError: true,
-      };
-    }
-  },
-);
-
 // === Tool: synaphex_settings ===
 
 server.registerTool(
@@ -285,10 +253,10 @@ server.registerTool(
 // === Tool: synaphex_task_start ===
 
 server.registerTool(
-  "task_start",
+  "task_create",
   {
     description:
-      "Initialize a new synaphex task pipeline. Creates task directory, returns memory digest and settings.",
+      "Initialize a new synaphex task. Creates task directory, returns memory digest and settings.",
     inputSchema: z.object({
       project: z.string().min(1).max(64).describe("Project name"),
       task: z.string().min(1).describe("Task description sentence"),
@@ -298,7 +266,7 @@ server.registerTool(
   },
   async ({ project, task, cwd, mode }) => {
     try {
-      const result = await handleTaskStart(project, task, cwd, mode);
+      const result = await handleTaskCreate(project, task, cwd, mode);
       return {
         content: [{ type: "text", text: result }],
       };
@@ -351,7 +319,7 @@ server.registerTool(
 // === Tool: synaphex_task_plan ===
 
 server.registerTool(
-  "task_plan",
+  "task_planner",
   {
     description:
       "Run the Planner agent to create an implementation plan from examiner output.",
@@ -384,7 +352,7 @@ server.registerTool(
     iteration,
   }) => {
     try {
-      const result = await handleTaskPlan(
+      const result = await handleTaskPlanner(
         project,
         slug,
         task,
@@ -408,7 +376,7 @@ server.registerTool(
 // === Tool: synaphex_task_implement ===
 
 server.registerTool(
-  "task_implement",
+  "task_coder",
   {
     description:
       "Run the Coder agent to implement the plan. " +
@@ -441,7 +409,7 @@ server.registerTool(
     iteration,
   }) => {
     try {
-      const result = await handleTaskImplement(
+      const result = await handleTaskCoder(
         project,
         slug,
         task,
@@ -466,7 +434,7 @@ server.registerTool(
 // === Tool: synaphex_task_review ===
 
 server.registerTool(
-  "task_review",
+  "task_reviewer",
   {
     description:
       "Run the Reviewer agent to check implementation quality. " +
@@ -501,7 +469,7 @@ server.registerTool(
     iteration,
   }) => {
     try {
-      const result = await handleTaskReview(
+      const result = await handleTaskReviewer(
         project,
         slug,
         task,
@@ -511,6 +479,93 @@ server.registerTool(
         examiner_compact,
         iteration,
       );
+      return {
+        content: [{ type: "text", text: result }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// === Tool: synaphex_task_researcher ===
+
+server.registerTool(
+  "task_researcher",
+  {
+    description:
+      "Run the Researcher agent to perform internet research on unknown topics and update project memory.",
+    inputSchema: z.object({
+      project: z.string().min(1).max(64).describe("Project name"),
+      slug: z.string().min(1).describe("Task slug"),
+      task: z.string().min(1).describe("Task description"),
+      cwd: z.string().min(1).describe("Absolute path to the working directory"),
+      examiner_compact: z.string().describe("Compact analysis from Examiner"),
+    }),
+  },
+  async ({ project, slug, task, cwd, examiner_compact }) => {
+    try {
+      const result = await handleTaskResearcher(project, slug, task, cwd, examiner_compact);
+      return {
+        content: [{ type: "text", text: result }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// === Tool: synaphex_task_answerer ===
+
+server.registerTool(
+  "task_answerer",
+  {
+    description:
+      "Run the Answerer agent to answer Coder questions and escalate architectural decisions.",
+    inputSchema: z.object({
+      project: z.string().min(1).max(64).describe("Project name"),
+      slug: z.string().min(1).describe("Task slug"),
+      task: z.string().min(1).describe("Task description"),
+      cwd: z.string().min(1).describe("Absolute path to the working directory"),
+      implementation_summary: z.string().describe("Coder's implementation summary"),
+    }),
+  },
+  async ({ project, slug, task, cwd, implementation_summary }) => {
+    try {
+      const result = await handleTaskAnswerer(project, slug, task, cwd, implementation_summary);
+      return {
+        content: [{ type: "text", text: result }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// === Tool: synaphex_task_remember ===
+
+server.registerTool(
+  "task_remember",
+  {
+    description:
+      "Link parent project's internal memory into child project's external memory before running task.",
+    inputSchema: z.object({
+      parent_project: z.string().min(1).max(64).describe("Parent project name"),
+      project: z.string().min(1).max(64).describe("Child project name"),
+    }),
+  },
+  async ({ parent_project, project }) => {
+    try {
+      const result = await handleTaskRemember(parent_project, project);
       return {
         content: [{ type: "text", text: result }],
       };

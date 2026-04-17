@@ -12,7 +12,7 @@ import {
   settingsPath,
 } from "../lib/project-store.js";
 import { runAgent } from "../lib/agent-runtime.js";
-import { readFile, listFiles, searchCode } from "../lib/file-tools.js";
+import { readFile, listFiles, searchCode } from "../agents/examiner.js";
 import { handleWriteMemory } from "./write-memory.js";
 import {
   EXAMINER_SYSTEM_PROMPT,

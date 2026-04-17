@@ -110,6 +110,57 @@ export function validateProjectName(name: string): {
   return { valid: true };
 }
 
+export function validateTaskSequence(
+  step: string,
+  completedSteps: string[],
+): {
+  valid: boolean;
+  error?: string;
+} {
+  const requiredSteps = ["create", "examine", "planner", "coder", "answerer", "reviewer"];
+  const optionalSteps = ["remember", "researcher"];
+  const allSteps = [...requiredSteps, ...optionalSteps];
+
+  if (!allSteps.includes(step)) {
+    return { valid: false, error: `Unknown step: ${step}` };
+  }
+
+  if (completedSteps.includes(step)) {
+    return { valid: false, error: `Step '${step}' has already been completed.` };
+  }
+
+  const stepIndex = requiredSteps.indexOf(step);
+  if (stepIndex !== -1) {
+    const requiredPrior = requiredSteps.slice(0, stepIndex);
+    const missingPrior = requiredPrior.filter((s) => !completedSteps.includes(s));
+    if (missingPrior.length > 0) {
+      return {
+        valid: false,
+        error: `Cannot run '${step}': ${missingPrior.map((s) => `'${s}'`).join(", ")} not completed yet.`,
+      };
+    }
+  }
+
+  // Optional steps: check if required prior step is done
+  const optionalIndex = optionalSteps.indexOf(step);
+  if (optionalIndex !== -1) {
+    const optionalDeps: Record<string, string[]> = {
+      remember: ["create"],
+      researcher: ["examine"],
+    };
+    const deps = optionalDeps[step] || [];
+    const missingDeps = deps.filter((s) => !completedSteps.includes(s));
+    if (missingDeps.length > 0) {
+      return {
+        valid: false,
+        error: `Cannot run '${step}': ${missingDeps.map((s) => `'${s}'`).join(", ")} not completed yet.`,
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
 // === Types ===
 
 export interface ProjectMeta {

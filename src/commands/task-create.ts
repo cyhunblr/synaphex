@@ -59,6 +59,8 @@ export async function handleTaskStart(
     createdAt: new Date().toISOString(),
     iteration: 1,
     status: "created",
+    completed_steps: ["create"],
+    answerer_escalation: null,
   };
   await writeJsonFile(`${finalTaskDir}/task-meta.json`, meta);
 

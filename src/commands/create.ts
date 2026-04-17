@@ -13,8 +13,59 @@ import {
   writeJsonFile,
   type ProjectMeta,
 } from "../lib/project-store.js";
-import { TOPIC_FILES } from "../lib/memory-scaffold.js";
 import { createDefaultSettings } from "../lib/settings-schema.js";
+
+// === Memory scaffold ===
+
+interface ScaffoldFile {
+  relPath: string;
+  purpose: string;
+  contents: string;
+}
+
+const TOPIC_FILES: ScaffoldFile[] = [
+  {
+    relPath: "overview.md",
+    purpose:
+      "Project purpose, main components, entry points, top-level dependencies.",
+    contents: "# Overview\n",
+  },
+  {
+    relPath: "architecture.md",
+    purpose:
+      "High-level architecture: module structure, data flow, key design patterns.",
+    contents: "# Architecture\n",
+  },
+  {
+    relPath: "interfaces.md",
+    purpose:
+      "ROS interface contracts: messages (.msg), services (.srv), actions (.action).",
+    contents: "# Interfaces\n",
+  },
+  {
+    relPath: "build.md",
+    purpose:
+      "Build system: catkin layout, CMakeLists.txt structure, package.xml deps.",
+    contents: "# Build System\n",
+  },
+  {
+    relPath: "conventions.md",
+    purpose:
+      "Coding conventions: C++ style, Python style, file organization, commit style.",
+    contents: "# Conventions\n",
+  },
+  {
+    relPath: "security.md",
+    purpose:
+      "Security model: threat surface, authentication, encryption, exposed endpoints.",
+    contents: "# Security\n",
+  },
+  {
+    relPath: "glossary.md",
+    purpose: "Domain-specific terms, acronyms, hardware names, project jargon.",
+    contents: "# Glossary\n",
+  },
+];
 
 export async function handleCreate(project: string): Promise<string> {
   const validation = validateProjectName(project);

@@ -3,7 +3,185 @@
  * Tools: read_file, list_files, search_code, write_memory
  */
 
+import { promises as fs } from "node:fs";
+import * as path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { AgentToolDef } from "../lib/pipeline-types.js";
+
+const execFileAsync = promisify(execFile);
+
+const MAX_FILE_SIZE = 100 * 1024; // 100KB
+const MAX_LIST_RESULTS = 200;
+const MAX_SEARCH_RESULTS = 50;
+
+/**
+ * Resolve a relative path against CWD and verify it stays within CWD.
+ * Throws if the path escapes.
+ */
+export async function safePath(cwd: string, relative: string): Promise<string> {
+  const resolved = path.resolve(cwd, relative);
+  const normalizedCwd = path.resolve(cwd);
+  if (
+    !resolved.startsWith(normalizedCwd + path.sep) &&
+    resolved !== normalizedCwd
+  ) {
+    throw new Error(
+      `Path '${relative}' resolves outside the working directory.`,
+    );
+  }
+
+  try {
+    const real = await fs.realpath(resolved);
+    const realCwd = await fs.realpath(normalizedCwd);
+    if (!real.startsWith(realCwd + path.sep) && real !== realCwd) {
+      throw new Error(
+        `Path '${relative}' resolves outside the working directory (via symlink).`,
+      );
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
+    const parentDir = path.dirname(resolved);
+    try {
+      const realParent = await fs.realpath(parentDir);
+      const realCwd = await fs.realpath(normalizedCwd);
+      if (
+        !realParent.startsWith(realCwd + path.sep) &&
+        realParent !== realCwd
+      ) {
+        throw new Error(
+          `Path '${relative}' parent resolves outside the working directory.`,
+        );
+      }
+    } catch {
+      // Parent doesn't exist — will be created by writeFile
+    }
+  }
+
+  return resolved;
+}
+
+/** Read a file, capped at MAX_FILE_SIZE */
+export async function readFile(
+  cwd: string,
+  relativePath: string,
+): Promise<string> {
+  const abs = await safePath(cwd, relativePath);
+  const stat = await fs.stat(abs);
+  if (stat.size > MAX_FILE_SIZE) {
+    const content = await fs.readFile(abs, "utf-8");
+    return (
+      content.slice(0, MAX_FILE_SIZE) +
+      `\n\n[... truncated at ${MAX_FILE_SIZE} bytes]`
+    );
+  }
+  return await fs.readFile(abs, "utf-8");
+}
+
+/** Write a file, creating parent directories */
+export async function writeFile(
+  cwd: string,
+  relativePath: string,
+  content: string,
+): Promise<void> {
+  const abs = await safePath(cwd, relativePath);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, content, "utf-8");
+}
+
+/** Edit a file by replacing old_text with new_text */
+export async function editFile(
+  cwd: string,
+  relativePath: string,
+  oldText: string,
+  newText: string,
+): Promise<void> {
+  const abs = await safePath(cwd, relativePath);
+  const content = await fs.readFile(abs, "utf-8");
+  const idx = content.indexOf(oldText);
+  if (idx === -1) {
+    throw new Error(
+      `old_text not found in '${relativePath}'. Make sure it matches exactly.`,
+    );
+  }
+  const updated =
+    content.slice(0, idx) + newText + content.slice(idx + oldText.length);
+  await fs.writeFile(abs, updated, "utf-8");
+}
+
+/** List files matching a glob pattern using find */
+export async function listFiles(
+  cwd: string,
+  pattern: string,
+): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      "find",
+      [
+        ".",
+        "-type",
+        "f",
+        "-name",
+        pattern || "*",
+        "-not",
+        "-path",
+        "./.git/*",
+        "-not",
+        "-path",
+        "./node_modules/*",
+        "-not",
+        "-path",
+        "./__pycache__/*",
+        "-not",
+        "-path",
+        "./dist/*",
+        "-not",
+        "-path",
+        "./.venv/*",
+        "-not",
+        "-path",
+        "./build/*",
+      ],
+      { cwd, maxBuffer: 1024 * 1024 },
+    );
+
+    return stdout
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .slice(0, MAX_LIST_RESULTS);
+  } catch {
+    return [];
+  }
+}
+
+/** Search for a regex pattern in files using grep */
+export async function searchCode(
+  cwd: string,
+  pattern: string,
+  glob?: string,
+): Promise<string> {
+  try {
+    const args = ["-rnP", "--include", glob || "*", "-m", "3", pattern, "."];
+    const { stdout } = await execFileAsync("grep", args, {
+      cwd,
+      maxBuffer: 512 * 1024,
+    });
+
+    const lines = stdout.split("\n").filter((l) => l.length > 0);
+    if (lines.length > MAX_SEARCH_RESULTS) {
+      return (
+        lines.slice(0, MAX_SEARCH_RESULTS).join("\n") +
+        `\n\n[... ${lines.length - MAX_SEARCH_RESULTS} more results truncated]`
+      );
+    }
+    return lines.join("\n") || "No matches found.";
+  } catch {
+    return "No matches found.";
+  }
+}
 
 export const EXAMINER_SYSTEM_PROMPT = `You are the Examiner agent in the synaphex pipeline. Your job is to analyze the user's codebase and project memory to produce a thorough understanding of the context needed for a given task.
 

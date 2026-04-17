@@ -8,11 +8,32 @@ import {
   settingsPath,
   readJsonFile,
 } from "../lib/project-store.js";
-import { TOPIC_FILES, isScaffoldOnly } from "../lib/memory-scaffold.js";
 import {
   summarizeAgents,
   type SynaphexSettings,
 } from "../lib/settings-schema.js";
+
+// === Memory scaffold ===
+
+interface ScaffoldFile {
+  relPath: string;
+  purpose: string;
+  contents: string;
+}
+
+const TOPIC_FILES: ScaffoldFile[] = [
+  { relPath: "overview.md", purpose: "Project overview", contents: "# Overview\n" },
+  { relPath: "architecture.md", purpose: "Architecture", contents: "# Architecture\n" },
+  { relPath: "interfaces.md", purpose: "Interfaces", contents: "# Interfaces\n" },
+  { relPath: "build.md", purpose: "Build system", contents: "# Build System\n" },
+  { relPath: "conventions.md", purpose: "Conventions", contents: "# Conventions\n" },
+  { relPath: "security.md", purpose: "Security", contents: "# Security\n" },
+  { relPath: "glossary.md", purpose: "Glossary", contents: "# Glossary\n" },
+];
+
+function isScaffoldOnly(content: string, scaffoldContents: string): boolean {
+  return content.trim() === scaffoldContents.trim();
+}
 
 const PER_FILE_CAP = 8_000; // characters per memory file
 const TOTAL_CAP = 100_000; // total digest cap

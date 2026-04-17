@@ -18,7 +18,7 @@ import {
   editFile,
   listFiles,
   searchCode,
-} from "../lib/file-tools.js";
+} from "../agents/examiner.js";
 import {
   CODER_SYSTEM_PROMPT,
   CODER_TOOLS,

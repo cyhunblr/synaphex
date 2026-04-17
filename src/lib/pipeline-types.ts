@@ -18,11 +18,24 @@ export interface TaskMeta {
   status:
     | "created"
     | "examining"
+    | "examined"
     | "planning"
+    | "planned"
     | "implementing"
+    | "implemented"
+    | "answering"
+    | "answered"
     | "reviewing"
-    | "done"
+    | "reviewed"
+    | "complete"
+    | "failed"
     | "cancelled";
+  completed_steps: string[];
+  answerer_escalation: {
+    question: string;
+    context: string;
+    options: string[];
+  } | null;
 }
 
 // === Token accounting ===
