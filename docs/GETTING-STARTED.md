@@ -1,139 +1,129 @@
-# Getting Started — 5-Minute Quick Start
+# Getting Started with Synaphex
 
-Welcome to Synaphex! This guide will get you up and running in 5 minutes.
+Get Synaphex up and running in **5 minutes**.
 
-**Time estimate:** 5 minutes  
-**Difficulty:** Beginner  
-**Prerequisites:** Node.js 18+, npm 8+
+## Prerequisites
 
-## Step 1: Install Synaphex (1 minute)
+- **Node.js 18+** and **npm 8+** (check versions: `node --version` && `npm --version`)
+- **5 minutes** free time
+- **Difficulty**: Beginner (no prior experience required)
+
+If you don't have Node.js installed, see [Installation Guide](./INSTALLATION.md).
+
+---
+
+## Step 1: Install (~30 seconds)
+
+Copy and paste this command:
 
 ```bash
-npm install -g synaphex
+npm install -g synaphex@2.0.0
+```
+
+Verify it worked:
+
+```bash
 synaphex --version
+# Output should be: 2.0.0
 ```
 
-You should see version `2.0.0` or higher.
+---
 
-## Step 2: Create Your First Project (1 minute)
+## Step 2: Create Your First Project (~10 seconds)
 
 ```bash
-synaphex create my-first-project
-cd my-first-project
+/synaphex:create my-first-task
 ```
 
-This creates a new Synaphex project with:
+This creates a new project at `~/.synaphex/my-first-task/` with:
+- `settings.json` — agent configuration (can be customized later)
+- `memory/` — project memory files organized by topic
 
-- `.synaphex/` directory for configuration and memory
-- Initial project settings
-- Ready-to-use task pipeline
-
-## Step 3: Load in Your IDE (1 minute)
-
-### Claude Code
-
-1. Open Claude Code
-2. Open the project folder: `my-first-project`
-3. You'll see the Synaphex plugin loaded in the sidebar
-4. Click the Synaphex icon to see available commands
-
-### VSCode
-
-1. Open VSCode
-2. File → Open Folder → select `my-first-project`
-3. Click the Synaphex extension icon in the sidebar
-4. You'll see the commands menu
-
-### Antigravity
-
-1. Launch Antigravity
-2. Project → Open → select `my-first-project`
-3. Tools → Extensions → Synaphex
-4. Commands are ready to use
-
-## Step 4: Run Your First Task (2 minutes)
-
-Let's create a simple task and see Synaphex in action.
-
-### Create a task description
-
-Use your IDE's Synaphex command:
-
+Expected output:
 ```
-/synaphex:task-create
+Created synaphex project 'my-first-task' at /home/user/.synaphex/my-first-task
 
-Task: "Add error handling to API routes"
+Files written:
+  - settings.json (default agent config)
+  - meta.json
+  - memory/internal/overview.md
+  - memory/internal/architecture.md
+  - memory/internal/interfaces.md
+  - memory/internal/build.md
+  - memory/internal/conventions.md
+  - memory/internal/security.md
+  - memory/internal/glossary.md
+  - memory/internal/packages/  (empty — populated by the 'memorize' tool)
+  - memory/external/           (empty — populated by the 'remember' tool)
 ```
 
-### Watch Synaphex analyze your code
+---
 
-Synaphex will:
+## Step 3: Load Project in IDE (~1 minute)
 
-1. Read your project structure
-2. Understand the architecture
-3. Create an implementation plan
-4. Ask if you're ready to proceed
+Open your IDE of choice and load the synaphex plugin:
 
-### Approve the plan and start coding
+- **Claude Code**: Use `/synaphex:load` command
+- **VSCode**: Install "Synaphex" extension from VS Code Marketplace
+- **Antigravity**: Load plugin from internal registry
 
-When Synaphex shows the plan, answer "yes" and watch it:
+The plugin gives you access to synaphex commands directly from the IDE.
 
-1. **Examine** your codebase
-2. **Research** any unfamiliar patterns (optional)
-3. **Plan** the implementation
-4. **Code** the solution step-by-step
+---
 
-## Step 5: What's Next?
+## Step 4: Run Your First Task (~2 minutes)
 
-You've completed the quick start! Here are your next moves:
+Open a terminal in your IDE and run:
 
-### Explore More
+```bash
+/synaphex:task my-first-task "Add a hello world endpoint to my API"
+```
 
-- **[INSTALLATION.md](INSTALLATION.md)** — Detailed setup for all platforms
-- **[HOW-TO-GUIDE.md](HOW-TO-GUIDE.md)** — Common tasks with explanations
-- **[EXAMPLES.md](EXAMPLES.md)** — Real-world workflow examples
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — Understand how Synaphex works
+This starts the 8-agent pipeline:
 
-### Try Common Tasks
+1. **Examiner** — reads your code and memory
+2. **Researcher** (optional) — researches if you need external knowledge
+3. **Planner** — creates an implementation plan
+4. **Coder** — writes the code
+5. **Answerer** — answers questions the coder has
+6. **Reviewer** — reviews the implementation
+7. Results are saved to your project memory
 
-1. **Create multiple projects** — Practice project organization
-2. **Run a research task** — Let Synaphex research unfamiliar tech
-3. **Handle an escalation** — See how to answer architectural questions
-4. **Link project memory** — Connect multiple projects together
+You'll see console output from each agent. The task is complete when the reviewer approves the code.
 
-### Configure Your Workflow
+---
 
-Edit `.synaphex/settings.json` to customize:
+## Next Steps
 
-- Agent capabilities (effort level, thinking mode)
-- Model preferences (Claude Opus/Sonnet/Haiku)
-- Memory organization
-- Task defaults
+Choose your path:
 
-## Troubleshooting
+### Want to understand the system better?
+→ Read [Architecture Overview](./ARCHITECTURE.md)
 
-**Plugin not showing up?**
+### Want to see more examples?
+→ Explore [Real-World Examples](./EXAMPLES.md)
 
-- Restart your IDE completely
-- Ensure Synaphex is installed: `npm list -g synaphex`
-- Check IDE version matches requirements
+### Want to learn specific tasks?
+→ Read [How-To Guide](./HOW-TO-GUIDE.md)
 
-**Task creation failed?**
+### Need to troubleshoot?
+→ Check [CLI Reference](./CLI-REFERENCE.md)
 
-- Make sure you're in a Synaphex project directory
-- Run `synaphex load` to verify project initialization
-- Check `.synaphex/` directory exists
+### Want detailed installation options?
+→ See [Installation Guide](./INSTALLATION.md)
 
-**Need help?**
+---
 
-- See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues
-- Check [CLI-REFERENCE.md](CLI-REFERENCE.md) for all commands
-- Visit the [GitHub repository](https://github.com/cyhunblr/synaphex) for issues and discussions
+## Quick Reference
 
-## Related Documentation
+| Command                                    | What It Does              |
+| ------------------------------------------ | ------------------------- |
+| `synaphex --version`                       | Show version              |
+| `synaphex --help`                          | Show available commands   |
+| `/synaphex:create <name>`                  | Create new project        |
+| `/synaphex:load <name>`                    | Load existing project     |
+| `/synaphex:task <name> "<description>"`    | Start a new task          |
 
-- **[INSTALLATION.md](INSTALLATION.md)** — Detailed installation for all platforms
-- **[HOW-TO-GUIDE.md](HOW-TO-GUIDE.md)** — Task-based workflows
-- **[EXAMPLES.md](EXAMPLES.md)** — Real-world examples
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — How Synaphex works
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — Error recovery
+---
+
+Need help? Check the [Troubleshooting Guide](./INSTALLATION.md#troubleshooting).

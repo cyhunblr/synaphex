@@ -1,6 +1,6 @@
 # How-To Guide
 
-Task-based guide for common Synaphex workflows. Find what you want to do and follow the steps.
+Task-focused guides for common Synaphex workflows.
 
 ## Table of Contents
 
@@ -12,319 +12,364 @@ Task-based guide for common Synaphex workflows. Find what you want to do and fol
 6. [How to debug errors](#how-to-debug-errors)
 7. [How to contribute improvements](#how-to-contribute-improvements)
 
-## How to Create a Project
+---
 
-**Goal:** Set up a new Synaphex project for a codebase.
+## How to create a project
 
-### Using the CLI
+**Prerequisites**: Synaphex installed (`npm install -g synaphex@2.0.0`)
 
-```bash
-synaphex create my-project-name
-cd my-project-name
-```
+### Step 1: Choose a project name
 
-### Using the IDE Plugin
+Pick a lowercase name with letters, numbers, hyphens, or underscores. Examples:
+- `my-api`
+- `web_app_2024`
+- `rtp_receiver`
 
-1. Open your IDE
-2. Run: `/synaphex:project-create`
-3. Enter project name when prompted
-4. Wait for project initialization (30 seconds)
-
-### Verify Creation
+### Step 2: Create the project
 
 ```bash
-ls -la .synaphex/
+/synaphex:create my-project-name
 ```
 
-You should see:
+### Step 3: Verify creation
 
-- `settings.json` — Agent configuration
-- `memory/` — Project memory directory
-- `tasks/` — Task tracking directory (appears after first task)
-
-### Configure Your Project
-
-Edit `.synaphex/settings.json` to set:
-
-- **Agent effort**: 0 (quick) to 4 (thorough)
-- **Model**: Choose Claude Opus, Sonnet, or Haiku
-- **Thinking mode**: Enable extended thinking for complex tasks
-- **Researcher**: Enable/disable web research
-
-See [CLI-REFERENCE.md](CLI-REFERENCE.md) for all options.
-
-## How to Run a Simple Task
-
-**Goal:** Execute a straightforward task (no research needed).
-
-### 1. Create the task
+Check that the project exists:
 
 ```bash
-/synaphex:task-create
-
-Description: "Add input validation to login form"
+ls ~/.synaphex/my-project-name/
+# Should show: settings.json, meta.json, memory/
 ```
 
-### 2. Answer initial questions
+### Learn more
 
-Synaphex will ask:
+- [Installation Guide](./INSTALLATION.md) — detailed setup options
+- [Getting Started](./GETTING-STARTED.md) — quick 5-minute walk-through
+- [Examples](./EXAMPLES.md) — see real-world project creation
 
-- "Review code memory?" → Yes (if you have existing code understanding)
-- "Enable research?" → No (for simple tasks)
+---
 
-### 3. Review the plan
+## How to run a simple task
 
-Synaphex shows a step-by-step implementation plan. Review it and confirm.
+**Prerequisites**: Project created with `/synaphex:create`
 
-### 4. Watch execution
+A task goes through these steps:
 
-The pipeline runs automatically:
+1. **Examine** — Reads your code and project memory
+2. **Planner** — Creates implementation plan
+3. **Coder** — Writes the code
+4. **Answerer** — Handles questions from Coder
+5. **Reviewer** — Reviews the implementation
 
-1. **Examine** — Analyzes your codebase (2-3 min)
-2. **Plan** — Creates detailed steps (1-2 min)
-3. **Code** — Implements the solution (3-5 min)
-4. **Review** — Checks the code quality (1-2 min)
-
-### 5. Accept or iterate
-
-When done, Synaphex asks: "Ready to apply changes?"
-
-- **Yes** → Changes are applied
-- **No** → Iterate and refine
-
-## How to Research Unfamiliar Technology
-
-**Goal:** Let Synaphex research a library/framework before implementing.
-
-### 1. Create a research task
+### Step 1: Start the task
 
 ```bash
-/synaphex:task-create
-
-Description: "Integrate GraphQL into the API layer"
+/synaphex:task my-project-name "Add password reset endpoint"
 ```
 
-### 2. Enable research
+The system will ask:
+- "Activate researcher?" (yes/no) — Say `no` for simple tasks
+- "How should review work?" (user/agent/ask) — Say `agent` for automated review
 
-When asked "Enable Researcher?", answer **Yes**.
+### Step 2: Monitor progress
 
-### 3. Let the researcher run
+Watch the console as agents run in sequence. Each agent outputs its findings.
 
-Synaphex will:
+### Step 3: Verify success
 
-1. Identify knowledge gaps (GraphQL concepts, patterns)
-2. Search the internet for best practices
-3. Save findings to project memory
-4. Use this research to inform implementation
-
-### 4. Review research findings
-
-After research, Synaphex shows:
-
-- What was learned
-- Key patterns to follow
-- Common pitfalls to avoid
-- Relevant examples
-
-### 5. Proceed with implementation
-
-The Planner uses research findings to create a better plan.
-
-## How to Handle Architectural Questions
-
-**Goal:** Get Synaphex to ask you for guidance on design decisions.
-
-### 1. Create an architectural task
+After reviewer approves, check:
 
 ```bash
-/synaphex:task-create
-
-Description: "Implement real-time notifications for user updates"
+cat ~/.synaphex/my-project-name/memory/internal/tasks/add-password-reset-endpoint/plan.md
 ```
 
-### 2. Let Synaphex identify questions
+This contains the implementation plan and code.
 
-During planning, Synaphex encounters questions that require your input:
+### Learn more
 
-- "Should we use WebSockets or Server-Sent Events?"
-- "How should notification state be persisted?"
-- "What's the timeout policy for stale notifications?"
+- [CLI Reference](./CLI-REFERENCE.md) — detailed command options
+- [Examples](./EXAMPLES.md) — see full examples with expected outputs
+- [Architecture](./ARCHITECTURE.md) — understand agent roles
 
-### 3. Provide clarification
+---
 
-When prompted, answer with:
+## How to research unfamiliar technology
 
-- **Decision**: Your choice (WebSockets)
-- **Rationale**: Why you chose it (scalability, browser support)
-- **Constraints**: Any limitations (avoid X because Y)
+**When to use**: You want Synaphex to research a topic before implementing
 
-### 4. See it in memory
+### Step 1: Activate researcher in task setup
 
-Your decision is saved in `.synaphex/memory/` for future tasks.
+When prompted "Activate researcher?", answer `yes`:
 
-### 5. Continue implementation
+```
+Researcher: This agent conducts web research on unfamiliar technologies.
+Use when: implementing a library you haven't used before
+Skip when: simple tasks with known patterns
 
-Synaphex now has your guidance and proceeds with consistent decisions.
+Activate researcher? (yes/no): yes
+```
 
-## How to Link Multi-Project Memory
+### Step 2: Wait for research phase
 
-**Goal:** Share knowledge between related projects.
+The **Researcher** agent will:
+- Search the web for relevant solutions
+- Ask if you want a specific implementation method or further research
+- Offer to save findings to project memory
 
-### Parent Project Setup
+Example output:
 
-In the parent project (e.g., "shared-infrastructure"):
+```
+Researching: "How to implement GraphQL subscriptions in Node.js"
+
+Found:
+1. Apollo Server subscriptions
+2. GraphQL.js with graphql-ws
+3. Prisma subscriptions
+
+Save to memory? (yes/no): yes
+```
+
+### Step 3: Continue with planning
+
+Researcher findings are passed to Planner, which incorporates them into the implementation plan.
+
+### Learn more
+
+- [Examples](./EXAMPLES.md) — see full research example
+- [Architecture](./ARCHITECTURE.md) — understand researcher agent role
+- [CLI Reference](./CLI-REFERENCE.md) — control researcher behavior
+
+---
+
+## How to handle architectural questions
+
+**When to use**: Coder asks about major design decisions
+
+### Step 1: Recognize escalation
+
+Coder might ask architectural questions like:
+- "Should we use REST or GraphQL?"
+- "Should data be cached in-memory or in Redis?"
+
+Synaphex detects these using special markers:
+
+```
+<!-- SYNAPHEX_ARCHITECTURAL -->
+Question: Should we use Event Sourcing for audit logs?
+<!-- /SYNAPHEX_ARCHITECTURAL -->
+```
+
+### Step 2: Provide user feedback
+
+When an architectural question is detected, Answerer escalates to you:
+
+```
+Architectural Question Escalated:
+"Should we use Event Sourcing for audit logs?"
+
+Your options:
+  A) Yes, use Event Sourcing
+  B) No, use traditional audit table
+  C) Hybrid approach
+  
+What's your decision?
+```
+
+### Step 3: Decision is stored
+
+Your decision is saved in project memory:
 
 ```bash
-synaphex memorize
+cat ~/.synaphex/my-project/memory/internal/tasks/your-task/task-meta.json
+# Shows: "answerer_escalation": [{"question": "...", "decision": "..."}]
 ```
 
-This creates memory files:
+### Step 4: Re-planning incorporates decision
 
-- `memory/architecture.md`
-- `memory/conventions.md`
-- `memory/deployment.md`
+Planner runs again (iteration 2) with your decision, and Coder implements using the chosen approach.
 
-### Child Project Setup
+### Learn more
 
-In the child project (e.g., "api-service"):
+- [Examples](./EXAMPLES.md) — see full escalation example
+- [Architecture](./ARCHITECTURE.md) — understand escalation flow
+- [CLI Reference](./CLI-REFERENCE.md) — control review behavior
+
+---
+
+## How to link multi-project memory
+
+**When to use**: You have patterns in one project and want to reuse them in another
+
+### Scenario
+
+You have:
+- **Parent project**: `backend-api` with established Node.js + GraphQL patterns
+- **Child project**: `backend-service` that should follow same patterns
+
+### Step 1: Create child project
 
 ```bash
-/synaphex:project-remember
-
-Parent project path: ../shared-infrastructure
+/synaphex:create backend-service
 ```
 
-Synaphex creates symlinks in `.synaphex/external-memory/` pointing to parent memory.
-
-### Update Parent Memory
-
-Edit parent project memory files. Changes automatically reflect in child projects.
-
-Example: Update `../shared-infrastructure/memory/conventions.md` → automatically used by API service.
-
-### Verify Linking
+### Step 2: Link parent memory
 
 ```bash
-ls -la my-project/.synaphex/external-memory/
+/synaphex:remember backend-api backend-service
 ```
 
-You should see symlinks pointing to parent project memory.
+This creates a symbolic link from:
+- `backend-api/memory/internal/` → `backend-service/memory/external/backend-api_memory`
 
-## How to Debug Errors
+### Step 3: Run tasks in child project
 
-**Goal:** Troubleshoot when Synaphex hits an error.
-
-### 1. Check the error message
-
-Synaphex shows:
-
-- **Error type** (validation, execution, blocker)
-- **What failed** (which step)
-- **Why** (root cause if known)
-- **Suggestion** (how to fix)
-
-### 2. Common fixes
-
-**Validation error:**
-
-```
-Error: Task description is ambiguous
-Fix: Be more specific ("Add login validation" not "Fix login")
-```
-
-**Execution error:**
-
-```
-Error: Could not read file
-Fix: File path is correct? Check with: ls path/to/file
-```
-
-**Blocker (needs your help):**
-
-```
-Error: Cannot decide between approaches
-Fix: Provide guidance on requirements or constraints
-```
-
-### 3. Get detailed error info
+When you run tasks in child project:
 
 ```bash
-synaphex logs task-id
+/synaphex:task backend-service "Add user authentication endpoint"
 ```
 
-Shows full error context and stack trace.
+The Examiner will read:
+- Child project memory (`memory/internal/`)
+- Inherited parent patterns (`memory/external/backend-api_memory`)
 
-### 4. Recover from error
+### Step 4: Planner sees parent patterns
 
-After fixing the issue:
+Planner automatically references parent project's:
+- Code conventions
+- Architecture decisions
+- API design patterns
+
+Result: Child project implementations are consistent with parent patterns.
+
+### Learn more
+
+- [Examples](./EXAMPLES.md) — see multi-project example
+- [Architecture](./ARCHITECTURE.md) — understand memory inheritance
+- [CLI Reference](./CLI-REFERENCE.md) — task-remember command options
+
+---
+
+## How to debug errors
+
+### Check the error type
+
+**Validation Error** (happens before agents run):
+```
+Error: Project 'my-project' not found
+```
+→ Check project exists: `ls ~/.synaphex/my-project/`
+→ See [Installation Guide troubleshooting](./INSTALLATION.md#troubleshooting)
+
+**Execution Error** (happens during agent run):
+```
+Error: Cannot run 'coder' - 'planner' not completed yet
+```
+→ Check task state: `cat ~/.synaphex/my-project/memory/internal/tasks/slug/task-meta.json`
+→ Task steps must run in order
+
+**Escalation Error** (architectural question):
+```
+Awaiting user decision on architectural question...
+Timeout: User decision not provided
+```
+→ You need to provide decision
+→ See [How to handle architectural questions](#how-to-handle-architectural-questions)
+
+### Common issues
+
+| Error | Solution |
+|-------|----------|
+| `command not found: synaphex` | Check installation: `npm list -g synaphex` |
+| `Invalid project name` | Use lowercase letters, numbers, hyphens, underscores |
+| `Project already exists` | Delete it: `rm -rf ~/.synaphex/project-name` |
+| `Step X already completed` | Task state is locked. Check memory for step order. |
+
+### Enable detailed logging
+
+Set environment variable before running task:
 
 ```bash
-/synaphex:task-continue
-
-Task: my-task-id
+export SYNAPHEX_DEBUG=1
+/synaphex:task my-project "..."
 ```
 
-Synaphex resumes from where it paused.
+This prints full agent inputs/outputs to console.
 
-## How to Contribute Improvements
+### Check memory files
 
-**Goal:** Help improve Synaphex and share your workflow improvements.
+After each step, examine what agents wrote:
 
-### 1. Set up for contribution
+```bash
+# After examiner
+cat ~/.synaphex/my-project/memory/internal/tasks/slug/examination.md
+
+# After planner
+cat ~/.synaphex/my-project/memory/internal/tasks/slug/plan.md
+
+# After coder
+cat ~/.synaphex/my-project/memory/internal/tasks/slug/implementation.md
+```
+
+### Learn more
+
+- [Troubleshooting Guide](./INSTALLATION.md#troubleshooting) — installation issues
+- [CLI Reference](./CLI-REFERENCE.md) — all available commands
+- [Architecture](./ARCHITECTURE.md) — understand state machine and step order
+
+---
+
+## How to contribute improvements
+
+**Want to improve Synaphex?**
+
+### Step 1: Check the repository
 
 ```bash
 git clone https://github.com/cyhunblr/synaphex.git
 cd synaphex
 npm install
-npm run build
-npm link  # Use local version for testing
 ```
 
-### 2. Make your improvements
+### Step 2: Review contribution guidelines
 
-Options:
+Read [CONTRIBUTING.md](../CONTRIBUTING.md) for:
+- Code style (TypeScript, linting rules)
+- Test requirements (Jest)
+- Commit message format
+- PR process
 
-- **Fix a bug** — Create an issue first, then submit PR
-- **Add a feature** — Discuss in issues before starting
-- **Improve docs** — Directly submit PR
-- **Enhance examples** — Add to EXAMPLES.md
+### Step 3: Make your changes
 
-### 3. Test thoroughly
+- Bug fixes: target `main` branch
+- Features: create feature branch `feature/your-feature`
+- Docs: update relevant `.md` files
+
+### Step 4: Test your changes
 
 ```bash
-npm test                # Run all tests
-npm run lint            # Check code quality
-npm run lint:md         # Check documentation
+npm run build
+npm run test
+npm run lint
 ```
 
-### 4. Submit pull request
+### Step 5: Submit a pull request
 
-1. Push to a branch: `git checkout -b fix/your-fix-name`
-2. Commit with conventional messages: `fix: resolve X issue`
-3. Create PR with description of changes
-4. Wait for review and iterate
+Push to GitHub and open a PR:
+- Title: concise description (`fix: agent pipeline deadlock`)
+- Description: why this change (reference issues if applicable)
+- Reviewers will provide feedback
 
-### 5. Celebrate
+### Learn more
 
-Your contribution makes Synaphex better for everyone 🎉
+- [GitHub repository](https://github.com/cyhunblr/synaphex)
+- [CONTRIBUTING guide](../CONTRIBUTING.md)
+- [Architecture](./ARCHITECTURE.md) — understand system design before contributing
 
 ---
 
-## Quick Reference
+## Still need help?
 
-| Task                   | Command                      | Time     |
-| ---------------------- | ---------------------------- | -------- |
-| Create project         | `synaphex create`            | 30s      |
-| Start simple task      | `/synaphex:task-create`      | 10-15m   |
-| Task with research     | Enable Researcher            | 15-25m   |
-| Architectural decision | Answer when prompted         | Variable |
-| Link multi-project     | `/synaphex:project-remember` | 5m       |
-| Debug errors           | `synaphex logs`              | Variable |
-
-## Related Documentation
-
-- **[GETTING-STARTED.md](GETTING-STARTED.md)** — 5-minute quick start
-- **[EXAMPLES.md](EXAMPLES.md)** — Real-world workflows
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — System design
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — Error recovery
-- **[CLI-REFERENCE.md](CLI-REFERENCE.md)** — All commands
+- **Questions?** Open an issue on [GitHub](https://github.com/cyhunblr/synaphex/issues)
+- **Setup issues?** See [Installation Guide troubleshooting](./INSTALLATION.md#troubleshooting)
+- **Want more examples?** Check [Examples](./EXAMPLES.md)
+- **Understand the system?** Read [Architecture](./ARCHITECTURE.md)
