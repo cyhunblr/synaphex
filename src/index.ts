@@ -508,7 +508,13 @@ server.registerTool(
   },
   async ({ project, slug, task, cwd, examiner_compact }) => {
     try {
-      const result = await handleTaskResearcher(project, slug, task, cwd, examiner_compact);
+      const result = await handleTaskResearcher(
+        project,
+        slug,
+        task,
+        cwd,
+        examiner_compact,
+      );
       return {
         content: [{ type: "text", text: result }],
       };
@@ -533,12 +539,20 @@ server.registerTool(
       slug: z.string().min(1).describe("Task slug"),
       task: z.string().min(1).describe("Task description"),
       cwd: z.string().min(1).describe("Absolute path to the working directory"),
-      implementation_summary: z.string().describe("Coder's implementation summary"),
+      implementation_summary: z
+        .string()
+        .describe("Coder's implementation summary"),
     }),
   },
   async ({ project, slug, task, cwd, implementation_summary }) => {
     try {
-      const result = await handleTaskAnswerer(project, slug, task, cwd, implementation_summary);
+      const result = await handleTaskAnswerer(
+        project,
+        slug,
+        task,
+        cwd,
+        implementation_summary,
+      );
       return {
         content: [{ type: "text", text: result }],
       };
@@ -557,15 +571,16 @@ server.registerTool(
   "task_remember",
   {
     description:
-      "Link parent project's internal memory into child project's external memory before running task.",
+      "Link parent project's internal memory into child project's task before running task-examine.",
     inputSchema: z.object({
       parent_project: z.string().min(1).max(64).describe("Parent project name"),
       project: z.string().min(1).max(64).describe("Child project name"),
+      slug: z.string().min(1).describe("Task slug"),
     }),
   },
-  async ({ parent_project, project }) => {
+  async ({ parent_project, project, slug }) => {
     try {
-      const result = await handleTaskRemember(parent_project, project);
+      const result = await handleTaskRemember(parent_project, project, slug);
       return {
         content: [{ type: "text", text: result }],
       };
