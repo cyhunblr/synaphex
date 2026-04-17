@@ -6,3 +6,12 @@ dist/
 .env.local
 .DS_Store
 .vscode/
+
+# OpenSpec and IDE integration directories
+openspec/
+.agent/
+.claude/
+.codex/
+.cursor/
+.gemini/
+.kiro/
