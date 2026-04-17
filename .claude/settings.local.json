@@ -33,7 +33,9 @@
       "Bash(npm install *)",
       "Bash(npm test *)",
       "Bash(node -e ' *)",
-      "Bash(git commit -m 'fix: resolve TypeScript type error in integration scenario tests *)"
+      "Bash(git commit -m 'fix: resolve TypeScript type error in integration scenario tests *)",
+      "Bash(git commit -m 'feat: implement task-remember command and complete Sections 9-11 *)",
+      "Bash(git commit -m 'feat: implement Researcher and Answerer agent runners *)"
     ]
   },
   "enableAllProjectMcpServers": true,
