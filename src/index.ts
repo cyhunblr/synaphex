@@ -596,12 +596,44 @@ server.registerTool(
 // === Start server ===
 
 import { handleSetup } from "./commands/setup.js";
+import { handleInit } from "./commands/init.js";
 
 async function main(): Promise<void> {
   const arg = process.argv[2];
   if (arg === "setup") {
     const platform = process.argv[3];
     await handleSetup(platform);
+    process.exit(0);
+  }
+
+  if (arg === "init") {
+    const force = process.argv.includes("--force");
+    const help = process.argv.includes("--help") || process.argv.includes("-h");
+    if (help) {
+      console.log(`
+synaphex init - Interactive environment setup wizard
+
+Usage:
+  synaphex init [OPTIONS]
+
+Options:
+  --force   Re-initialize even if already set up
+  --help    Show this help message
+
+Description:
+  Guides you through setting up Synaphex for your environment.
+  Detects installed IDEs (VS Code, Antigravity) and automatically
+  registers the MCP server.
+
+Examples:
+  synaphex init              # First-time setup
+  synaphex init --force      # Re-run setup
+
+For more information, visit: https://github.com/cyhunblr/synaphex
+`);
+      process.exit(0);
+    }
+    await handleInit(force);
     process.exit(0);
   }
 

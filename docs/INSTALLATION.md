@@ -32,13 +32,25 @@ synaphex --version
 # Output: 2.0.0
 ```
 
-### IDE Plugin Installation
+### IDE Setup
 
-Synaphex integrates with these IDEs:
+After installation, run the interactive setup wizard:
 
-- **Claude Code** — Run `/synaphex:create` commands directly
-- **VSCode** — Install "Synaphex" extension from VS Code Marketplace
-- **Antigravity** (internal) — Install from internal plugin registry
+```bash
+synaphex init
+```
+
+This will:
+
+- Detect your installed IDEs (VS Code, Antigravity, CLI)
+- Prompt you to select which IDEs to configure
+- Automatically register the MCP server
+
+Synaphex integrates with:
+
+- **Claude Code (VS Code)** — Run `/synaphex:create` commands directly
+- **Antigravity** (internal) — Automatic configuration
+- **CLI** — No IDE integration needed
 
 ### Local Development Setup
 
@@ -163,7 +175,7 @@ docker run -it synaphex --version
 For persistent project storage:
 
 ```yaml
-version: '3.8'
+version: "3.8"
 services:
   synaphex:
     image: synaphex:latest
@@ -191,7 +203,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
-          node-version: '20'
+          node-version: "20"
       - run: npm install -g synaphex@2.0.0
       - run: synaphex --version
       # Add your synaphex commands here
@@ -251,6 +263,7 @@ synaphex --help
 **Error**: `Node.js version X is not supported. Requires 18.0 or higher.`
 
 **Solution**:
+
 1. Check current version: `node --version`
 2. Update Node.js from [nodejs.org](https://nodejs.org)
 3. Or use nvm (macOS/Linux) or fnm: `fnm install 20 && fnm use 20`
@@ -260,8 +273,10 @@ synaphex --help
 **Error**: `npm ERR! permission denied`
 
 **Solution**:
+
 1. Use `sudo npm install -g synaphex@2.0.0`, OR
 2. Fix npm permissions:
+
    ```bash
    mkdir ~/.npm-global
    npm config set prefix '~/.npm-global'
@@ -274,6 +289,7 @@ synaphex --help
 **Error**: Plugin fails to load in IDE
 
 **Solution**:
+
 1. Check IDE compatibility
 2. Verify synaphex is installed: `synaphex --version`
 3. Restart IDE
@@ -284,6 +300,7 @@ synaphex --help
 **Error**: `command not found: synaphex` (macOS/Linux) or `synaphex is not recognized` (Windows)
 
 **Solution**:
+
 1. Verify installation: `npm list -g synaphex`
 2. If not listed, reinstall: `npm install -g synaphex@2.0.0`
 3. Close and reopen terminal/PowerShell
