@@ -23,11 +23,31 @@ interface ScaffoldFile {
 }
 
 const TOPIC_FILES: ScaffoldFile[] = [
-  { relPath: "overview.md", purpose: "Project overview", contents: "# Overview\n" },
-  { relPath: "architecture.md", purpose: "Architecture", contents: "# Architecture\n" },
-  { relPath: "interfaces.md", purpose: "Interfaces", contents: "# Interfaces\n" },
-  { relPath: "build.md", purpose: "Build system", contents: "# Build System\n" },
-  { relPath: "conventions.md", purpose: "Conventions", contents: "# Conventions\n" },
+  {
+    relPath: "overview.md",
+    purpose: "Project overview",
+    contents: "# Overview\n",
+  },
+  {
+    relPath: "architecture.md",
+    purpose: "Architecture",
+    contents: "# Architecture\n",
+  },
+  {
+    relPath: "interfaces.md",
+    purpose: "Interfaces",
+    contents: "# Interfaces\n",
+  },
+  {
+    relPath: "build.md",
+    purpose: "Build system",
+    contents: "# Build System\n",
+  },
+  {
+    relPath: "conventions.md",
+    purpose: "Conventions",
+    contents: "# Conventions\n",
+  },
   { relPath: "security.md", purpose: "Security", contents: "# Security\n" },
   { relPath: "glossary.md", purpose: "Glossary", contents: "# Glossary\n" },
 ];

@@ -212,7 +212,7 @@ export async function handleTaskImplement(
     `- Answerer: ${answererUsage.inputTokens} in / ${answererUsage.outputTokens} out`,
   ].join("\n");
 
-    await fs.writeFile(`${taskDir}/implementation-log-v${iter}.md`, log, "utf-8");
+  await fs.writeFile(`${taskDir}/implementation-log-v${iter}.md`, log, "utf-8");
 
   // Update completed steps
   meta.status = "implemented";

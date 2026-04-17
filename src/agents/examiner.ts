@@ -51,11 +51,31 @@ export async function safePath(cwd: string, relative: string): Promise<string> {
         !realParent.startsWith(realCwd + path.sep) &&
         realParent !== realCwd
       ) {
-        throw new Error(
+        const error = new Error(
           `Path '${relative}' parent resolves outside the working directory.`,
         );
+        throw error;
       }
-    } catch {
+    } catch (innerErr) {
+      // If it's our own validation error, re-throw as-is
+      if (
+        innerErr instanceof Error &&
+        innerErr.message.includes("parent resolves outside")
+      ) {
+        throw innerErr;
+      }
+      // Re-throw fs.realpath errors with cause if it's not ENOENT
+      if (
+        !(
+          innerErr instanceof Error &&
+          (innerErr as NodeJS.ErrnoException).code === "ENOENT"
+        )
+      ) {
+        throw new Error(
+          `Path '${relative}' parent resolves outside the working directory.`,
+          { cause: innerErr },
+        );
+      }
       // Parent doesn't exist — will be created by writeFile
     }
   }
