@@ -20,6 +20,8 @@ import {
   listFiles,
   searchCode,
 } from "../agents/examiner.js";
+import { handleReadMemory } from "./read-memory.js";
+import { handleWriteMemory } from "./write-memory.js";
 import {
   CODER_SYSTEM_PROMPT,
   CODER_TOOLS,
@@ -141,6 +143,21 @@ export async function handleTaskImplement(
             cwd,
             input.pattern as string,
             input.glob as string | undefined,
+          );
+          return { content: result };
+        }
+        case "read_memory": {
+          const content = await handleReadMemory(
+            project,
+            input.filename as string,
+          );
+          return { content };
+        }
+        case "write_memory": {
+          const result = await handleWriteMemory(
+            project,
+            input.filename as string,
+            input.content as string,
           );
           return { content: result };
         }

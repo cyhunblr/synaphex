@@ -13,6 +13,7 @@ import {
   internalMemoryDir,
   settingsPath,
 } from "../lib/project-store.js";
+import { handleReadMemory } from "./read-memory.js";
 import { runAgent } from "../lib/agent-runtime.js";
 import {
   RESEARCHER_SYSTEM_PROMPT,
@@ -69,6 +70,18 @@ export async function handleTaskResearcher(
         return {
           content: `[Web search placeholder: "${query}" - integration available in v2.1 with MCP tools]`,
         };
+      }
+      case "read_memory": {
+        const filename = input.filename as string;
+        try {
+          const content = await handleReadMemory(project, filename);
+          return { content };
+        } catch {
+          return {
+            content: `Memory file not found: ${filename}`,
+            is_error: true,
+          };
+        }
       }
       case "write_memory": {
         const filename = input.filename as string;

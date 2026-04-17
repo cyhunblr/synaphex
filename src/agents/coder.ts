@@ -113,6 +113,42 @@ export const CODER_TOOLS: AgentToolDef[] = [
     },
   },
   {
+    name: "read_memory",
+    description:
+      "Read a project memory file. Supports both migrated (memory/internal/) and legacy (memory/) locations.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          description:
+            "Relative filename within memory/ (e.g. 'overview.md', 'conventions.md')",
+        },
+      },
+      required: ["filename"],
+    },
+  },
+  {
+    name: "write_memory",
+    description:
+      "Update a project memory file. Useful when implementing features that establish new patterns or conventions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          description:
+            "Relative filename within memory/internal/ (e.g. 'overview.md')",
+        },
+        content: {
+          type: "string",
+          description: "Full markdown content to write",
+        },
+      },
+      required: ["filename", "content"],
+    },
+  },
+  {
     name: "ask_answerer",
     description:
       "Ask the Answerer agent a question about the project. Use when you need clarification about requirements, conventions, or architecture. If the Answerer can't answer, it will escalate to the user.",

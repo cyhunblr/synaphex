@@ -445,4 +445,56 @@ synaphex task-reviewer my-project integrate-triton "Integrate Triton" ~/app \
 - `completed_steps` is authoritative for workflow state
 - No automatic transitions—each step is explicit and manual
 
+---
+
+## Memory Structure
+
+### Location
+
+All project memory is stored in `~/.synaphex/<project>/memory/`
+
+### Directory Layout
+
+```
+memory/
+├── internal/               # Mutable project memory (read/write by agents)
+│   ├── overview.md
+│   ├── architecture.md
+│   ├── conventions.md
+│   ├── security.md
+│   ├── dependencies.md
+│   ├── <language>-guidelines.md
+│   ├── <framework>/
+│   │   ├── setup.md
+│   │   └── patterns.md
+│   ├── research/           # Optional: saved research findings
+│   │   └── topic.md
+│   └── tasks/              # Per-task working files
+│       └── <slug>/
+│           ├── plan.md
+│           ├── implementation.md
+│           └── task-meta.json
+│
+└── external/               # Read-only: inherited parent memory
+    └── <parent>_memory/    # Symlink to parent project's memory/internal/
+```
+
+### Agent Tools
+
+Agents use two memory tools:
+
+- **read_memory(filename)**: Read from `memory/internal/<filename>`
+  - File not found returns error (no fallback to old structure)
+  - Example: `read_memory("conventions.md")`
+
+- **write_memory(filename, content)**: Write to `memory/internal/<filename>`
+  - Creates parent directories automatically
+  - Example: `write_memory("overview.md", "# Project Overview\n...")`
+
+### Accessing Parent Memory
+
+Use `synaphex task-remember <parent> <child>` before running tasks to link parent memory as read-only inheritance.
+
+---
+
 For detailed information about task state transitions and validation rules, see [ARCHITECTURE.md](ARCHITECTURE.md#state-machine).

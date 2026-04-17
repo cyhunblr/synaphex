@@ -253,6 +253,33 @@ export async function detectBrokenSymlinks(
   return { broken };
 }
 
+// === Memory File Access ===
+
+export async function readMemoryFile(
+  project: string,
+  filename: string,
+): Promise<string | null> {
+  const internalPath = path.join(internalMemoryDir(project), filename);
+  try {
+    const content = await fs.readFile(internalPath, "utf-8");
+    return content;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeMemoryFile(
+  project: string,
+  filename: string,
+  content: string,
+): Promise<void> {
+  // Always write to internal/ (enforces new structure)
+  const internalPath = internalMemoryDir(project);
+  await fs.mkdir(internalPath, { recursive: true });
+  const filePath = path.join(internalPath, filename);
+  await fs.writeFile(filePath, content, "utf-8");
+}
+
 // === Types ===
 
 export interface ProjectMeta {

@@ -57,6 +57,22 @@ export const RESEARCHER_TOOLS: AgentToolDef[] = [
     },
   },
   {
+    name: "read_memory",
+    description:
+      "Read a project memory file. Supports both migrated (memory/internal/) and legacy (memory/) locations.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          description:
+            "Relative filename within memory/ (e.g. 'overview.md', 'conventions.md')",
+        },
+      },
+      required: ["filename"],
+    },
+  },
+  {
     name: "write_memory",
     description:
       "Save research findings to a project memory file. Use this to persist findings for future reference.",

@@ -623,4 +623,291 @@ If you're still stuck:
 
 ---
 
+## Memory Structure Migration (v2.0.0 to v3.0+)
+
+**Note:** v3.0 uses a new memory structure with files in `memory/internal/` instead of the flat `memory/` root.
+
+### For v2.0.0 Projects
+
+If you have a v2.0.0 project with memory files in `memory/` root (not `memory/internal/`), you can manually migrate:
+
+```bash
+cd ~/.synaphex/my-project
+mkdir -p memory/internal
+cp memory/*.md memory/internal/
+```
+
+After migration, agents will read from `memory/internal/` automatically.
+
+---
+
 For more detailed information, see [ARCHITECTURE.md](ARCHITECTURE.md) for system design and [CLI-REFERENCE.md](CLI-REFERENCE.md) for all command options.
+
+---
+
+## Memory System Issues
+
+### Memory Files Not Updated After Code Changes
+
+**Problem**: You updated code but memory still shows old information.
+
+**Cause**: Memory is created once and only updated by `memorize` command or manual editing.
+
+**Solution**:
+
+```bash
+/synaphex:memorize my-project /path/to/codebase
+```
+
+This examines your codebase and updates:
+
+- overview.md
+- architecture.md
+- conventions.md
+- security.md
+- dependencies.md
+
+(Does NOT touch research/, tasks/, or your manual edits)
+
+---
+
+### Symlink Not Working (Remember Command)
+
+**Problem**: Child project can't access parent memory.
+
+**Cause**: Symlink creation failed (permissions, Windows, or pre-existing file).
+
+**Solutions**:
+
+1. Check if symlink exists:
+
+```bash
+ls -la ~/.synaphex/child-project/memory/external/
+# Should see: parent_memory -> /path/to/parent/memory/internal
+```
+
+1. If it doesn't exist, re-run remember:
+
+```bash
+/synaphex:remember parent-project child-project
+```
+
+1. On Windows, if symlinks don't work:
+
+```bash
+# Synaphex falls back to copying parent memory
+# You can manually copy instead:
+xcopy "%USERPROFILE%\.synaphex\parent-project\memory\internal\*" ^
+      "%USERPROFILE%\.synaphex\child-project\memory\external\parent_memory\" /E /I
+```
+
+---
+
+### Task Memory Gets Overwritten
+
+**Problem**: Your task plan was deleted when you ran memorize.
+
+**Cause**: Memorize should NOT touch `tasks/` directory, but older versions did.
+
+**Solution**:
+
+1. Check Synaphex version:
+
+```bash
+synaphex --version
+# Should be v2.0.0 or higher
+```
+
+1. If older version, upgrade:
+
+```bash
+npm install -g synaphex@latest
+```
+
+1. Recover from backup (if you have one):
+
+```bash
+git checkout HEAD -- ~/.synaphex/my-project/memory/internal/tasks/
+```
+
+---
+
+### Memory File Encoding Issues
+
+**Problem**: Memory files show garbled characters or encoding errors.
+
+**Cause**: File saved in wrong encoding (UTF-16, Latin-1, etc.).
+
+**Solution**:
+
+Convert to UTF-8:
+
+```bash
+# macOS/Linux
+iconv -f ISO-8859-1 -t UTF-8 memory.md > memory-fixed.md
+mv memory-fixed.md memory.md
+
+# Or use a text editor
+# VS Code: Set encoding to UTF-8 in bottom right
+# vim: set fileencoding=utf-8
+```
+
+---
+
+### External Memory Not Readable
+
+**Problem**: Child project can't read parent memory files.
+
+**Cause**: Permissions or symlink corruption.
+
+**Solutions**:
+
+1. Check symlink is valid:
+
+```bash
+ls -la ~/.synaphex/child-project/memory/external/parent_memory
+# Should show the link target
+```
+
+1. Fix permissions:
+
+```bash
+chmod -R 755 ~/.synaphex/parent-project/memory/internal/
+```
+
+1. Relink if corrupted:
+
+```bash
+rm ~/.synaphex/child-project/memory/external/parent_memory
+/synaphex:remember parent-project child-project
+```
+
+---
+
+### Memory Directory Bloat
+
+**Problem**: Memory directory is huge (hundreds of MB).
+
+**Cause**: Large binary files accidentally added, or very old projects.
+
+**Solutions**:
+
+1. Check what's taking space:
+
+```bash
+du -sh ~/.synaphex/my-project/memory/internal/*
+```
+
+1. Remove unnecessary files:
+
+```bash
+rm ~/.synaphex/my-project/memory/internal/large-binary.bin
+```
+
+1. Or clean old research:
+
+```bash
+rm -rf ~/.synaphex/my-project/memory/internal/research/old-experiments/
+```
+
+---
+
+### Can't Create New Project Due to Memory Issues
+
+**Problem**: `/synaphex:create` fails with permission or disk errors.
+
+**Solutions**:
+
+1. Check disk space:
+
+```bash
+df -h ~
+# Should have >1 GB free
+```
+
+1. Check ~/.synaphex directory exists and is writable:
+
+```bash
+ls -la ~/.synaphex
+# If missing, create it:
+mkdir -p ~/.synaphex
+chmod 755 ~/.synaphex
+```
+
+1. Check file permissions:
+
+```bash
+# Make sure user owns the directory
+chown -R $USER ~/.synaphex
+```
+
+---
+
+### Research Findings Lost
+
+**Problem**: Your research files were deleted.
+
+**Cause**: Manual deletion or version conflict.
+
+**Recovery**:
+
+1. Check git history (if using git):
+
+```bash
+git log --follow -p ~/.synaphex/my-project/memory/internal/research/
+```
+
+1. Restore from git:
+
+```bash
+git checkout HEAD -- ~/.synaphex/my-project/memory/internal/research/
+```
+
+1. Re-run researcher if lost:
+
+```bash
+/synaphex:task-researcher my-project
+```
+
+---
+
+## Memory Best Practices
+
+### Keep Memory in Sync
+
+After major code changes:
+
+```bash
+/synaphex:memorize my-project /path/to/codebase
+```
+
+### Backup Memory
+
+```bash
+# Backup entire project memory
+cp -r ~/.synaphex/my-project/memory ~/backups/memory-$(date +%Y%m%d).bak
+
+# Or just the internal directory
+tar czf memory-backup.tar.gz ~/.synaphex/my-project/memory/internal/
+```
+
+### Version Control
+
+If tracking memory in git:
+
+```bash
+# Add memory to git
+git add ~/.synaphex/my-project/memory/
+
+# Commit changes
+git commit -m "Update project memory"
+
+# Never commit external/ (it's a symlink)
+echo "memory/external/" >> .gitignore
+```
+
+### Documentation Links
+
+- [Memory Structure](./ARCHITECTURE.md#memory-system)
+- [Memory Guide](./MEMORY-GUIDE.md)
+- [CLI Reference](./CLI-REFERENCE.md)

@@ -76,27 +76,40 @@ Iteration 2: (return to planner) → planner → coder → answerer → reviewer
 
 Projects store knowledge in organized markdown files under `~/.synaphex/project-name/memory/`
 
-### Directory Structure
+### Directory Structure (Topic-Based)
 
 ```
 memory/
-├── internal/                 # Project-specific knowledge
-│   ├── overview.md          # Project purpose
-│   ├── architecture.md       # System design
-│   ├── conventions.md        # Code style guide
-│   ├── security.md          # Security model
-│   ├── research/            # Research findings
+├── internal/                         # Mutable: project-specific knowledge
+│   ├── overview.md                  # Purpose, constraints, domain
+│   ├── architecture.md              # System design, components, data flow
+│   ├── conventions.md               # Naming, style, patterns
+│   ├── security.md                  # Threats, auth, compliance
+│   ├── dependencies.md              # Package versions, APIs
+│   ├── <language>-guidelines.md     # e.g., cpp-guidelines.md, python-guidelines.md
+│   ├── <framework>/                 # Framework-specific knowledge
+│   │   ├── setup.md                # Installation, config
+│   │   ├── patterns.md             # Framework patterns
+│   │   └── troubleshooting.md      # Common issues
+│   ├── research/                    # Research findings (optional)
 │   │   └── topic-name.md
-│   ├── packages/            # Code analysis
-│   └── tasks/               # Per-task working files
-│       └── task-slug/
+│   └── tasks/                       # Per-task working files (isolated)
+│       └── <slug>/
 │           ├── plan.md
 │           ├── implementation.md
 │           └── task-meta.json
 │
-└── external/                # Inherited from other projects
-    └── parent-project_memory -> symlink to parent/internal/
+└── external/                        # Read-only: inherited from parents
+    └── <parent>_memory -> symlink to parent/internal/
 ```
+
+**Key design decisions:**
+
+- **Internal vs External**: Internal is mutable and project-specific; external is read-only symlinks to parent projects
+- **Topic isolation**: Each topic (architecture, security, conventions) in its own file for focused agent reads
+- **Language/Framework subdirs**: Scale for polyglot stacks (C++, Python, ROS, etc.)
+- **Task isolation**: Each task has its own directory tree under `tasks/<slug>/`, never overwritten by memorize
+- **Symlink inheritance**: Child projects see parent's latest memory automatically (no copying)
 
 ### How Agents Use Memory
 

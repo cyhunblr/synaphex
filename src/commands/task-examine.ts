@@ -14,6 +14,7 @@ import {
 } from "../lib/project-store.js";
 import { runAgent } from "../lib/agent-runtime.js";
 import { readFile, listFiles, searchCode } from "../agents/examiner.js";
+import { handleReadMemory } from "./read-memory.js";
 import { handleWriteMemory } from "./write-memory.js";
 import {
   EXAMINER_SYSTEM_PROMPT,
@@ -87,6 +88,13 @@ export async function handleTaskExamine(
             cwd,
             input.pattern as string,
             input.glob as string | undefined,
+          );
+          return { content: result };
+        }
+        case "read_memory": {
+          const result = await handleReadMemory(
+            project,
+            input.filename as string,
           );
           return { content: result };
         }

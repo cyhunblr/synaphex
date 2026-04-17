@@ -1,109 +1,93 @@
-import { promises as fs } from "node:fs";
 import * as path from "node:path";
+import { promises as fs } from "node:fs";
+import { platform } from "node:os";
+import { projectExists, projectDir } from "../lib/project-store.js";
 
-import {
-  externalMemoryDir,
-  internalMemoryDir,
-  projectExists,
-  validateProjectName,
-} from "../lib/project-store.js";
+interface RememberOptions {
+  force?: boolean;
+}
 
 export async function handleRemember(
   parentProject: string,
   childProject: string,
+  options: RememberOptions = {},
 ): Promise<string> {
-  const parentValidation = validateProjectName(parentProject);
-  if (!parentValidation.valid) {
-    throw new Error(`Invalid parent project name: ${parentValidation.error}`);
-  }
-
-  const childValidation = validateProjectName(childProject);
-  if (!childValidation.valid) {
-    throw new Error(`Invalid child project name: ${childValidation.error}`);
-  }
-
-  // Self-reference check
-  if (parentProject === childProject) {
-    throw new Error("Cannot remember a project into itself.");
-  }
-
-  // Check parent exists
   if (!(await projectExists(parentProject))) {
     throw new Error(`Parent project '${parentProject}' does not exist.`);
   }
 
-  // Check child exists
   if (!(await projectExists(childProject))) {
     throw new Error(`Child project '${childProject}' does not exist.`);
   }
 
-  const sourceDir = internalMemoryDir(parentProject);
-  const linkName = `${parentProject}_memory`;
-  const destDir = externalMemoryDir(childProject);
-  const destPath = path.join(destDir, linkName);
+  const parentDirPath = projectDir(parentProject);
+  const childDirPath = projectDir(childProject);
 
-  // Ensure external memory directory exists
-  await fs.mkdir(destDir, { recursive: true });
+  const parentMemoryDir = path.join(parentDirPath, "memory", "internal");
+  const childExternalDir = path.join(childDirPath, "memory", "external");
+  const symlinkName = `${parentProject}_memory`;
+  const symlinkPath = path.join(childExternalDir, symlinkName);
 
-  // Remove existing link/dir/file if present
+  await fs.mkdir(childExternalDir, { recursive: true });
+
+  const symlinkExists = await checkSymlink(symlinkPath);
+
+  if (symlinkExists && !options.force) {
+    const currentTarget = await fs.readlink(symlinkPath);
+    if (path.resolve(currentTarget) === path.resolve(parentMemoryDir)) {
+      return "Child project already linked to parent memory (no changes made)";
+    }
+    await fs.unlink(symlinkPath);
+  } else if (symlinkExists) {
+    await fs.unlink(symlinkPath);
+  }
+
   try {
-    const stat = await fs.lstat(destPath); // lstat doesn't follow symlinks
-    if (stat.isSymbolicLink() || stat.isDirectory()) {
-      if (stat.isSymbolicLink()) {
-        await fs.unlink(destPath);
-      } else {
-        // Recursive remove for directory fallback from previous copy
-        await fs.rm(destPath, { recursive: true });
+    if (platform() === "win32") {
+      try {
+        await fs.symlink(parentMemoryDir, symlinkPath, "dir");
+      } catch {
+        await copyDirectory(parentMemoryDir, symlinkPath);
+        return "Linked parent memory to child (copied on Windows)";
       }
     } else {
-      // Regular file
-      await fs.unlink(destPath);
+      await fs.symlink(parentMemoryDir, symlinkPath, "dir");
     }
-  } catch (err: unknown) {
-    // Doesn't exist yet — that's fine
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw err;
-    }
+  } catch (err) {
+    throw new Error(
+      `Failed to link parent memory: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
   }
 
-  // Try to create symlink
-  let usedCopy = false;
-  try {
-    await fs.symlink(sourceDir, destPath, "dir");
-  } catch {
-    // Fallback to recursive copy
-    usedCopy = true;
-    await copyDir(sourceDir, destPath);
-  }
-
-  const linkType = usedCopy ? "copy" : "symlink";
-  return [
-    `Linked ${parentProject}'s memory into ${childProject}'s external memory.`,
-    "",
-    `- Source: ${sourceDir}`,
-    `- Destination: ${destPath}`,
-    `- Link type: ${linkType}`,
-    "",
-    `${childProject} can now access ${parentProject}'s memory via ` +
-      `the 'load' tool ${childProject}`,
-  ].join("\n");
+  return `Child project '${childProject}' linked to parent '${parentProject}' memory`;
 }
 
-/**
- * Recursively copy a directory (fallback when symlink creation fails).
- */
-async function copyDir(src: string, dest: string): Promise<void> {
-  const entries = await fs.readdir(src, { withFileTypes: true });
+async function checkSymlink(symlinkPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.lstat(symlinkPath);
+    return stat.isSymbolicLink() || stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function copyDirectory(
+  source: string,
+  destination: string,
+): Promise<void> {
+  await fs.mkdir(destination, { recursive: true });
+
+  const entries = await fs.readdir(source, { withFileTypes: true });
 
   for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
+    const sourcePath = path.join(source, entry.name);
+    const destPath = path.join(destination, entry.name);
 
     if (entry.isDirectory()) {
-      await fs.mkdir(destPath, { recursive: true });
-      await copyDir(srcPath, destPath);
-    } else if (entry.isFile()) {
-      await fs.copyFile(srcPath, destPath);
+      await copyDirectory(sourcePath, destPath);
+    } else {
+      await fs.copyFile(sourcePath, destPath);
     }
   }
 }

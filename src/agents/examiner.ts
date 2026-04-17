@@ -285,6 +285,22 @@ export const EXAMINER_TOOLS: AgentToolDef[] = [
     },
   },
   {
+    name: "read_memory",
+    description:
+      "Read a project memory file. Supports both migrated (memory/internal/) and legacy (memory/) locations.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          description:
+            "Relative filename within memory/ (e.g. 'overview.md', 'conventions.md')",
+        },
+      },
+      required: ["filename"],
+    },
+  },
+  {
     name: "write_memory",
     description:
       "Update a project memory file. Use when you find outdated information in the memory digest.",

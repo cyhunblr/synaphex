@@ -157,51 +157,150 @@ cat ~/.synaphex/notification-system/memory/internal/tasks/implement-notification
 
 ## Example 4: Multi-Project Inheritance
 
-**Level**: Advanced | **Time**: 5 minutes setup | **Use case**: Reuse patterns
+**Level**: Advanced | **Time**: 5 minutes setup | **Use case**: Reuse patterns across services
 
 ### Scenario
 
-**Parent**: `backend-core` with Node.js + GraphQL patterns
+**Parent**: `backend-core` — shared infrastructure library with Node.js + GraphQL patterns
 
-**Children**: `service-a`, `service-b` should follow parent patterns
+**Children**: `user-service`, `order-service` — microservices inheriting parent knowledge
 
-### Commands
+### Setup
+
+Create parent and establish baseline knowledge:
 
 ```bash
-# Create child project
-/synaphex:create service-a
+# 1. Create parent project
+/synaphex:create backend-core
 
-# Link parent memory
-/synaphex:remember backend-core service-a
+# 2. Populate parent memory from its codebase
+/synaphex:memorize backend-core ~/projects/backend-core
 
-# Run task in child
-/synaphex:task service-a "Add user authentication endpoint"
+# Parent memory now contains:
+# - TypeScript conventions (strict mode, decorators)
+# - GraphQL resolver patterns
+# - Error handling strategy
+# - Security guidelines
+# - Database patterns (Prisma ORM)
 ```
 
-### What Happens
+### Linking Children
 
-1. **Examiner** reads both:
-   - Local memory (`service-a/memory/internal/`)
-   - Inherited patterns (`service-a/memory/external/backend-core_memory`)
-2. **Planner** sees parent conventions:
-   - TypeScript with strict mode
-   - GraphQL resolver pattern
-   - Event-driven architecture
-3. **Coder** generates code consistent with parent style
+Create child projects and inherit parent knowledge:
+
+```bash
+# 1. Create child project
+/synaphex:create user-service
+
+# 2. Link to parent (before running tasks!)
+/synaphex:remember backend-core user-service
+
+# 3. Populate child's own memory
+/synaphex:memorize user-service ~/projects/services/user-service
+
+# 4. Run task in child
+/synaphex:task user-service "Add user authentication endpoint"
+```
+
+### What Happens During Task
+
+1. **Examiner** reads:
+   - Local memory: `user-service/memory/internal/` (user-specific patterns)
+   - Parent memory: `user-service/memory/external/backend-core_memory/` (inherited patterns via symlink)
+
+2. **Planner** incorporates both:
+
+   ```markdown
+   # Implementation Plan
+
+   Based on parent pattern (from backend-core/architecture.md):
+
+   - Use TypeScript with strict mode
+   - Follow GraphQL resolver structure
+   - Use Prisma for database
+   - Apply error handling strategy from backend-core/conventions.md
+   ```
+
+3. **Coder** generates code:
+
+   ```typescript
+   // Follows parent's TypeScript + GraphQL + Prisma patterns
+   // Matches parent's error handling
+   // Uses parent's naming conventions
+   ```
+
+### Memory Structure
+
+```
+user-service/memory/
+├── internal/                          # Child-only knowledge
+│   ├── overview.md                   # This service's purpose
+│   ├── architecture.md               # Local service design
+│   └── tasks/
+│       └── add-authentication/
+│           ├── plan.md
+│           └── task-meta.json
+│
+└── external/
+    └── backend-core_memory           # Symlink to parent
+        ├── overview.md               # (Read parent's overview)
+        ├── architecture.md           # (Read parent's architecture)
+        ├── conventions.md            # (Read parent's conventions)
+        ├── security.md               # (Read parent's security)
+        └── typescript-guidelines.md  # (Read parent's TS guidelines)
+```
+
+### Benefits
+
+- **Consistency**: All services follow parent patterns automatically
+- **Live updates**: When parent memory changes, all children see it immediately (via symlinks)
+- **Isolation**: Each service maintains its own local memory
+- **No copying**: Memory is linked, not duplicated
 
 ### Verify Success
 
 ```bash
-ls -la ~/.synaphex/service-a/memory/external/
-# Shows: backend-core_memory -> symlink to parent
+# Check symlink exists and points to parent
+ls -la ~/.synaphex/user-service/memory/external/
+# Output: backend-core_memory -> /Users/you/.synaphex/backend-core/memory/internal
 
-cat ~/.synaphex/service-a/memory/internal/tasks/add-user-authentication/plan.md
-# Shows references to parent patterns (TypeScript, GraphQL, etc.)
+# Verify planner saw parent patterns
+cat ~/.synaphex/user-service/memory/internal/tasks/add-authentication/plan.md
+# Should reference parent conventions
+
+# Check that code follows parent patterns
+git diff head~1
+# TypeScript/GraphQL/Prisma usage matches parent style
+```
+
+### Multi-Generation Inheritance
+
+You can also link children to other children (two levels deep):
+
+```bash
+# Grandparent: shared core patterns
+/synaphex:create backend-core
+/synaphex:memorize backend-core ~/projects/backend-core
+
+# Parent: extends core with specific domain
+/synaphex:create user-domain
+/synaphex:remember backend-core user-domain
+/synaphex:memorize user-domain ~/projects/user-domain
+
+# Child: specific service in domain
+/synaphex:create user-service
+/synaphex:remember user-domain user-service
+# user-service sees both:
+# - user-domain patterns (via direct link)
+# - backend-core patterns (via user-domain)
+
+/synaphex:task user-service "Add email verification"
 ```
 
 ### Learn more
 
 - [How to link multi-project memory](./HOW-TO-GUIDE.md#how-to-link-multi-project-memory)
+- [Memory Structure](./ARCHITECTURE.md#memory-system)
 
 ---
 

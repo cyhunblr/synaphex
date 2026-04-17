@@ -54,7 +54,8 @@ This will automatically:
 This creates a new project at `~/.synaphex/my-first-task/` with:
 
 - `settings.json` — agent configuration (can be customized later)
-- `memory/` — project memory files organized by topic
+- `memory/internal/` — project memory files organized by topic
+- `memory/external/` — (empty) for inherited parent project memory
 
 Expected output:
 
@@ -74,6 +75,35 @@ Files written:
   - memory/internal/packages/  (empty — populated by the 'memorize' tool)
   - memory/external/           (empty — populated by the 'remember' tool)
 ```
+
+---
+
+## Step 3b: Optional - Initialize Memory from Your Codebase
+
+Before running tasks, you can analyze your codebase and populate memory automatically:
+
+```bash
+/synaphex:memorize my-first-task /path/to/your/codebase
+```
+
+This examines your codebase and creates:
+
+- `overview.md` — extracted from README and package.json
+- `architecture.md` — from directory structure and source code
+- `conventions.md` — detected naming patterns and style
+- `security.md` — analysis of auth/security mechanisms
+
+Memory is idempotent (won't overwrite if unchanged), so you can run memorize again after code changes.
+
+### Optional - Link to Parent Project
+
+If you have a parent project you want to inherit knowledge from:
+
+```bash
+/synaphex:remember parent-project-name my-first-task
+```
+
+This creates a symlink so `my-first-task` can access all of `parent-project-name`'s memory. Child project has its own `internal/` memory but reads-only access to parent's knowledge.
 
 ---
 

@@ -263,3 +263,103 @@ export function summarizeAgents(settings: SynaphexSettings): string {
     })
     .join(", ");
 }
+
+/** Supported Anthropic models for Phase 3 validation */
+export const SUPPORTED_MODELS = [
+  "claude-opus-4-7",
+  "claude-sonnet-4-6",
+  "claude-haiku-4-5-20251001",
+] as const;
+
+export type SupportedModel = (typeof SUPPORTED_MODELS)[number];
+
+interface SettingsConfig {
+  provider: string;
+  model: string;
+  think?: boolean;
+  effort?: number;
+}
+
+const SIMPLE_MODEL_CAPABILITIES: Record<
+  SupportedModel,
+  { think: boolean; effort: number }
+> = {
+  "claude-opus-4-7": { think: true, effort: 4 },
+  "claude-sonnet-4-6": { think: true, effort: 4 },
+  "claude-haiku-4-5-20251001": { think: false, effort: 0 },
+};
+
+/**
+ * Validate settings configuration with model-specific constraints.
+ * Returns validation result with any errors found.
+ */
+export function validateSettings(config: SettingsConfig): {
+  valid: boolean;
+  errors: string[];
+} {
+  const errors: string[] = [];
+
+  if (config.provider !== "anthropic") {
+    errors.push(`Provider must be 'anthropic', got '${config.provider}'`);
+  }
+
+  if (!SUPPORTED_MODELS.includes(config.model as SupportedModel)) {
+    errors.push(
+      `Model '${config.model}' not supported. Supported: ${SUPPORTED_MODELS.join(", ")}`,
+    );
+  }
+
+  const model = config.model as SupportedModel;
+  const capabilities = SIMPLE_MODEL_CAPABILITIES[model];
+
+  if (!capabilities) {
+    errors.push(`Unknown model: ${config.model}`);
+    return { valid: false, errors };
+  }
+
+  const think = config.think ?? capabilities.think;
+  if (think && !capabilities.think) {
+    errors.push(
+      `Model '${config.model}' does not support thinking (think: true)`,
+    );
+  }
+
+  const effort = config.effort ?? 0;
+  if (effort < 0 || effort > capabilities.effort) {
+    errors.push(
+      `Effort must be between 0 and ${capabilities.effort} for '${config.model}', got ${effort}`,
+    );
+  }
+
+  if (effort > 0 && !think) {
+    errors.push(
+      "Effort > 0 requires think: true. Set think: true or reduce effort to 0.",
+    );
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
+ * Normalize partial settings to complete config with defaults.
+ */
+export function normalizeSettings(
+  config: Partial<SettingsConfig>,
+): SettingsConfig {
+  const provider = config.provider ?? "anthropic";
+  const model = (config.model ?? "claude-opus-4-7") as SupportedModel;
+  const capabilities = SIMPLE_MODEL_CAPABILITIES[model];
+
+  const think = config.think ?? capabilities.think;
+  const effort = config.effort ?? 0;
+
+  return {
+    provider,
+    model,
+    think,
+    effort,
+  };
+}
