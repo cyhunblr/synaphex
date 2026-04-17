@@ -1,3 +1,16 @@
+# [2.0.0](https://github.com/cyhunblr/synaphex/compare/v1.8.1...v2.0.0) (2026-04-17)
+
+
+### Features
+
+* major refactoring for Phase 3 architecture ([4112d23](https://github.com/cyhunblr/synaphex/commit/4112d23aa0e07839a36a86dc80914f156300a8bd))
+
+
+### BREAKING CHANGES
+
+* Major architectural changes including task workflow state
+validation, researcher and answerer agents, and comprehensive error handling.
+
 ## [1.8.1](https://github.com/cyhunblr/synaphex/compare/v1.8.0...v1.8.1) (2026-04-17)
 
 
