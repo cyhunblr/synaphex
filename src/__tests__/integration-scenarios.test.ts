@@ -188,7 +188,17 @@ describe("Integration Scenarios (Section 11)", () => {
 
   describe("11.7 Re-planning after user escalation decision", () => {
     it("should support re-planning iteration", () => {
-      const taskMeta = {
+      type TaskMetaType = {
+        completed_steps: string[];
+        iteration: number;
+        answerer_escalation: {
+          question: string;
+          context: string;
+          decision?: string;
+        } | null;
+      };
+
+      const taskMeta: TaskMetaType = {
         completed_steps: ["create", "examine", "planner", "coder", "answerer"],
         iteration: 1,
         answerer_escalation: {
