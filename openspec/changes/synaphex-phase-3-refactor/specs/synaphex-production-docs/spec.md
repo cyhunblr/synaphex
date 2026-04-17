@@ -1,10 +1,13 @@
 ## ADDED Requirements
 
 ### Requirement: Document task state machine
+
 The system documentation SHALL include a state machine diagram showing valid task step transitions and decision points.
 
 #### Scenario: State machine documentation
+
 - **WHEN** user reads synaphex documentation
+
 - **THEN** state machine diagram shows:
   - Required path: create → examine → planner → coder → answerer → reviewer → complete
   - Optional branches: remember (before examine), researcher (between examine and planner)
@@ -13,10 +16,13 @@ The system documentation SHALL include a state machine diagram showing valid tas
   - Visual indication of which steps are optional vs. required
 
 ### Requirement: Document CLI command reference
+
 Documentation SHALL provide clear reference for all synaphex commands with usage examples and expected output.
 
 #### Scenario: CLI reference completeness
+
 - **WHEN** user reads CLI reference
+
 - **THEN** it documents:
   - `/synaphex:create <project_name>` — creates project
   - `/synaphex:settings <project_name>` — configure agents
@@ -31,13 +37,17 @@ Documentation SHALL provide clear reference for all synaphex commands with usage
   - `/synaphex:task-coder <project_name> <task_name>` — implement code
   - `/synaphex:task-answerer <project_name> <task_name>` — answer questions
   - `/synaphex:task-reviewer <project_name> <task_name>` — review code
+
 - **AND** each command includes example usage and output format
 
 ### Requirement: Document error handling patterns
+
 Documentation SHALL explain common errors and recovery procedures.
 
 #### Scenario: Error handling guide
+
 - **WHEN** user encounters error
+
 - **THEN** documentation explains:
   - Out-of-order execution: "Cannot run task-X: task-Y not completed yet" → run task-Y first
   - Missing project: "Project 'xyz' not found" → create with /synaphex:create
@@ -46,31 +56,42 @@ Documentation SHALL explain common errors and recovery procedures.
   - Recovery procedures: which files to delete, which steps to re-run
 
 ### Requirement: Document Coder question marker syntax
+
 Documentation SHALL explain how Coder embeds questions and how Answerer interprets them.
 
 #### Scenario: Question marker documentation
+
 - **WHEN** user reads developer guide
+
 - **THEN** it documents syntax:
+
   ```
   # SYNAPHEX_QUESTION: <question>
   /* SYNAPHEX_QUESTION: <question> */
   // SYNAPHEX_QUESTION: <question>
   ```
+
 - **AND** examples:
+
   ```rust
   // SYNAPHEX_QUESTION: Should we use async/await or blocking calls?
   fn database_query() { }
   ```
+
 - **AND** explains how to embed architectural questions:
+
   ```rust
   // SYNAPHEX_ARCHITECTURAL: Should database be singleton or DI?
   ```
 
 ### Requirement: Document Answerer escalation workflow
+
 Documentation SHALL explain when and how Answerer escalates architectural questions to user.
 
 #### Scenario: Escalation documentation
+
 - **WHEN** user reads workflow guide
+
 - **THEN** it explains:
   1. Answerer encounters architectural question
   2. System pauses and sets answerer_escalation in task-meta.json
@@ -80,10 +101,13 @@ Documentation SHALL explain when and how Answerer escalates architectural questi
   6. User continues workflow
 
 ### Requirement: Document memory organization
+
 Documentation SHALL explain how to create and update memory files for projects.
 
 #### Scenario: Memory organization guide
+
 - **WHEN** user reads memory guide
+
 - **THEN** it explains:
   - memory/internal/: project-owned knowledge, editable
   - memory/external/: linked from other projects, read-only
@@ -93,20 +117,26 @@ Documentation SHALL explain how to create and update memory files for projects.
   - Examples of well-organized memory for C++/Python/ROS projects
 
 ### Requirement: Document versioning and compatibility
+
 Documentation SHALL note versioning strategy and breaking changes from Phase 1.
 
 #### Scenario: Versioning note
+
 - **WHEN** user reviews documentation
+
 - **THEN** it notes:
   - Phase 1 (v1.x): earlier command names (task-implement, task-plan, task-review)
   - Phase 3 (v2.x): refactored command names (task-coder, task-planner, task-reviewer)
   - Migration guide: mapping old commands to new ones
 
 ### Requirement: Produce README updates
+
 The main README.md SHALL be updated to reflect Phase 3 changes.
 
 #### Scenario: README reflects current commands
+
 - **WHEN** user reads README.md
+
 - **THEN** it documents:
   - All 8 task commands in correct order
   - Example workflow walkthrough
