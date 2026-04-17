@@ -10,6 +10,7 @@ import {
   readJsonFile,
   writeJsonFile,
   settingsPath,
+  validateTaskSequence,
 } from "../lib/project-store.js";
 import { runAgent } from "../lib/agent-runtime.js";
 import { readFile, listFiles, searchCode } from "../agents/examiner.js";
@@ -38,9 +39,16 @@ export async function handleTaskExamine(
   const settings = await readJsonFile<SynaphexSettings>(settingsPath(project));
   const config = settings.agents["examiner" as AgentName];
 
-  // Update task status
+  // Validate state
   const metaPath = `${taskDir}/task-meta.json`;
   const meta = await readJsonFile<TaskMeta>(metaPath);
+
+  const validation = validateTaskSequence("examine", meta.completed_steps);
+  if (!validation.valid) {
+    throw new Error(validation.error);
+  }
+
+  // Update task status
   meta.status = "examining";
   await writeJsonFile(metaPath, meta);
 
@@ -130,6 +138,11 @@ export async function handleTaskExamine(
 
   await fs.writeFile(`${taskDir}/examiner-raw.md`, rawOutput, "utf-8");
   await fs.writeFile(`${taskDir}/examiner-compact.md`, compactOutput, "utf-8");
+
+  // Update completed steps
+  meta.status = "examined";
+  meta.completed_steps.push("examine");
+  await writeJsonFile(metaPath, meta);
 
   const usage = result.usage;
 

@@ -39,23 +39,23 @@ Phase 3 Refactoring addresses architectural misalignment: Synaphex was designed 
 ## 4. Refactor & Rename Command Files
 
 - [x] 4.1 Rename src/commands/task-start.ts → task-create.ts
-- [ ] 4.2 Update task-create.ts: Initialize completed_steps: ["create"]
-- [ ] 4.3 Update task-create.ts: Call validateTaskSequence before execution
+- [x] 4.2 Update task-create.ts: Initialize completed_steps: ["create"]
+- [x] 4.3 Update task-create.ts: Call validateTaskSequence before execution
 - [x] 4.4 Rename src/commands/task-examine.ts → keep (already correct)
-- [ ] 4.5 Update task-examine.ts: Append "examine" to completed_steps
-- [ ] 4.6 Update task-examine.ts: Validate "examine" comes after "create"
+- [x] 4.5 Update task-examine.ts: Append "examine" to completed_steps
+- [x] 4.6 Update task-examine.ts: Validate "examine" comes after "create"
 - [x] 4.7 Rename src/commands/task-plan.ts → task-planner.ts
-- [ ] 4.8 Update task-planner.ts: Append "planner" to completed_steps
-- [ ] 4.9 Update task-planner.ts: Validate required prior steps
+- [x] 4.8 Update task-planner.ts: Append "planner" to completed_steps
+- [x] 4.9 Update task-planner.ts: Validate required prior steps
 - [x] 4.10 Rename src/commands/task-implement.ts → task-coder.ts
-- [ ] 4.11 Update task-coder.ts: Append "coder" to completed_steps
+- [x] 4.11 Update task-coder.ts: Append "coder" to completed_steps
 - [ ] 4.12 Update task-coder.ts: Embed question markers (SYNAPHEX_QUESTION, SYNAPHEX_ARCHITECTURAL)
 - [x] 4.13 Rename src/commands/task-review.ts → task-reviewer.ts
-- [ ] 4.14 Update task-reviewer.ts: Append "reviewer" to completed_steps
+- [x] 4.14 Update task-reviewer.ts: Append "reviewer" to completed_steps
 - [x] 4.15 Create src/commands/task-researcher.ts: Runner for Researcher agent
 - [x] 4.16 Create src/commands/task-answerer.ts: Runner for Answerer agent
 - [x] 4.17 Create src/commands/task-remember.ts: Link parent memory before task examine
-- [ ] 4.18 Update all task-* commands: Add state validation calls
+- [x] 4.18 Update all task-* commands: Add state validation calls
 
 ## 5. Consolidate Redundant Code
 
