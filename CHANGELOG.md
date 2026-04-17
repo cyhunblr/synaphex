@@ -1,3 +1,15 @@
+# [2.1.0](https://github.com/cyhunblr/synaphex/compare/v2.0.0...v2.1.0) (2026-04-17)
+
+
+### Bug Fixes
+
+* resolve markdown linting issues in docs and OpenSpec files ([390c34b](https://github.com/cyhunblr/synaphex/commit/390c34b842a385ab1694a8a2124959340b9ad050))
+
+
+### Features
+
+* implement synaphex init command for IDE auto-setup ([4ec18fb](https://github.com/cyhunblr/synaphex/commit/4ec18fb01c53f180d82f453e8e2b19a447f05ce7))
+
 # [2.0.0](https://github.com/cyhunblr/synaphex/compare/v1.8.1...v2.0.0) (2026-04-17)
 
 ### Features
