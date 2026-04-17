@@ -1,3 +1,24 @@
+# [1.8.0](https://github.com/cyhunblr/synaphex/compare/v1.7.1...v1.8.0) (2026-04-17)
+
+
+### Bug Fixes
+
+* resolve all markdown linting errors ([33a13ed](https://github.com/cyhunblr/synaphex/commit/33a13ed79cbe2b5274678965d3aeb09cfbca5e5b))
+* resolve eslint error handling issues ([1dde577](https://github.com/cyhunblr/synaphex/commit/1dde57781e85b9dfef3eb82fc44ec3399f5c9dd4))
+* resolve TypeScript type error in integration scenario tests ([da5f127](https://github.com/cyhunblr/synaphex/commit/da5f1271a73224cfafc96faa556911a1f494ae41))
+
+
+### Features
+
+* add comprehensive error handling and documentation ([128360e](https://github.com/cyhunblr/synaphex/commit/128360ecc8af5031b75e5bc4d9d01d025d8950b6))
+* add documentation update commit message to permissions ([c8e9e21](https://github.com/cyhunblr/synaphex/commit/c8e9e21004001e88982b42527c4911dca33b8e4b))
+* add git commit amend command to permissions ([5576e23](https://github.com/cyhunblr/synaphex/commit/5576e234b130571a23bf65671f991712c484d837))
+* implement edge case handling for v2.0.0 ([db59bef](https://github.com/cyhunblr/synaphex/commit/db59bef04896f7fdedb0452dbfa0e873ed343456))
+* implement Researcher and Answerer agent runners ([510114d](https://github.com/cyhunblr/synaphex/commit/510114d2ad5d1306a2eb031a2e45eb87da5d9803))
+* implement task-remember command and complete Sections 9-11 ([f007430](https://github.com/cyhunblr/synaphex/commit/f007430d729ed7db25c3803f961c0185685a6bfd))
+* **phase-3:** Foundational refactoring for user-orchestrated task workflow (37/118 tasks) ([5dbcee4](https://github.com/cyhunblr/synaphex/commit/5dbcee4f2ef56e3060989ee18cbbf3fbb3fd84d5))
+* **phase-3:** Implement state validation in task commands (48/118 tasks) ([ce0214c](https://github.com/cyhunblr/synaphex/commit/ce0214cff3eec5bd7136baef72aa9a5fe432c3b4))
+
 ## [1.7.1](https://github.com/cyhunblr/synaphex/compare/v1.7.0...v1.7.1) (2026-04-16)
 
 
