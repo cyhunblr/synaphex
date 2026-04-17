@@ -117,7 +117,14 @@ export function validateTaskSequence(
   valid: boolean;
   error?: string;
 } {
-  const requiredSteps = ["create", "examine", "planner", "coder", "answerer", "reviewer"];
+  const requiredSteps = [
+    "create",
+    "examine",
+    "planner",
+    "coder",
+    "answerer",
+    "reviewer",
+  ];
   const optionalSteps = ["remember", "researcher"];
   const allSteps = [...requiredSteps, ...optionalSteps];
 
@@ -126,13 +133,18 @@ export function validateTaskSequence(
   }
 
   if (completedSteps.includes(step)) {
-    return { valid: false, error: `Step '${step}' has already been completed.` };
+    return {
+      valid: false,
+      error: `Step '${step}' has already been completed.`,
+    };
   }
 
   const stepIndex = requiredSteps.indexOf(step);
   if (stepIndex !== -1) {
     const requiredPrior = requiredSteps.slice(0, stepIndex);
-    const missingPrior = requiredPrior.filter((s) => !completedSteps.includes(s));
+    const missingPrior = requiredPrior.filter(
+      (s) => !completedSteps.includes(s),
+    );
     if (missingPrior.length > 0) {
       return {
         valid: false,
@@ -159,6 +171,86 @@ export function validateTaskSequence(
   }
 
   return { valid: true };
+}
+
+// === Edge Case Handling ===
+
+export async function validateCompletedSteps(steps: unknown): Promise<{
+  valid: boolean;
+  repaired?: string[];
+  error?: string;
+}> {
+  if (!Array.isArray(steps)) {
+    return {
+      valid: false,
+      error: "completed_steps must be an array",
+    };
+  }
+
+  const validSteps = [
+    "create",
+    "examine",
+    "remember",
+    "researcher",
+    "planner",
+    "coder",
+    "answerer",
+    "reviewer",
+  ];
+  const invalidSteps = steps.filter((s) => !validSteps.includes(s as string));
+
+  if (invalidSteps.length > 0) {
+    const repaired = steps.filter((s) => validSteps.includes(s as string));
+    return {
+      valid: false,
+      repaired: repaired as string[],
+      error: `Invalid steps found: ${invalidSteps.join(", ")}. Consider removing them.`,
+    };
+  }
+
+  return { valid: true };
+}
+
+export async function gracefulReadJsonFile<T>(
+  filePath: string,
+  defaults: T,
+): Promise<T> {
+  try {
+    const content = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(content);
+    return parsed as T;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return defaults;
+    }
+    return defaults;
+  }
+}
+
+export async function detectBrokenSymlinks(
+  memoryDir: string,
+): Promise<{ broken: string[] }> {
+  const broken: string[] = [];
+
+  try {
+    const externalDir = path.join(memoryDir, "external");
+    const entries = await fs.readdir(externalDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        const linkPath = path.join(externalDir, entry.name);
+        try {
+          await fs.access(linkPath);
+        } catch {
+          broken.push(entry.name);
+        }
+      }
+    }
+  } catch {
+    // Ignore errors when reading external memory dir (may not exist)
+  }
+
+  return { broken };
 }
 
 // === Types ===

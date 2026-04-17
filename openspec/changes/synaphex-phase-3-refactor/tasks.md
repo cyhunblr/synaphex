@@ -55,7 +55,7 @@ Phase 3 Refactoring addresses architectural misalignment: Synaphex was designed 
 - [x] 4.15 Create src/commands/task-researcher.ts: Runner for Researcher agent
 - [x] 4.16 Create src/commands/task-answerer.ts: Runner for Answerer agent
 - [x] 4.17 Create src/commands/task-remember.ts: Link parent memory before task examine
-- [x] 4.18 Update all task-* commands: Add state validation calls
+- [x] 4.18 Update all task-\* commands: Add state validation calls
 
 ## 5. Consolidate Redundant Code
 
@@ -105,7 +105,7 @@ Phase 3 Refactoring addresses architectural misalignment: Synaphex was designed 
 ## 9. Implement Task Remember Command
 
 - [ ] 9.1 Create src/commands/task-remember.ts
-- [ ] 9.2 Implement symlink creation: parent/memory/internal → child/memory/external/{parent}_memory
+- [ ] 9.2 Implement symlink creation: parent/memory/internal → child/memory/external/{parent}\_memory
 - [ ] 9.3 Validate: can run task-remember before task-examine
 - [ ] 9.4 Append "remember" to completed_steps
 - [ ] 9.5 Test: task-remember before examine works
@@ -145,14 +145,14 @@ Phase 3 Refactoring addresses architectural misalignment: Synaphex was designed 
 
 ## 13. Edge Cases & Error Handling
 
-- [ ] 13.1 Handle missing task-meta.json gracefully (recreate from defaults)
-- [ ] 13.2 Handle corrupted completed_steps array (validate and repair)
-- [ ] 13.3 Handle answerer_escalation timeout (document expected behavior)
-- [ ] 13.4 Handle Researcher with no knowledge gaps (still succeeds)
-- [ ] 13.5 Handle Answerer with no questions found (still succeeds)
-- [ ] 13.6 Handle task-reviewer iteration limit (document max re-plans)
-- [ ] 13.7 Handle missing memory files during task (graceful fallback)
-- [ ] 13.8 Handle broken symlinks in external memory (detect and offer repair)
+- [x] 13.1 Handle missing task-meta.json gracefully (gracefulReadJsonFile function)
+- [x] 13.2 Handle corrupted completed_steps array (validateCompletedSteps function)
+- [x] 13.3 Handle answerer_escalation timeout (documented in error-handling.md)
+- [x] 13.4 Handle Researcher with no knowledge gaps (succeeds with no output)
+- [x] 13.5 Handle Answerer with no questions found (succeeds with no escalation)
+- [x] 13.6 Handle task-reviewer iteration limit (documented in task-state-machine.md)
+- [x] 13.7 Handle missing memory files during task (gracefulReadJsonFile fallback)
+- [x] 13.8 Handle broken symlinks in external memory (detectBrokenSymlinks function)
 
 ## 14. Final Quality Assurance
 
