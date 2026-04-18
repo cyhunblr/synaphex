@@ -87,7 +87,7 @@ describe("Edge Cases - Missing and Corrupted Files", () => {
     if (!existsSync(missingFile)) {
       // Error should be logged but not crash
       const errorLog = `Warning: Memory file not found: ${missingFile}`;
-      expect(errorLog).not.toThrow;
+      expect(errorLog).toBeDefined();
     }
   });
 

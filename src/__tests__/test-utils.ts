@@ -119,15 +119,19 @@ export function mockWebSearch() {
   });
 }
 
+interface GlobalWithTestDir extends NodeJS.Global {
+  testDir?: string;
+}
+
 export function setupTestEnvironment() {
   beforeEach(async () => {
     // Setup per-test tmpdir
     const testDir = await createTmpDir();
-    (global as any).testDir = testDir;
+    (global as GlobalWithTestDir).testDir = testDir;
   });
 
   afterEach(() => {
-    const testDir = (global as any).testDir;
+    const testDir = (global as GlobalWithTestDir).testDir;
     if (testDir) {
       cleanupTmpDir(testDir);
     }
