@@ -1,3 +1,17 @@
+# [2.3.0](https://github.com/cyhunblr/synaphex/compare/v2.2.0...v2.3.0) (2026-04-18)
+
+
+### Bug Fixes
+
+* resolve ESLint and markdown linting errors in test files ([512c442](https://github.com/cyhunblr/synaphex/commit/512c44263ab9a0671e44dffd90b2ddd32f08652f))
+* resolve ESLint and TypeScript errors in test utilities ([4b78643](https://github.com/cyhunblr/synaphex/commit/4b7864329216b14dc7afe6c0bbc8b97b13a05a15))
+* update error handling in tests for missing memory file and improve type safety in test-utils ([1463a5e](https://github.com/cyhunblr/synaphex/commit/1463a5ea6324d12949dce3b72dcbe4f682c3dc69))
+
+
+### Features
+
+* add --version, --help, and --check CLI flags ([ffdde43](https://github.com/cyhunblr/synaphex/commit/ffdde436febd1ea2d9f5c41be30c13597f204494))
+
 # [2.2.0](https://github.com/cyhunblr/synaphex/compare/v2.1.0...v2.2.0) (2026-04-18)
 
 
