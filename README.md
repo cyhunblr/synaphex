@@ -6,7 +6,7 @@ Multi-agent task automation for Claude Code. Synaphex provides a complete pipeli
 
 ```bash
 npm install -g synaphex
-synaphex --version
+synaphex --check
 ```
 
 For detailed setup, see [INSTALLATION.md](docs/INSTALLATION.md).
@@ -101,7 +101,7 @@ synaphex task-remember parent-project my-project
 
 ```bash
 npm install -g synaphex
-synaphex --version
+synaphex --check
 ```
 
 ### From Source

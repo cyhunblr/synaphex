@@ -28,8 +28,7 @@ npm install -g synaphex@2.0.0
 Verify installation:
 
 ```bash
-synaphex --version
-# Output: 2.0.0
+synaphex --check
 ```
 
 ### IDE Setup
@@ -75,8 +74,7 @@ npm install -g synaphex@2.0.0
 Verify installation:
 
 ```bash
-synaphex --version
-# Output: 2.0.0
+synaphex --check
 ```
 
 ### Distribution-Specific Notes
@@ -118,8 +116,7 @@ npm install -g synaphex@2.0.0
 Verify installation:
 
 ```powershell
-synaphex --version
-# Output: 2.0.0
+synaphex --check
 ```
 
 ### Path Configuration
@@ -248,8 +245,7 @@ After installation, verify everything works:
 
 ```bash
 # Check version
-synaphex --version
-# Output: 2.0.0
+synaphex --check
 
 # Check help
 synaphex --help
@@ -291,7 +287,7 @@ synaphex --help
 **Solution**:
 
 1. Check IDE compatibility
-2. Verify synaphex is installed: `synaphex --version`
+2. Verify synaphex is installed: `synaphex --check`
 3. Restart IDE
 4. Check IDE logs for detailed error messages
 

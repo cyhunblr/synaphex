@@ -6,6 +6,8 @@ dist/
 .env.local
 .DS_Store
 .vscode/
+coverage/
+.coverage-report/
 
 # OpenSpec and IDE integration directories
 openspec/

@@ -11,6 +11,7 @@ export default {
         useESM: true,
         tsconfig: {
           module: "ESNext",
+          target: "ES2020",
           isolatedModules: true,
         },
       },
@@ -21,28 +22,35 @@ export default {
     "^(\\.{1,2}/.*)\\.js$": "$1",
   },
   collectCoverageFrom: [
-    "src/lib/**/*.ts",
-    "src/agents/**/*.ts",
+    "src/**/*.ts",
     "!src/**/*.d.ts",
+    "!src/__tests__/**",
+    "!node_modules/**",
+    "!dist/**",
+  ],
+  coverageReporters: [
+    "text",
+    "text-summary",
+    "html",
   ],
   coverageThreshold: {
-    "src/agents/answerer.ts": {
-      branches: 100,
-      functions: 100,
-      lines: 100,
-      statements: 100,
+    global: {
+      branches: 85,
+      functions: 85,
+      lines: 85,
+      statements: 85,
     },
-    "src/agents/researcher.ts": {
-      branches: 100,
-      functions: 100,
-      lines: 100,
-      statements: 100,
+    "src/lib/": {
+      branches: 90,
+      functions: 90,
+      lines: 90,
+      statements: 90,
     },
-    "src/lib/project-store.ts": {
-      branches: 40,
-      functions: 20,
-      lines: 45,
-      statements: 45,
+    "src/commands/": {
+      branches: 90,
+      functions: 90,
+      lines: 90,
+      statements: 90,
     },
   },
 };

@@ -597,9 +597,125 @@ server.registerTool(
 
 import { handleSetup } from "./commands/setup.js";
 import { handleInit } from "./commands/init.js";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { fileURLToPath } from "url";
+import { execSync } from "child_process";
+
+const __dirname = join(fileURLToPath(import.meta.url), "..");
+
+function getVersion(): string {
+  try {
+    const pkgPath = join(__dirname, "../package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.version || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function printVersion(): void {
+  console.log(getVersion());
+}
+
+function printHelp(): void {
+  const version = getVersion();
+  console.log(`synaphex v${version} - Multi-agent task automation for Claude Code
+
+Usage:
+  synaphex [COMMAND] [OPTIONS]
+
+Commands:
+  init                     Interactive environment setup wizard
+  setup <platform>         Platform-specific setup (macos, linux, windows)
+  --version, -v            Print version and exit
+  --help, -h               Show this help message
+  --check                  Verify installation (Node.js, npm, package files)
+
+Examples:
+  synaphex init            # First-time setup
+  synaphex --version       # Check installed version
+  synaphex --check         # Diagnose installation issues
+
+MCP Server:
+  If invoked without arguments, starts as MCP server on stdio.
+
+For more information, visit: https://github.com/cyhunblr/synaphex
+`);
+}
+
+function checkInstallation(): void {
+  const checks = {
+    "Node.js version": false,
+    "npm available": false,
+    "Package files": false,
+  };
+  let failCount = 0;
+
+  try {
+    const nodeVersion = process.version;
+    const [major] = nodeVersion.replace("v", "").split(".").map(Number);
+    if (major >= 18) {
+      console.log(`✓ Node.js ${nodeVersion}`);
+      checks["Node.js version"] = true;
+    } else {
+      console.log(`✗ Node.js ${nodeVersion} (requires 18.0+)`);
+      failCount++;
+    }
+  } catch {
+    console.log("✗ Node.js check failed");
+    failCount++;
+  }
+
+  try {
+    const npmVersion = execSync("npm --version", { encoding: "utf-8" }).trim();
+    console.log(`✓ npm ${npmVersion}`);
+    checks["npm available"] = true;
+  } catch {
+    console.log("✗ npm not found");
+    failCount++;
+  }
+
+  try {
+    const distPath = join(__dirname, "../dist/index.js");
+    const pkgPath = join(__dirname, "../package.json");
+    const distExists = readFileSync(distPath, "utf-8").length > 0;
+    const pkgExists = readFileSync(pkgPath, "utf-8").length > 0;
+
+    if (distExists && pkgExists) {
+      console.log("✓ Package files OK");
+      checks["Package files"] = true;
+    } else {
+      if (!distExists) console.log("✗ Missing dist/index.js");
+      if (!pkgExists) console.log("✗ Missing package.json");
+      failCount++;
+    }
+  } catch (err) {
+    console.log(`✗ Package file check failed: ${(err as Error).message}`);
+    failCount++;
+  }
+
+  process.exit(failCount > 0 ? 1 : 0);
+}
 
 async function main(): Promise<void> {
   const arg = process.argv[2];
+
+  if (arg === "--version" || arg === "-v") {
+    printVersion();
+    process.exit(0);
+  }
+
+  if (arg === "--help" || arg === "-h") {
+    printHelp();
+    process.exit(0);
+  }
+
+  if (arg === "--check") {
+    checkInstallation();
+    return;
+  }
+
   if (arg === "setup") {
     const platform = process.argv[3];
     await handleSetup(platform);
