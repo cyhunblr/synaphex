@@ -1,3 +1,11 @@
+# [2.2.0](https://github.com/cyhunblr/synaphex/compare/v2.1.0...v2.2.0) (2026-04-18)
+
+
+### Features
+
+* implement Phase 3 memory and commands specification (55/55 tasks) ([8a008b4](https://github.com/cyhunblr/synaphex/commit/8a008b4a558e16529e6c76dd87174f5c55193193))
+* implement researcher agent with web search and memory persistence (Phase 2.1) ([03f3467](https://github.com/cyhunblr/synaphex/commit/03f3467b1e50074761af42ea6e7be879fec9fe25))
+
 # [2.1.0](https://github.com/cyhunblr/synaphex/compare/v2.0.0...v2.1.0) (2026-04-17)
 
 
