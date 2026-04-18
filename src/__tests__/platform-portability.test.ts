@@ -42,6 +42,7 @@ describe("Platform Portability", () => {
 
       await fs.mkdir(sourceDir);
 
+      let symlinkSupported = true;
       try {
         await fs.symlink(sourceDir, linkPath, "dir");
       } catch {
