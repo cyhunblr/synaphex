@@ -1,3 +1,4 @@
+import { writeFileSync } from "fs";
 import {
   createTestProject,
   createTmpDir,
@@ -99,7 +100,7 @@ describe("Memory Operations - File I/O", () => {
     const researchFile = join(project.internalDir, "research", "test-topic.md");
 
     const testContent = "# Test Research\n\nFindings here.";
-    require("fs").writeFileSync(researchFile, testContent);
+    writeFileSync(researchFile, testContent);
 
     expect(existsSync(researchFile)).toBe(true);
     const read = readFileSync(researchFile, "utf-8");
@@ -111,7 +112,7 @@ describe("Memory Operations - File I/O", () => {
     const testFile = join(project.internalDir, "test-formatted.md");
 
     const markdown = "# Heading\n\n- List item 1\n- List item 2\n\n**Bold**";
-    require("fs").writeFileSync(testFile, markdown);
+    writeFileSync(testFile, markdown);
 
     const content = readFileSync(testFile, "utf-8");
     expect(content).toBe(markdown);
@@ -128,11 +129,11 @@ describe("Memory Operations - File I/O", () => {
     );
 
     const originalContent = "# Original Research\n\nDo not overwrite.";
-    require("fs").writeFileSync(researchFile, originalContent);
+    writeFileSync(researchFile, originalContent);
 
     // Simulate memorize operation (only updates base files)
     const overviewFile = join(project.internalDir, "overview.md");
-    require("fs").writeFileSync(overviewFile, "# Updated Overview");
+    writeFileSync(overviewFile, "# Updated Overview");
 
     // Research file should still have original content
     const read = readFileSync(researchFile, "utf-8");

@@ -1,3 +1,5 @@
+import type { TestProject } from "./test-utils.js";
+import { writeFileSync } from "fs";
 import {
   createTmpDir,
   cleanupTmpDir,
@@ -8,7 +10,7 @@ import { join } from "path";
 
 describe("Integration - Researcher Agent Execution", () => {
   let tmpDir: string;
-  let project: any;
+  let project: TestProject;
 
   beforeEach(async () => {
     tmpDir = await createTmpDir();
@@ -41,7 +43,7 @@ Implement WebSocket for real-time features.
 ## Sources
 - https://developer.mozilla.org/en-US/docs/Web/API/WebSocket`;
 
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     expect(existsSync(researchFile)).toBe(true);
   });
@@ -51,7 +53,7 @@ Implement WebSocket for real-time features.
     expect(existsSync(researchDir)).toBe(true);
 
     const researchFile = join(researchDir, "websocket-integration.md");
-    require("fs").writeFileSync(researchFile, "# WebSocket\n\nResearch here.");
+    writeFileSync(researchFile, "# WebSocket\n\nResearch here.");
 
     expect(existsSync(researchFile)).toBe(true);
   });
@@ -68,7 +70,7 @@ Implement WebSocket for real-time features.
 ## Problem
 The system needs real-time bidirectional communication.`;
 
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("## Problem");
@@ -88,7 +90,7 @@ The system needs real-time bidirectional communication.`;
 - Supports full-duplex communication
 - Lower latency than HTTP polling`;
 
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("## Key Findings");
@@ -108,7 +110,7 @@ Use WebSocket for real-time features because it provides:
 - True bidirectional communication
 - Lower latency`;
 
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("## Recommendation");
@@ -127,7 +129,7 @@ Use WebSocket for real-time features because it provides:
 - [MDN WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
 - [RFC 6455](https://tools.ietf.org/html/rfc6455)`;
 
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("## Sources");
@@ -136,7 +138,7 @@ Use WebSocket for real-time features because it provides:
 
 describe("Integration - Research Caching and Reuse", () => {
   let tmpDir: string;
-  let project: any;
+  let project: TestProject;
 
   beforeEach(async () => {
     tmpDir = await createTmpDir();
@@ -156,7 +158,7 @@ describe("Integration - Research Caching and Reuse", () => {
 
     // First run: create file
     const content = "# WebSocket\n\nOriginal research.";
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     // Second run: detect existing and return cached
     const cached = existsSync(researchFile);
@@ -175,11 +177,11 @@ describe("Integration - Research Caching and Reuse", () => {
 
     // Create initial research
     const original = "# WebSocket\n\nOld findings.";
-    require("fs").writeFileSync(researchFile, original);
+    writeFileSync(researchFile, original);
 
     // With --force, overwrite
     const updated = "# WebSocket\n\nNew findings from fresh research.";
-    require("fs").writeFileSync(researchFile, updated);
+    writeFileSync(researchFile, updated);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toBe(updated);
@@ -189,7 +191,7 @@ describe("Integration - Research Caching and Reuse", () => {
 
 describe("Integration - Research with Web Search Results", () => {
   let tmpDir: string;
-  let project: any;
+  let project: TestProject;
 
   beforeEach(async () => {
     tmpDir = await createTmpDir();
@@ -214,7 +216,7 @@ describe("Integration - Research with Web Search Results", () => {
 - [WebSocket RFC 6455](https://tools.ietf.org/html/rfc6455)
 - [Socket.io](https://socket.io/)`;
 
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("https://");
@@ -236,7 +238,7 @@ _Generated: ${timestamp}_
 ## Problem
 ...`;
 
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("Generated");

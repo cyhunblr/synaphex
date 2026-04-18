@@ -1,3 +1,4 @@
+import { writeFileSync } from "fs";
 import {
   createTmpDir,
   cleanupTmpDir,
@@ -26,7 +27,7 @@ describe("Research Memory - File Creation and Persistence", () => {
     );
 
     const content = "# WebSocket Integration Research\n\nFindings.";
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     expect(existsSync(researchFile)).toBe(true);
   });
@@ -36,7 +37,7 @@ describe("Research Memory - File Creation and Persistence", () => {
     const researchFile = join(project.internalDir, "research", "test-topic.md");
 
     const content = "# Test Topic\n\n## Problem\n\nDescribe the problem.";
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("## Problem");
@@ -48,7 +49,7 @@ describe("Research Memory - File Creation and Persistence", () => {
 
     const content =
       "# Test Topic\n\n## Key Findings\n\n- Finding 1\n- Finding 2";
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("## Key Findings");
@@ -60,7 +61,7 @@ describe("Research Memory - File Creation and Persistence", () => {
 
     const content =
       "# Test Topic\n\n## Recommendation\n\nUse option X because...";
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("## Recommendation");
@@ -72,7 +73,7 @@ describe("Research Memory - File Creation and Persistence", () => {
 
     const content =
       "# Test Topic\n\n## Sources\n\n- [Source 1](https://example.com)";
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("## Sources");
@@ -84,7 +85,7 @@ describe("Research Memory - File Creation and Persistence", () => {
 
     const timestamp = new Date().toISOString();
     const content = `# Test Topic\n\n_Generated: ${timestamp}_`;
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("Generated");
@@ -112,7 +113,7 @@ describe("Research Memory - Caching and Reuse", () => {
 
     // First run: create file
     const content = "# WebSocket Integration\n\nOriginal findings.";
-    require("fs").writeFileSync(researchFile, content);
+    writeFileSync(researchFile, content);
 
     // Second run: should detect existing file
     expect(existsSync(researchFile)).toBe(true);
@@ -126,7 +127,7 @@ describe("Research Memory - Caching and Reuse", () => {
     const researchFile = join(project.internalDir, "research", "test-topic.md");
 
     const cachedContent = "# Cached Research\n\nDo not modify.";
-    require("fs").writeFileSync(researchFile, cachedContent);
+    writeFileSync(researchFile, cachedContent);
 
     // Read again (simulating cache hit)
     const read = readFileSync(researchFile, "utf-8");
@@ -139,11 +140,11 @@ describe("Research Memory - Caching and Reuse", () => {
 
     // Create initial file
     const oldContent = "# Old Research\n\nOld findings.";
-    require("fs").writeFileSync(researchFile, oldContent);
+    writeFileSync(researchFile, oldContent);
 
     // With --force, overwrite with new content
     const newContent = "# New Research\n\nNew findings.";
-    require("fs").writeFileSync(researchFile, newContent);
+    writeFileSync(researchFile, newContent);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toBe(newContent);
@@ -183,7 +184,7 @@ Use WebSocket for chat features.
 - [MDN WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
 - [WebSocket RFC](https://tools.ietf.org/html/rfc6455)`;
 
-    require("fs").writeFileSync(researchFile, markdown);
+    writeFileSync(researchFile, markdown);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toContain("# WebSocket Integration");
@@ -206,7 +207,7 @@ Use WebSocket for chat features.
 
 **Bold** and *italic* text`;
 
-    require("fs").writeFileSync(researchFile, original);
+    writeFileSync(researchFile, original);
 
     const read = readFileSync(researchFile, "utf-8");
     expect(read).toBe(original);

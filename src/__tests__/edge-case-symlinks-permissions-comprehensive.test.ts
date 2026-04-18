@@ -2,10 +2,10 @@ import { createTmpDir, cleanupTmpDir } from "./test-utils.js";
 import {
   symlinkSync,
   existsSync,
-  lstatSync,
   writeFileSync,
   chmodSync,
-  readFileSync,
+  unlinkSync,
+  mkdirSync,
 } from "fs";
 import { join } from "path";
 
@@ -30,7 +30,7 @@ describe("Edge Cases - Broken Symlinks", () => {
       symlinkSync(targetPath, linkPath, "file");
 
       // Now delete target
-      require("fs").unlinkSync(targetPath);
+      unlinkSync(targetPath);
 
       // Symlink is broken
       const isBroken = !existsSync(linkPath);
@@ -46,7 +46,6 @@ describe("Edge Cases - Broken Symlinks", () => {
       "Warning: External memory symlink broken. Task continues with internal memory.";
 
     expect(warningMsg).toContain("Warning");
-    expect(warningMsg).not.toThrow;
   });
 
   it("researcher not blocked by broken external memory link", async () => {
@@ -105,7 +104,7 @@ describe("Edge Cases - Permission Errors", () => {
 
   it("write permission denied throws error with clear message", async () => {
     const readOnlyDir = join(tmpDir, "readonly");
-    require("fs").mkdirSync(readOnlyDir, { recursive: true });
+    mkdirSync(readOnlyDir, { recursive: true });
 
     try {
       chmodSync(readOnlyDir, 0o444); // Read-only
@@ -162,7 +161,7 @@ describe("Edge Cases - Permission Errors", () => {
 
   it("read-only memory directories handled gracefully", async () => {
     const readOnlyDir = join(tmpDir, "read_only_memory");
-    require("fs").mkdirSync(readOnlyDir, { recursive: true });
+    mkdirSync(readOnlyDir, { recursive: true });
 
     try {
       chmodSync(readOnlyDir, 0o555); // Read and execute only

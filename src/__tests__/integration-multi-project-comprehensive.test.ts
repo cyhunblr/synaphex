@@ -1,15 +1,27 @@
+import { writeFileSync } from "fs";
 import {
   createTmpDir,
   cleanupTmpDir,
   createTestProject,
 } from "./test-utils.js";
-import { symlinkSync, existsSync, readFileSync, realpathSync } from "fs";
+import {
+  symlinkSync,
+  existsSync,
+  readFileSync,
+  realpathSync,
+  lstatSync,
+} from "fs";
 import { join } from "path";
+
+interface TestProject {
+  externalDir: string;
+  internalDir: string;
+}
 
 describe("Integration - Multi-Project Inheritance via Symlinks", () => {
   let tmpDir: string;
-  let parentProject: any;
-  let childProject: any;
+  let parentProject: TestProject;
+  let childProject: TestProject;
 
   beforeEach(async () => {
     tmpDir = await createTmpDir();
@@ -87,7 +99,7 @@ describe("Integration - Multi-Project Inheritance via Symlinks", () => {
       if (existsSync(linkPath)) {
         // Parent updates overview.md
         const overviewPath = join(parentProject.internalDir, "overview.md");
-        require("fs").writeFileSync(overviewPath, "# Updated Parent Overview");
+        writeFileSync(overviewPath, "# Updated Parent Overview");
 
         // Child should see update immediately
         const childViewPath = join(linkPath, "overview.md");
@@ -110,14 +122,11 @@ describe("Integration - Multi-Project Inheritance via Symlinks", () => {
       // Child has own overview.md
       const childOverviewPath = join(childProject.internalDir, "overview.md");
       const childContent = "# Child Project Overview";
-      require("fs").writeFileSync(childOverviewPath, childContent);
+      writeFileSync(childOverviewPath, childContent);
 
       // Parent updates its overview
       const parentOverviewPath = join(parentProject.internalDir, "overview.md");
-      require("fs").writeFileSync(
-        parentOverviewPath,
-        "# Parent Project Overview",
-      );
+      writeFileSync(parentOverviewPath, "# Parent Project Overview");
 
       // Child's own overview should be unchanged
       const read = readFileSync(childOverviewPath, "utf-8");
@@ -155,8 +164,8 @@ describe("Integration - Multi-Project Inheritance via Symlinks", () => {
 
 describe("Integration - Symlink Integrity", () => {
   let tmpDir: string;
-  let parentProject: any;
-  let childProject: any;
+  let parentProject: TestProject;
+  let childProject: TestProject;
 
   beforeEach(async () => {
     tmpDir = await createTmpDir();
@@ -178,7 +187,7 @@ describe("Integration - Symlink Integrity", () => {
       symlinkSync(parentProject.internalDir, linkPath, "dir");
 
       if (existsSync(linkPath)) {
-        const stats = require("fs").lstatSync(linkPath);
+        const stats = lstatSync(linkPath);
         expect(stats.isSymbolicLink()).toBe(true);
       }
     } catch {
@@ -195,7 +204,7 @@ describe("Integration - Symlink Integrity", () => {
       symlinkSync(targetPath, linkPath, "dir");
 
       // Link is broken (target doesn't exist)
-      expect(require("fs").existsSync(linkPath)).toBe(false);
+      expect(existsSync(linkPath)).toBe(false);
     } catch {
       // Symlink not supported
       expect(true).toBe(true);

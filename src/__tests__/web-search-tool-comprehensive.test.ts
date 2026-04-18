@@ -63,10 +63,6 @@ describe("Web Search Tool Integration", () => {
   });
 
   it("research continues with fallback on web search timeout", async () => {
-    const mockSearch = jest
-      .fn()
-      .mockRejectedValue(new Error("Search timeout after 30s"));
-
     // Simulate research continuing with cached/fallback knowledge
     const fallbackFindings = "Proceeding with cached knowledge due to timeout.";
 
@@ -98,26 +94,28 @@ describe("Web Search Error Handling", () => {
   });
 
   it("handles network errors gracefully", async () => {
-    const mockSearch = jest
+    const mockSearchFn = jest
       .fn()
       .mockRejectedValue(new Error("Network unreachable"));
 
     try {
-      await mockSearch("test");
-    } catch (err: any) {
-      expect(err.message).toContain("Network");
+      await mockSearchFn("test");
+    } catch (err: Error | unknown) {
+      const error = err as Error;
+      expect(error.message).toContain("Network");
     }
   });
 
   it("handles API quota exceeded errors", async () => {
-    const mockSearch = jest
+    const mockSearchFn = jest
       .fn()
       .mockRejectedValue(new Error("API quota exceeded"));
 
     try {
-      await mockSearch("test");
-    } catch (err: any) {
-      expect(err.message).toContain("quota");
+      await mockSearchFn("test");
+    } catch (err: Error | unknown) {
+      const error = err as Error;
+      expect(error.message).toContain("quota");
     }
   });
 

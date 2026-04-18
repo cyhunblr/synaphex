@@ -1,3 +1,4 @@
+import type { TestProject } from "./test-utils.js";
 import {
   createTmpDir,
   cleanupTmpDir,
@@ -8,7 +9,7 @@ import { join } from "path";
 
 describe("Edge Cases - Timeout Handling", () => {
   let tmpDir: string;
-  let project: any;
+  let project: TestProject;
 
   beforeEach(async () => {
     tmpDir = await createTmpDir();

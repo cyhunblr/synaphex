@@ -1,14 +1,15 @@
+import type { TestProject } from "./test-utils.js";
 import {
   createTmpDir,
   cleanupTmpDir,
   createTestProject,
 } from "./test-utils.js";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 describe("Integration - Full Pipeline Execution", () => {
   let tmpDir: string;
-  let project: any;
+  let project: TestProject;
 
   beforeEach(async () => {
     tmpDir = await createTmpDir();
@@ -37,10 +38,7 @@ describe("Integration - Full Pipeline Execution", () => {
       status: "completed",
     };
 
-    require("fs").writeFileSync(
-      taskMetaPath,
-      JSON.stringify(taskMeta, null, 2),
-    );
+    writeFileSync(taskMetaPath, JSON.stringify(taskMeta, null, 2));
 
     expect(existsSync(taskMetaPath)).toBe(true);
 
@@ -69,10 +67,7 @@ describe("Integration - Full Pipeline Execution", () => {
       ],
     };
 
-    require("fs").writeFileSync(
-      taskMetaPath,
-      JSON.stringify(taskMeta, null, 2),
-    );
+    writeFileSync(taskMetaPath, JSON.stringify(taskMeta, null, 2));
 
     const read = JSON.parse(readFileSync(taskMetaPath, "utf-8"));
     expect(read.status).toBe("completed");
@@ -91,10 +86,7 @@ describe("Integration - Full Pipeline Execution", () => {
       ],
     };
 
-    require("fs").writeFileSync(
-      taskMetaPath,
-      JSON.stringify(taskMeta, null, 2),
-    );
+    writeFileSync(taskMetaPath, JSON.stringify(taskMeta, null, 2));
 
     const read = JSON.parse(readFileSync(taskMetaPath, "utf-8"));
     expect(read.completed_steps.length).toBe(6);
@@ -112,10 +104,7 @@ describe("Integration - Full Pipeline Execution", () => {
       status: "in_progress",
       completed_steps: ["create"],
     };
-    require("fs").writeFileSync(
-      taskMetaPath,
-      JSON.stringify(taskMeta, null, 2),
-    );
+    writeFileSync(taskMetaPath, JSON.stringify(taskMeta, null, 2));
 
     // After final step
     taskMeta = {
@@ -129,10 +118,7 @@ describe("Integration - Full Pipeline Execution", () => {
         "reviewer",
       ],
     };
-    require("fs").writeFileSync(
-      taskMetaPath,
-      JSON.stringify(taskMeta, null, 2),
-    );
+    writeFileSync(taskMetaPath, JSON.stringify(taskMeta, null, 2));
 
     const read = JSON.parse(readFileSync(taskMetaPath, "utf-8"));
     expect(read.status).toBe("completed");
@@ -141,7 +127,7 @@ describe("Integration - Full Pipeline Execution", () => {
 
 describe("Integration - Optional Steps", () => {
   let tmpDir: string;
-  let project: any;
+  let project: TestProject;
 
   beforeEach(async () => {
     tmpDir = await createTmpDir();
@@ -159,10 +145,7 @@ describe("Integration - Optional Steps", () => {
       status: "completed",
     };
 
-    require("fs").writeFileSync(
-      taskMetaPath,
-      JSON.stringify(taskMeta, null, 2),
-    );
+    writeFileSync(taskMetaPath, JSON.stringify(taskMeta, null, 2));
 
     const read = JSON.parse(readFileSync(taskMetaPath, "utf-8"));
     expect(read.completed_steps).not.toContain("answerer");
@@ -177,10 +160,7 @@ describe("Integration - Optional Steps", () => {
       status: "completed",
     };
 
-    require("fs").writeFileSync(
-      taskMetaPath,
-      JSON.stringify(taskMeta, null, 2),
-    );
+    writeFileSync(taskMetaPath, JSON.stringify(taskMeta, null, 2));
 
     expect(existsSync(taskMetaPath)).toBe(true);
   });
@@ -188,7 +168,7 @@ describe("Integration - Optional Steps", () => {
 
 describe("Integration - Memory Updates During Pipeline", () => {
   let tmpDir: string;
-  let project: any;
+  let project: TestProject;
 
   beforeEach(async () => {
     tmpDir = await createTmpDir();
@@ -203,7 +183,7 @@ describe("Integration - Memory Updates During Pipeline", () => {
     const examPath = join(project.internalDir, "examination.md");
     const examContent = "# Examination Summary\n\nTask analysis here.";
 
-    require("fs").writeFileSync(examPath, examContent);
+    writeFileSync(examPath, examContent);
 
     expect(existsSync(examPath)).toBe(true);
     const read = readFileSync(examPath, "utf-8");
@@ -214,11 +194,8 @@ describe("Integration - Memory Updates During Pipeline", () => {
     const examPath = join(project.internalDir, "examination.md");
     const planPath = join(project.internalDir, "plan.md");
 
-    require("fs").writeFileSync(
-      examPath,
-      "# Examination\n\nAnalysis complete.",
-    );
-    require("fs").writeFileSync(planPath, "# Plan\n\nImplementation steps.");
+    writeFileSync(examPath, "# Examination\n\nAnalysis complete.");
+    writeFileSync(planPath, "# Plan\n\nImplementation steps.");
 
     expect(existsSync(examPath)).toBe(true);
     expect(existsSync(planPath)).toBe(true);
@@ -228,11 +205,8 @@ describe("Integration - Memory Updates During Pipeline", () => {
     const planPath = join(project.internalDir, "plan.md");
     const implPath = join(project.internalDir, "implementation.md");
 
-    require("fs").writeFileSync(planPath, "# Plan\n\nSteps.");
-    require("fs").writeFileSync(
-      implPath,
-      "# Implementation\n\nCode changes made.",
-    );
+    writeFileSync(planPath, "# Plan\n\nSteps.");
+    writeFileSync(implPath, "# Implementation\n\nCode changes made.");
 
     expect(existsSync(implPath)).toBe(true);
   });
@@ -247,10 +221,7 @@ describe("Integration - Memory Updates During Pipeline", () => {
       },
     };
 
-    require("fs").writeFileSync(
-      taskMetaPath,
-      JSON.stringify(taskMeta, null, 2),
-    );
+    writeFileSync(taskMetaPath, JSON.stringify(taskMeta, null, 2));
 
     const read = JSON.parse(readFileSync(taskMetaPath, "utf-8"));
     expect(read.decisions).toBeDefined();
@@ -261,7 +232,7 @@ describe("Integration - Memory Updates During Pipeline", () => {
     const summaryPath = join(project.internalDir, "task-summary.md");
 
     // After examine
-    require("fs").writeFileSync(
+    writeFileSync(
       summaryPath,
       "# Task Summary\n\n## Examined\n\nInitial analysis done.",
     );
@@ -270,7 +241,7 @@ describe("Integration - Memory Updates During Pipeline", () => {
     const content = readFileSync(summaryPath, "utf-8");
     const updated =
       content + "\n\n## Planned\n\nImplementation strategy ready.";
-    require("fs").writeFileSync(summaryPath, updated);
+    writeFileSync(summaryPath, updated);
 
     expect(existsSync(summaryPath)).toBe(true);
     const final = readFileSync(summaryPath, "utf-8");
