@@ -119,7 +119,7 @@ export function mockWebSearch() {
   });
 }
 
-interface GlobalWithTestDir extends NodeJS.Global {
+interface GlobalWithTestDir {
   testDir?: string;
 }
 
