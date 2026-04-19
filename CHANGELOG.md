@@ -1,3 +1,10 @@
+## [2.3.3](https://github.com/cyhunblr/synaphex/compare/v2.3.2...v2.3.3) (2026-04-19)
+
+
+### Bug Fixes
+
+* use global synaphex command for MCP server in plugin.json ([78f8c71](https://github.com/cyhunblr/synaphex/commit/78f8c71a77b13e078ebe9482c12c992b748dc8b6))
+
 ## [2.3.2](https://github.com/cyhunblr/synaphex/compare/v2.3.1...v2.3.2) (2026-04-19)
 
 
