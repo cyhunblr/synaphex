@@ -1,3 +1,11 @@
+## [2.3.2](https://github.com/cyhunblr/synaphex/compare/v2.3.1...v2.3.2) (2026-04-19)
+
+
+### Bug Fixes
+
+* add MCP server configuration to plugin.json ([f44fc75](https://github.com/cyhunblr/synaphex/commit/f44fc753c3a08783bf08d4cd25eed86393128022))
+* use relative path for MCP server in plugin.json ([80ba31e](https://github.com/cyhunblr/synaphex/commit/80ba31e7a9e05e613aac09141e1aeaf6a515f548))
+
 ## [2.3.1](https://github.com/cyhunblr/synaphex/compare/v2.3.0...v2.3.1) (2026-04-19)
 
 
