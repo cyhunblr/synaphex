@@ -8,8 +8,7 @@
   "mcpServers": {
     "synaphex": {
       "command": "node",
-      "args": ["dist/index.js"],
-      "cwd": "."
+      "args": ["../dist/index.js"]
     }
   }
 }
