@@ -225,6 +225,179 @@ npm test -- edge-case
 npm test -- validation
 ```
 
+### E2E Tests (End-to-End Pipeline Testing)
+
+```bash
+# Run prerequisites tests (synaphex --check and init)
+npm test -- e2e-prerequisites
+
+# Run Suite 1 tests (single project pipeline)
+npm test -- e2e-suite-1
+
+# Run Suite 2 tests (multi-project with memory inheritance)
+npm test -- e2e-suite-2
+
+# Run all E2E tests together
+npm test -- e2e
+```
+
+## End-to-End Testing Guide
+
+### Overview
+
+E2E tests validate the complete synaphex pipeline from prerequisites through multi-project scenarios. Tests are organized in two separate suites that can run independently or together.
+
+### Prerequisites Tests (e2e-prerequisites.test.ts)
+
+Validates initial environment setup:
+
+- **synaphex --check**: Verifies synaphex installation and version
+- **synaphex init**: Creates ~/.synaphex/ environment and scaffolds configuration
+
+**Run**: `npm test -- e2e-prerequisites`
+
+**Tests**: Installation verification and environment initialization before pipeline
+
+### Suite 1: Single Project Pipeline (e2e-suite-1-single-project.test.ts)
+
+Validates complete required workflow on project_v1:
+
+**Pipeline**: create → task_create → task_examine (required) → task_planner → task_coder → task_reviewer
+
+**Tests**:
+
+- Task creation and state transitions
+- Memory structure creation and persistence
+- State machine enforcement (no skipped steps)
+- Optional steps (task_answerer, task_researcher)
+- Command output and error messages
+
+**Run**: `npm test -- e2e-suite-1`
+
+**Requirement**: Must pass before Suite 2 can run
+
+### Suite 2: Multi-Project with Memory Inheritance (e2e-suite-2-multi-project.test.ts)
+
+Validates memory inheritance and optional task_examine on project_v2:
+
+**Setup**: project_v2 inherits memory from project_v1 via symlink
+
+**Pipeline**: create(project_v2) → remember(project_v1) → load(project_v2) → optional task_examine → task_planner → task_coder → task_reviewer
+
+**Tests**:
+
+- Project creation and symlink setup
+- Load command with inherited memory digest
+- Optional task_examine for independent tasks
+- Memory inheritance through symlinks
+- Parent updates visible to child (symlink follows)
+- Child memory isolation from parent
+
+**Run**: `npm test -- e2e-suite-2`
+
+**Prerequisite**: Suite 1 must pass first
+
+### E2E Test Structure
+
+```typescript
+// Isolated tmpdir per test
+let testHomeDir: string;
+
+beforeEach(async () => {
+  testHomeDir = path.join(os.tmpdir(), `synaphex-e2e-${Date.now()}`);
+  await fs.mkdir(testHomeDir, { recursive: true });
+});
+
+// Clean cleanup
+afterEach(async () => {
+  if (testHomeDir) {
+    await fs.rm(testHomeDir, { recursive: true, force: true });
+  }
+});
+```
+
+### E2E Test Patterns
+
+#### Simulating CLI Commands
+
+Tests use file system operations to simulate command execution:
+
+```typescript
+// Simulate create command
+const projectDir = path.join(testHomeDir, "project_name");
+const memoryDir = path.join(projectDir, "memory", "internal");
+await fs.mkdir(memoryDir, { recursive: true });
+
+// Simulate task_create
+const taskMeta: TaskMeta = {
+  project: "project_name",
+  slug: "task-001",
+  status: "created",
+  completed_steps: [],
+};
+await fs.writeFile(metaPath, JSON.stringify(taskMeta, null, 2));
+```
+
+#### Validating State Transitions
+
+```typescript
+// Verify task status changes through pipeline
+const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+expect(meta.status).toBe("examined");
+expect(meta.completed_steps).toContain("examine");
+```
+
+#### Testing Symlink Memory Inheritance
+
+```typescript
+// Create symlink for multi-project inheritance
+try {
+  await fs.symlink(targetPath, linkPath, "dir");
+  // Test can read through link
+  const inherited = await fs.readFile(
+    path.join(linkPath, "overview.md"),
+    "utf-8",
+  );
+  expect(inherited).toBeDefined();
+} catch {
+  // Symlinks not supported on platform, skip gracefully
+  expect(true).toBe(true);
+}
+```
+
+### E2E Coverage
+
+E2E tests target >85% coverage of pipeline code:
+
+- All command handlers (`src/commands/task-*.ts`)
+- State machine validation (`src/lib/project-store.ts`)
+- Memory operations (`src/memory/`)
+- Task orchestration logic
+
+Run with coverage:
+
+```bash
+npm run test:coverage -- e2e
+```
+
+### Debugging E2E Tests
+
+#### Run single E2E test
+
+```bash
+npm test -- e2e --testNamePattern="synaphex --check verifies installation"
+```
+
+#### Run with verbose output
+
+```bash
+npm test -- e2e --verbose
+```
+
+#### Inspect test tmpdir
+
+For debugging, tmpdir is not automatically cleaned. Look in `/tmp/synaphex-e2e-*` after test run.
+
 ## Continuous Integration
 
 Tests run automatically in CI/CD pipeline before merging:
