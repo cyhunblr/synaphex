@@ -1,3 +1,11 @@
+## [2.3.1](https://github.com/cyhunblr/synaphex/compare/v2.3.0...v2.3.1) (2026-04-19)
+
+
+### Bug Fixes
+
+* add missing glob dependency for memorize command ([2822903](https://github.com/cyhunblr/synaphex/commit/282290301bc32d4480fef3015f6a46fea29f960c))
+* resolve ESLint and prettier errors in test files ([51964b9](https://github.com/cyhunblr/synaphex/commit/51964b9675dbda5f58f05a8dbaeff697226c0555))
+
 # [2.3.0](https://github.com/cyhunblr/synaphex/compare/v2.2.0...v2.3.0) (2026-04-18)
 
 
