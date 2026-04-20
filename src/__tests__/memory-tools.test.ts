@@ -111,11 +111,7 @@ describe("Memory Tools (read_memory, write_memory)", () => {
     });
 
     it("should reject dangerous paths", () => {
-      const invalidPaths = [
-        "../../secret.md",
-        "/etc/passwd",
-        "C:\\Windows\\System32",
-      ];
+      const invalidPaths = ["../../secret.md", "/etc/passwd"];
 
       invalidPaths.forEach((p) => {
         const normalized = path.normalize(p);

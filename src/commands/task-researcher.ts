@@ -192,9 +192,8 @@ function extractResearchTopic(task: string, examinerOutput: string): string {
 function sanitizeTopicToFilename(topic: string): string {
   return topic
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
+    .replace(/[^a-z0-9\s-]/g, "-")
+    .replace(/[\s-]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
 

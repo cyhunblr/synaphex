@@ -66,14 +66,13 @@ Should we use WebSocket or SSE for real-time delivery?
       const sanitize = (topic: string): string => {
         return topic
           .toLowerCase()
-          .replace(/[^a-z0-9\s-]/g, "")
-          .replace(/\s+/g, "-")
-          .replace(/-+/g, "-")
+          .replace(/[^a-z0-9\s-]/g, "-")
+          .replace(/[\s-]+/g, "-")
           .replace(/^-+|-+$/g, "");
       };
 
       expect(sanitize("C++ Memory Management!")).toBe("c-memory-management");
-      expect(sanitize("Node.js@Best?Practices")).toBe("nodejs-best-practices");
+      expect(sanitize("Node.js@Best?Practices")).toBe("node-js-best-practices");
     });
   });
 
