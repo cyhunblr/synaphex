@@ -1,3 +1,10 @@
+## [2.3.5](https://github.com/cyhunblr/synaphex/compare/v2.3.4...v2.3.5) (2026-04-20)
+
+
+### Bug Fixes
+
+* auto-sync plugin.json version during semantic release ([4bffb3e](https://github.com/cyhunblr/synaphex/commit/4bffb3ee4175d13da6eb98ec4fdd34c5a6420afa))
+
 ## [2.3.4](https://github.com/cyhunblr/synaphex/compare/v2.3.3...v2.3.4) (2026-04-20)
 
 
