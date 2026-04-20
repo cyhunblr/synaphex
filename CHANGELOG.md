@@ -1,3 +1,10 @@
+# [2.4.0](https://github.com/cyhunblr/synaphex/compare/v2.3.12...v2.4.0) (2026-04-20)
+
+
+### Features
+
+* redesign memorize to delegated mode with write_memory MCP tool ([86a29f3](https://github.com/cyhunblr/synaphex/commit/86a29f3402353e547956d6438941d75c28cb3e92))
+
 <<<<<<< HEAD
 
 # [2.4.0](https://github.com/cyhunblr/synaphex/compare/v2.3.11...v2.4.0) (2026-04-20)
