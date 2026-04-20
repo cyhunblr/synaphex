@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, copyFileSync, existsSync } from "fs";
 import { homedir } from "os";
-import { execSync } from "child_process";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
 
 export interface RegistrationResult {
   success: boolean;
@@ -35,27 +36,17 @@ export async function registerMCPServer(): Promise<RegistrationResult> {
     (config.mcpServers as Record<string, unknown> | undefined) ?? {};
   const wasAlreadyConfigured = !!mcpServers.synaphex;
 
-  // Find the absolute path to the synaphex binary
-  let synaphexCommand = "npx";
-  let synaphexArgs = ["synaphex"];
+  // Register as `node <absolute-path-to-index.js>`. Using the synaphex
+  // shebang binary breaks in IDE extension environments (e.g. VS Code)
+  // because their spawn PATH doesn't include nvm/fnm, so `env node` in
+  // the shebang fails to resolve.
+  const currentFile = fileURLToPath(import.meta.url);
+  const indexPath = resolve(dirname(currentFile), "..", "index.js");
 
-  try {
-    // Try to find the synaphex binary via 'which'
-    const whichOutput = execSync("which synaphex", {
-      encoding: "utf-8",
-    }).trim();
-    if (whichOutput) {
-      synaphexCommand = whichOutput;
-      synaphexArgs = [];
-    }
-  } catch {
-    // If 'which' fails, fall back to npx
-  }
-
-  mcpServers.synaphex =
-    synaphexArgs.length > 0
-      ? { command: synaphexCommand, args: synaphexArgs }
-      : { command: synaphexCommand };
+  mcpServers.synaphex = {
+    command: process.execPath,
+    args: [indexPath],
+  };
   config.mcpServers = mcpServers;
 
   try {

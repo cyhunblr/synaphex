@@ -9,7 +9,32 @@ Synaphex can be integrated into **VSCode** via the **Claude Code extension**, **
 
 ## 1. MCP Server Setup
 
-### Option A: Using NPX (Recommended)
+### Option A: Absolute `node` + script path (Recommended)
+
+The VS Code extension spawns MCP servers with a minimal environment that does **not** inherit nvm/fnm shims. `npx` or the bare `synaphex` shebang script will fail with `MCP error -32000: Connection closed`. Always register with absolute paths:
+
+```bash
+npm install -g synaphex
+claude mcp remove synaphex -s user 2>/dev/null
+claude mcp add synaphex --scope user -- $(which node) $(npm root -g)/synaphex/dist/index.js
+```
+
+This is what `synaphex init` writes to `~/.claude.json` automatically since v2.3.12.
+
+Equivalent `mcp.json` form:
+
+```json
+{
+  "mcpServers": {
+    "synaphex": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/global/node_modules/synaphex/dist/index.js"]
+    }
+  }
+}
+```
+
+### Option B: NPX (CLI-only, not reliable in VS Code extension)
 
 ```json
 {
@@ -22,18 +47,7 @@ Synaphex can be integrated into **VSCode** via the **Claude Code extension**, **
 }
 ```
 
-### Option B: Using a Local Build
-
-```json
-{
-  "mcpServers": {
-    "synaphex": {
-      "command": "node",
-      "args": ["/ABSOLUTE/PATH/TO/synaphex/dist/index.js"]
-    }
-  }
-}
-```
+Works in `claude mcp list` from a terminal, but the VS Code extension's spawn environment typically lacks `npx` on the PATH. Prefer Option A.
 
 ---
 
