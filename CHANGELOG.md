@@ -1,3 +1,10 @@
+## [2.3.8](https://github.com/cyhunblr/synaphex/compare/v2.3.7...v2.3.8) (2026-04-20)
+
+
+### Bug Fixes
+
+* remove mcpServers from plugin.json, rely on synaphex init for MCP registration ([7b8579c](https://github.com/cyhunblr/synaphex/commit/7b8579c99a623eea0bc537022993bde928f682e7))
+
 ## [2.3.7](https://github.com/cyhunblr/synaphex/compare/v2.3.6...v2.3.7) (2026-04-20)
 
 
