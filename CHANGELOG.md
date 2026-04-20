@@ -1,3 +1,10 @@
+## [2.3.11](https://github.com/cyhunblr/synaphex/compare/v2.3.10...v2.3.11) (2026-04-20)
+
+
+### Bug Fixes
+
+* use absolute path to synaphex binary for reliable MCP registration across environments ([e1753e9](https://github.com/cyhunblr/synaphex/commit/e1753e99c2ab168cdf9937e2c0f33f783780a104))
+
 ## [2.3.10](https://github.com/cyhunblr/synaphex/compare/v2.3.9...v2.3.10) (2026-04-20)
 
 
