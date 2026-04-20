@@ -1,3 +1,10 @@
+## [2.3.10](https://github.com/cyhunblr/synaphex/compare/v2.3.9...v2.3.10) (2026-04-20)
+
+
+### Bug Fixes
+
+* add mcpServers back to plugin.json for VS Code extension compatibility ([fc0f255](https://github.com/cyhunblr/synaphex/commit/fc0f2552f8fee97cc8381d4811f3c6c3388302e0))
+
 ## [2.3.9](https://github.com/cyhunblr/synaphex/compare/v2.3.8...v2.3.9) (2026-04-20)
 
 
