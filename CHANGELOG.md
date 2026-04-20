@@ -1,3 +1,10 @@
+## [2.3.4](https://github.com/cyhunblr/synaphex/compare/v2.3.3...v2.3.4) (2026-04-20)
+
+
+### Bug Fixes
+
+* use npx to launch MCP server for reliable PATH resolution ([cc96361](https://github.com/cyhunblr/synaphex/commit/cc9636188b7de55d3e38fd964583dc6b68e933aa))
+
 ## [2.3.3](https://github.com/cyhunblr/synaphex/compare/v2.3.2...v2.3.3) (2026-04-19)
 
 
