@@ -1,3 +1,39 @@
+# [3.0.0](https://github.com/cyhunblr/synaphex/compare/v2.4.0...v3.0.0) (2026-04-20)
+
+
+### Features
+
+* implement user-orchestrated discrete task pipeline ([a2a5333](https://github.com/cyhunblr/synaphex/commit/a2a5333d41c85f2e048971889c986bea428cc3f5))
+
+
+### BREAKING CHANGES
+
+* Internal step names changed from 'planner', 'coder', 'reviewer'
+to 'plan', 'implement', 'review' to align with MCP tool names.
+
+Key changes:
+- Four discrete task command handlers with independent agent invocation
+- Task state validation via completed_steps tracking
+- Model transition hints to guide users between agent boundaries
+- Pipeline wrapper (task) that calls discrete commands internally
+- All task handlers with transition notes and next-step instructions
+- buildTransitionNote() exported and integrated with direct mode
+- Task metadata tracking with atomic state updates
+- Version bumped to 2.5.0
+
+Testing:
+- Updated all state validation tests with new step names
+- Fixed integration tests for discrete command workflow
+- All 341 tests passing
+- Full build with no TypeScript errors
+
+Migration:
+- Existing /synaphex:task usage continues unchanged
+- Users can now use discrete commands for interactive control
+- Task wrapper available for batch/prototyping workflows
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 # [2.4.0](https://github.com/cyhunblr/synaphex/compare/v2.3.12...v2.4.0) (2026-04-20)
 
 ### Features
