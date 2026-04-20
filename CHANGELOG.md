@@ -1,3 +1,5 @@
+<<<<<<< HEAD
+
 # [2.4.0](https://github.com/cyhunblr/synaphex/compare/v2.3.11...v2.4.0) (2026-04-20)
 
 ### Features
@@ -14,7 +16,17 @@
   - IDE delegated mode must call new `write_memory` tool for each topic to persist results
   - CLI mode remains automatic (memorize handles write_memory internally)
 - **memory:** all 7 core topics are now mandatory in every memorize run (previously only 4 were populated)
-- **memory:** removed `dependencies.md` from scaffold (now using 7-topic model instead of 8-topic)
+- # **memory:** removed `dependencies.md` from scaffold (now using 7-topic model instead of 8-topic)
+
+## [2.3.12](https://github.com/cyhunblr/synaphex/compare/v2.3.11...v2.3.12) (2026-04-20)
+
+### Bug Fixes
+
+- register MCP server with node + script path instead of shebang binary ([782afc6](https://github.com/cyhunblr/synaphex/commit/782afc6b5f0a9e0d5d70221f31dc4efb5c02b70b))
+
+## [2.3.11](https://github.com/cyhunblr/synaphex/compare/v2.3.10...v2.3.11) (2026-04-20)
+
+> > > > > > > 3b4b3972cccfd8084060f91eeacd87707ce9a00e
 
 ### Documentation
 
