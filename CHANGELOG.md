@@ -1,3 +1,12 @@
+## [2.3.6](https://github.com/cyhunblr/synaphex/compare/v2.3.5...v2.3.6) (2026-04-20)
+
+
+### Bug Fixes
+
+* cd pipeline waits for ci to pass before releasing ([6cc3ea4](https://github.com/cyhunblr/synaphex/commit/6cc3ea4403a1fba878953744a8f90f5cbcaf2bcb))
+* correct topic sanitization and test expectations ([d9b20b5](https://github.com/cyhunblr/synaphex/commit/d9b20b5f86edcbcb268644ec9c18cdeb0a37d263))
+* gate semantic release on passing tests in CD pipeline ([b1bf5c8](https://github.com/cyhunblr/synaphex/commit/b1bf5c8683bdee09e33eae09297a935a036327f1))
+
 ## [2.3.5](https://github.com/cyhunblr/synaphex/compare/v2.3.4...v2.3.5) (2026-04-20)
 
 
