@@ -6,6 +6,7 @@ import { z } from "zod";
 const MCPServerSchema = z.record(
   z.object({
     command: z.string(),
+    args: z.array(z.string()).optional(),
   }),
 );
 
@@ -52,7 +53,7 @@ export async function registerMCPServer(): Promise<RegistrationResult> {
 
   const wasAlreadyConfigured = !!settings.mcpServers.synaphex;
 
-  settings.mcpServers.synaphex = { command: "synaphex" };
+  settings.mcpServers.synaphex = { command: "npx", args: ["synaphex"] };
 
   try {
     const jsonString = JSON.stringify(settings, null, 2);
