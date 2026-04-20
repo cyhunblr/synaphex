@@ -6,6 +6,8 @@ allowed-tools: ["mcp__synaphex__update_settings", "update_settings"]
 user-invocable: true
 ---
 
+# Configure Answerer Agent
+
 Configure the answerer agent for project `$ARGUMENTS` interactively.
 
 Ask the user three questions about answerer configuration:

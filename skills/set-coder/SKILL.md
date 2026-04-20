@@ -6,6 +6,8 @@ allowed-tools: ["mcp__synaphex__update_settings", "update_settings"]
 user-invocable: true
 ---
 
+# Configure Coder Agent
+
 Configure the coder agent for project `$ARGUMENTS` interactively.
 
 Ask the user three questions about coder configuration:
