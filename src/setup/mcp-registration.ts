@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, copyFileSync, existsSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { execSync } from "child_process";
 
 export interface RegistrationResult {
   success: boolean;
@@ -10,7 +10,7 @@ export interface RegistrationResult {
 }
 
 export async function registerMCPServer(): Promise<RegistrationResult> {
-  const configPath = join(homedir(), ".claude.json");
+  const configPath = `${homedir()}/.claude.json`;
   let config: Record<string, unknown> = {};
 
   try {
@@ -35,7 +35,27 @@ export async function registerMCPServer(): Promise<RegistrationResult> {
     (config.mcpServers as Record<string, unknown> | undefined) ?? {};
   const wasAlreadyConfigured = !!mcpServers.synaphex;
 
-  mcpServers.synaphex = { command: "npx", args: ["synaphex"] };
+  // Find the absolute path to the synaphex binary
+  let synaphexCommand = "npx";
+  let synaphexArgs = ["synaphex"];
+
+  try {
+    // Try to find the synaphex binary via 'which'
+    const whichOutput = execSync("which synaphex", {
+      encoding: "utf-8",
+    }).trim();
+    if (whichOutput) {
+      synaphexCommand = whichOutput;
+      synaphexArgs = [];
+    }
+  } catch {
+    // If 'which' fails, fall back to npx
+  }
+
+  mcpServers.synaphex =
+    synaphexArgs.length > 0
+      ? { command: synaphexCommand, args: synaphexArgs }
+      : { command: synaphexCommand };
   config.mcpServers = mcpServers;
 
   try {
