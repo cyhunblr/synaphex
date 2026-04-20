@@ -1,14 +1,16 @@
 {
   "name": "synaphex",
   "description": "Project memory management for Claude Code — memorize, recall, and link project knowledge",
-  "version": "2.3.3",
+  "version": "2.3.5",
   "author": {
     "name": "cyhunblr"
   },
   "mcpServers": {
     "synaphex": {
       "command": "npx",
-      "args": ["synaphex"]
+      "args": [
+        "synaphex"
+      ]
     }
   }
 }
