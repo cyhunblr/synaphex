@@ -104,7 +104,11 @@ export async function handleTaskExamine(
             input.filename as string,
             input.content as string,
           );
-          return { content: result };
+          return {
+            content: result.success
+              ? result.message
+              : `Error: ${result.message}`,
+          };
         }
         default:
           return { content: `Unknown tool: ${name}`, is_error: true };

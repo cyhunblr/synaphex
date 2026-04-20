@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   initializeMemoryStructure,
   createTaskMemory,
+  MEMORY_TOPICS,
 } from "../memory/structure.js";
 
 describe("Integration: Full Task Pipeline with Memory Structure", () => {
@@ -38,16 +39,9 @@ describe("Integration: Full Task Pipeline with Memory Structure", () => {
       expect(await dirExists(internal)).toBe(true);
       expect(await dirExists(external)).toBe(true);
 
-      // Verify base files
-      const baseFiles = [
-        "overview.md",
-        "architecture.md",
-        "conventions.md",
-        "security.md",
-        "dependencies.md",
-      ];
-
-      for (const file of baseFiles) {
+      // Verify all core memory topics are created
+      for (const topic of MEMORY_TOPICS) {
+        const file = `${topic}.md`;
         expect(await fileExists(path.join(internal, file))).toBe(true);
       }
 

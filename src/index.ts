@@ -7,7 +7,9 @@ import { z } from "zod";
 import { handleCreate } from "./commands/create.js";
 import { handleLoad } from "./commands/load.js";
 import { handleMemorize } from "./commands/memorize.js";
+import { handleWriteMemory } from "./commands/write-memory.js";
 import { handleRemember } from "./commands/remember.js";
+import { MEMORY_TOPICS } from "./memory/structure.js";
 import { handleSettingsRead } from "./commands/settings-read.js";
 import { handleSettingsUpdate } from "./commands/settings-update.js";
 import { handleTaskStart as handleTaskCreate } from "./commands/task-create.js";
@@ -112,7 +114,46 @@ server.registerTool(
     try {
       const result = await handleMemorize(project, path);
       return {
-        content: [{ type: "text", text: result }],
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// === Tool: synaphex_write_memory ===
+
+server.registerTool(
+  "write_memory",
+  {
+    description:
+      "Write content to a specific memory topic file for a project. Topics are restricted to the core scaffold: overview, architecture, interfaces, build, conventions, security, glossary. Used by the memorize skill to apply agent-synthesized content.",
+    inputSchema: z.object({
+      project: z.string().min(1).max(64).describe("Project name"),
+      topic: z
+        .enum(MEMORY_TOPICS as unknown as [string, ...string[]])
+        .describe("Memory topic to write (one of the seven core topics)"),
+      content: z
+        .string()
+        .max(100 * 1024)
+        .describe("Content to write (max 100 KB)"),
+    }),
+  },
+  async ({ project, topic, content }) => {
+    try {
+      const result = await handleWriteMemory(project, topic, content);
+      return {
+        content: [
+          {
+            type: "text",
+            text: result.success ? result.message : `Error: ${result.message}`,
+          },
+        ],
+        isError: !result.success,
       };
     } catch (err) {
       return {

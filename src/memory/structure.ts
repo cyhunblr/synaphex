@@ -11,6 +11,19 @@ export interface MemoryStructureConfig {
   frameworks?: string[];
 }
 
+// Seven core memory topics that must be populated by memorize
+export const MEMORY_TOPICS = [
+  "overview",
+  "architecture",
+  "interfaces",
+  "build",
+  "conventions",
+  "security",
+  "glossary",
+] as const;
+
+export type MemoryTopic = (typeof MEMORY_TOPICS)[number];
+
 const DEFAULT_TEMPLATES: MemoryTemplate[] = [
   {
     filename: "overview.md",
@@ -41,6 +54,43 @@ const DEFAULT_TEMPLATES: MemoryTemplate[] = [
 
 ## Dependencies
 <!-- Major external dependencies and their roles -->
+`,
+  },
+  {
+    filename: "interfaces.md",
+    content: `# Interfaces
+
+## External APIs
+<!-- Public APIs exposed by this project -->
+
+## Internal Interfaces
+<!-- Key interfaces between internal modules -->
+
+## Data Contracts
+<!-- Data structures and their schemas -->
+
+## Protocol Specifications
+<!-- Wire formats, message types, communication protocols -->
+`,
+  },
+  {
+    filename: "build.md",
+    content: `# Build
+
+## Build System
+<!-- Build tool (CMake, Gradle, npm, etc.) and configuration -->
+
+## Build Steps
+<!-- Steps to compile/assemble the project -->
+
+## Dependencies
+<!-- Build-time and runtime dependencies -->
+
+## Configuration
+<!-- Build-time configuration options and environment variables -->
+
+## Artifacts
+<!-- Output artifacts (binaries, libraries, packages) -->
 `,
   },
   {
@@ -81,20 +131,17 @@ const DEFAULT_TEMPLATES: MemoryTemplate[] = [
 `,
   },
   {
-    filename: "dependencies.md",
-    content: `# Dependencies
+    filename: "glossary.md",
+    content: `# Glossary
 
-## Runtime Dependencies
-<!-- Production dependencies and versions -->
+## Domain Terms
+<!-- Project-specific terminology and definitions -->
 
-## Development Dependencies
-<!-- Development and testing dependencies -->
+## Acronyms
+<!-- Common acronyms used in the codebase and their meanings -->
 
-## External Services
-<!-- External APIs and services used -->
-
-## Compatibility
-<!-- Language versions, platform support -->
+## Key Concepts
+<!-- Important concepts unique to this project -->
 `,
   },
 ];

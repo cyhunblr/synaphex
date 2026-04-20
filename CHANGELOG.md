@@ -1,117 +1,125 @@
-## [2.3.11](https://github.com/cyhunblr/synaphex/compare/v2.3.10...v2.3.11) (2026-04-20)
+# [2.4.0](https://github.com/cyhunblr/synaphex/compare/v2.3.11...v2.4.0) (2026-04-20)
 
+### Features
+
+- **memorize:** redesign to delegated mode with structural facts collection and agent-driven synthesis
+- **memorize:** add new `write_memory` MCP tool for IDE model to populate all 7 memory topics atomically
+- **memory:** require all 7 core topics (overview, architecture, interfaces, build, conventions, security, glossary) in every memorize run
+- **structural-facts:** implement directory tree scanning with language detection and manifest extraction
+
+### BREAKING CHANGES
+
+- **memorize:** tool output format changed from string-based file writes to `MemorizePayload` JSON with analysis instructions
+  - Memorize now returns `{ topics: [...], structuralFacts: {...}, contentHash: "...", skip: false }`
+  - IDE delegated mode must call new `write_memory` tool for each topic to persist results
+  - CLI mode remains automatic (memorize handles write_memory internally)
+- **memory:** all 7 core topics are now mandatory in every memorize run (previously only 4 were populated)
+- **memory:** removed `dependencies.md` from scaffold (now using 7-topic model instead of 8-topic)
+
+### Documentation
+
+- update VSCode integration guide with delegated memorize workflow
+- update Antigravity integration guide with structural facts and write_memory instructions
+- document idempotency behavior via content hash
+
+## [2.3.11](https://github.com/cyhunblr/synaphex/compare/v2.3.10...v2.3.11) (2026-04-20)
 
 ### Bug Fixes
 
-* use absolute path to synaphex binary for reliable MCP registration across environments ([e1753e9](https://github.com/cyhunblr/synaphex/commit/e1753e99c2ab168cdf9937e2c0f33f783780a104))
+- use absolute path to synaphex binary for reliable MCP registration across environments ([e1753e9](https://github.com/cyhunblr/synaphex/commit/e1753e99c2ab168cdf9937e2c0f33f783780a104))
 
 ## [2.3.10](https://github.com/cyhunblr/synaphex/compare/v2.3.9...v2.3.10) (2026-04-20)
 
-
 ### Bug Fixes
 
-* add mcpServers back to plugin.json for VS Code extension compatibility ([fc0f255](https://github.com/cyhunblr/synaphex/commit/fc0f2552f8fee97cc8381d4811f3c6c3388302e0))
+- add mcpServers back to plugin.json for VS Code extension compatibility ([fc0f255](https://github.com/cyhunblr/synaphex/commit/fc0f2552f8fee97cc8381d4811f3c6c3388302e0))
 
 ## [2.3.9](https://github.com/cyhunblr/synaphex/compare/v2.3.8...v2.3.9) (2026-04-20)
 
-
 ### Bug Fixes
 
-* register MCP server in ~/.claude.json for claude CLI compatibility ([6f2bc7a](https://github.com/cyhunblr/synaphex/commit/6f2bc7a4897d10177b77703757a4c21fd79270ad))
+- register MCP server in ~/.claude.json for claude CLI compatibility ([6f2bc7a](https://github.com/cyhunblr/synaphex/commit/6f2bc7a4897d10177b77703757a4c21fd79270ad))
 
 ## [2.3.8](https://github.com/cyhunblr/synaphex/compare/v2.3.7...v2.3.8) (2026-04-20)
 
-
 ### Bug Fixes
 
-* remove mcpServers from plugin.json, rely on synaphex init for MCP registration ([7b8579c](https://github.com/cyhunblr/synaphex/commit/7b8579c99a623eea0bc537022993bde928f682e7))
+- remove mcpServers from plugin.json, rely on synaphex init for MCP registration ([7b8579c](https://github.com/cyhunblr/synaphex/commit/7b8579c99a623eea0bc537022993bde928f682e7))
 
 ## [2.3.7](https://github.com/cyhunblr/synaphex/compare/v2.3.6...v2.3.7) (2026-04-20)
 
-
 ### Bug Fixes
 
-* register MCP server with npx in synaphex init ([bf50e52](https://github.com/cyhunblr/synaphex/commit/bf50e523aa18aaca80c4570145d87e8d9cb727c1))
+- register MCP server with npx in synaphex init ([bf50e52](https://github.com/cyhunblr/synaphex/commit/bf50e523aa18aaca80c4570145d87e8d9cb727c1))
 
 ## [2.3.6](https://github.com/cyhunblr/synaphex/compare/v2.3.5...v2.3.6) (2026-04-20)
 
-
 ### Bug Fixes
 
-* cd pipeline waits for ci to pass before releasing ([6cc3ea4](https://github.com/cyhunblr/synaphex/commit/6cc3ea4403a1fba878953744a8f90f5cbcaf2bcb))
-* correct topic sanitization and test expectations ([d9b20b5](https://github.com/cyhunblr/synaphex/commit/d9b20b5f86edcbcb268644ec9c18cdeb0a37d263))
-* gate semantic release on passing tests in CD pipeline ([b1bf5c8](https://github.com/cyhunblr/synaphex/commit/b1bf5c8683bdee09e33eae09297a935a036327f1))
+- cd pipeline waits for ci to pass before releasing ([6cc3ea4](https://github.com/cyhunblr/synaphex/commit/6cc3ea4403a1fba878953744a8f90f5cbcaf2bcb))
+- correct topic sanitization and test expectations ([d9b20b5](https://github.com/cyhunblr/synaphex/commit/d9b20b5f86edcbcb268644ec9c18cdeb0a37d263))
+- gate semantic release on passing tests in CD pipeline ([b1bf5c8](https://github.com/cyhunblr/synaphex/commit/b1bf5c8683bdee09e33eae09297a935a036327f1))
 
 ## [2.3.5](https://github.com/cyhunblr/synaphex/compare/v2.3.4...v2.3.5) (2026-04-20)
 
-
 ### Bug Fixes
 
-* auto-sync plugin.json version during semantic release ([4bffb3e](https://github.com/cyhunblr/synaphex/commit/4bffb3ee4175d13da6eb98ec4fdd34c5a6420afa))
+- auto-sync plugin.json version during semantic release ([4bffb3e](https://github.com/cyhunblr/synaphex/commit/4bffb3ee4175d13da6eb98ec4fdd34c5a6420afa))
 
 ## [2.3.4](https://github.com/cyhunblr/synaphex/compare/v2.3.3...v2.3.4) (2026-04-20)
 
-
 ### Bug Fixes
 
-* use npx to launch MCP server for reliable PATH resolution ([cc96361](https://github.com/cyhunblr/synaphex/commit/cc9636188b7de55d3e38fd964583dc6b68e933aa))
+- use npx to launch MCP server for reliable PATH resolution ([cc96361](https://github.com/cyhunblr/synaphex/commit/cc9636188b7de55d3e38fd964583dc6b68e933aa))
 
 ## [2.3.3](https://github.com/cyhunblr/synaphex/compare/v2.3.2...v2.3.3) (2026-04-19)
 
-
 ### Bug Fixes
 
-* use global synaphex command for MCP server in plugin.json ([78f8c71](https://github.com/cyhunblr/synaphex/commit/78f8c71a77b13e078ebe9482c12c992b748dc8b6))
+- use global synaphex command for MCP server in plugin.json ([78f8c71](https://github.com/cyhunblr/synaphex/commit/78f8c71a77b13e078ebe9482c12c992b748dc8b6))
 
 ## [2.3.2](https://github.com/cyhunblr/synaphex/compare/v2.3.1...v2.3.2) (2026-04-19)
 
-
 ### Bug Fixes
 
-* add MCP server configuration to plugin.json ([f44fc75](https://github.com/cyhunblr/synaphex/commit/f44fc753c3a08783bf08d4cd25eed86393128022))
-* use relative path for MCP server in plugin.json ([80ba31e](https://github.com/cyhunblr/synaphex/commit/80ba31e7a9e05e613aac09141e1aeaf6a515f548))
+- add MCP server configuration to plugin.json ([f44fc75](https://github.com/cyhunblr/synaphex/commit/f44fc753c3a08783bf08d4cd25eed86393128022))
+- use relative path for MCP server in plugin.json ([80ba31e](https://github.com/cyhunblr/synaphex/commit/80ba31e7a9e05e613aac09141e1aeaf6a515f548))
 
 ## [2.3.1](https://github.com/cyhunblr/synaphex/compare/v2.3.0...v2.3.1) (2026-04-19)
 
-
 ### Bug Fixes
 
-* add missing glob dependency for memorize command ([2822903](https://github.com/cyhunblr/synaphex/commit/282290301bc32d4480fef3015f6a46fea29f960c))
-* resolve ESLint and prettier errors in test files ([51964b9](https://github.com/cyhunblr/synaphex/commit/51964b9675dbda5f58f05a8dbaeff697226c0555))
+- add missing glob dependency for memorize command ([2822903](https://github.com/cyhunblr/synaphex/commit/282290301bc32d4480fef3015f6a46fea29f960c))
+- resolve ESLint and prettier errors in test files ([51964b9](https://github.com/cyhunblr/synaphex/commit/51964b9675dbda5f58f05a8dbaeff697226c0555))
 
 # [2.3.0](https://github.com/cyhunblr/synaphex/compare/v2.2.0...v2.3.0) (2026-04-18)
 
-
 ### Bug Fixes
 
-* resolve ESLint and markdown linting errors in test files ([512c442](https://github.com/cyhunblr/synaphex/commit/512c44263ab9a0671e44dffd90b2ddd32f08652f))
-* resolve ESLint and TypeScript errors in test utilities ([4b78643](https://github.com/cyhunblr/synaphex/commit/4b7864329216b14dc7afe6c0bbc8b97b13a05a15))
-* update error handling in tests for missing memory file and improve type safety in test-utils ([1463a5e](https://github.com/cyhunblr/synaphex/commit/1463a5ea6324d12949dce3b72dcbe4f682c3dc69))
-
+- resolve ESLint and markdown linting errors in test files ([512c442](https://github.com/cyhunblr/synaphex/commit/512c44263ab9a0671e44dffd90b2ddd32f08652f))
+- resolve ESLint and TypeScript errors in test utilities ([4b78643](https://github.com/cyhunblr/synaphex/commit/4b7864329216b14dc7afe6c0bbc8b97b13a05a15))
+- update error handling in tests for missing memory file and improve type safety in test-utils ([1463a5e](https://github.com/cyhunblr/synaphex/commit/1463a5ea6324d12949dce3b72dcbe4f682c3dc69))
 
 ### Features
 
-* add --version, --help, and --check CLI flags ([ffdde43](https://github.com/cyhunblr/synaphex/commit/ffdde436febd1ea2d9f5c41be30c13597f204494))
+- add --version, --help, and --check CLI flags ([ffdde43](https://github.com/cyhunblr/synaphex/commit/ffdde436febd1ea2d9f5c41be30c13597f204494))
 
 # [2.2.0](https://github.com/cyhunblr/synaphex/compare/v2.1.0...v2.2.0) (2026-04-18)
 
-
 ### Features
 
-* implement Phase 3 memory and commands specification (55/55 tasks) ([8a008b4](https://github.com/cyhunblr/synaphex/commit/8a008b4a558e16529e6c76dd87174f5c55193193))
-* implement researcher agent with web search and memory persistence (Phase 2.1) ([03f3467](https://github.com/cyhunblr/synaphex/commit/03f3467b1e50074761af42ea6e7be879fec9fe25))
+- implement Phase 3 memory and commands specification (55/55 tasks) ([8a008b4](https://github.com/cyhunblr/synaphex/commit/8a008b4a558e16529e6c76dd87174f5c55193193))
+- implement researcher agent with web search and memory persistence (Phase 2.1) ([03f3467](https://github.com/cyhunblr/synaphex/commit/03f3467b1e50074761af42ea6e7be879fec9fe25))
 
 # [2.1.0](https://github.com/cyhunblr/synaphex/compare/v2.0.0...v2.1.0) (2026-04-17)
 
-
 ### Bug Fixes
 
-* resolve markdown linting issues in docs and OpenSpec files ([390c34b](https://github.com/cyhunblr/synaphex/commit/390c34b842a385ab1694a8a2124959340b9ad050))
-
+- resolve markdown linting issues in docs and OpenSpec files ([390c34b](https://github.com/cyhunblr/synaphex/commit/390c34b842a385ab1694a8a2124959340b9ad050))
 
 ### Features
 
-* implement synaphex init command for IDE auto-setup ([4ec18fb](https://github.com/cyhunblr/synaphex/commit/4ec18fb01c53f180d82f453e8e2b19a447f05ce7))
+- implement synaphex init command for IDE auto-setup ([4ec18fb](https://github.com/cyhunblr/synaphex/commit/4ec18fb01c53f180d82f453e8e2b19a447f05ce7))
 
 # [2.0.0](https://github.com/cyhunblr/synaphex/compare/v1.8.1...v2.0.0) (2026-04-17)
 

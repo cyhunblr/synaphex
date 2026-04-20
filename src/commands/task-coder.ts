@@ -159,7 +159,11 @@ export async function handleTaskImplement(
             input.filename as string,
             input.content as string,
           );
-          return { content: result };
+          return {
+            content: result.success
+              ? result.message
+              : `Error: ${result.message}`,
+          };
         }
         case "ask_answerer": {
           const question = input.question as string;

@@ -3,7 +3,11 @@ import * as path from "node:path";
 import { promises as fs } from "node:fs";
 import { glob } from "glob";
 import { projectExists, projectDir } from "../lib/project-store.js";
-import { initializeMemoryStructure } from "../memory/structure.js";
+import {
+  initializeMemoryStructure,
+  type MemoryTopic,
+} from "../memory/structure.js";
+import { buildTopicInstructions } from "./memorize-prompts.js";
 
 interface MemorizeOptions {
   force?: boolean;
@@ -11,200 +15,260 @@ interface MemorizeOptions {
   frameworks?: string[];
 }
 
-interface ContentAnalysis {
-  overview: string;
-  architecture: string;
-  conventions: string;
-  security: string;
+export interface StructuralFacts {
+  treeSummary: string;
+  detectedLanguages: string[];
+  manifestFiles: Record<string, string>;
+  readmeExcerpt: string;
+}
+
+interface TopicInstruction {
+  topic: MemoryTopic;
+  instruction: string;
+}
+
+export interface MemorizePayload {
+  topics: TopicInstruction[];
+  structuralFacts: StructuralFacts;
+  contentHash: string;
+  skip?: boolean;
+  reason?: string;
 }
 
 export async function handleMemorize(
   project: string,
   cwd: string,
   options: MemorizeOptions = {},
-): Promise<string> {
+): Promise<MemorizePayload> {
   if (!(await projectExists(project))) {
     throw new Error(`Project '${project}' does not exist.`);
+  }
+
+  if (!(await pathExists(cwd))) {
+    throw new Error(`Source path does not exist: ${cwd}`);
   }
 
   const pDir = projectDir(project);
   const metaPath = path.join(pDir, "memory", ".meta.json");
 
+  // Scaffold memory directory structure
   await initializeMemoryStructure(pDir, {
     languages: options.languages,
     frameworks: options.frameworks,
   });
 
-  const analysis = await analyzeCodbase(cwd);
-  const contentHash = computeContentHash(analysis);
+  // Collect structural facts from the source tree
+  const facts = await collectStructuralFacts(cwd);
+  const contentHash = computeFactsHash(facts);
 
+  // Check idempotency: if content hash unchanged and not forced, skip
   if (!options.force && (await metaExists(metaPath))) {
     const existing = await readMeta(metaPath);
     if (existing.contentHash === contentHash) {
-      return "Skipped memorize (content unchanged)";
+      return {
+        topics: [],
+        structuralFacts: facts,
+        contentHash,
+        skip: true,
+        reason: "Content unchanged since last memorize",
+      };
     }
   }
 
-  await updateMemoryFiles(pDir, analysis);
+  // Build topic instructions for the agent
+  const topics = buildTopicInstructions(facts);
+
+  // Persist the new hash (will be updated again after agent writes all topics)
   await writeMeta(metaPath, {
     contentHash,
     timestamp: new Date().toISOString(),
   });
 
-  return `Memory updated for project '${project}'`;
+  return {
+    topics,
+    structuralFacts: facts,
+    contentHash,
+  };
 }
 
-async function analyzeCodbase(cwd: string): Promise<ContentAnalysis> {
-  const overview = await extractOverview(cwd);
-  const architecture = await extractArchitecture(cwd);
-  const conventions = await extractConventions(cwd);
-  const security = await extractSecurity();
+async function collectStructuralFacts(
+  sourcePath: string,
+): Promise<StructuralFacts> {
+  // Collect directory tree (2 levels deep, max 200 entries per level)
+  const treeSummary = await buildTreeSummary(sourcePath);
 
-  return { overview, architecture, conventions, security };
+  // Detect primary language(s) from file extensions
+  const detectedLanguages = await detectLanguages(sourcePath);
+
+  // Find and read manifest files
+  const manifestFiles = await collectManifestFiles(sourcePath);
+
+  // Extract README excerpt (first 40 lines)
+  const readmeExcerpt = await extractReadmeExcerpt(sourcePath);
+
+  return {
+    treeSummary,
+    detectedLanguages,
+    manifestFiles,
+    readmeExcerpt,
+  };
 }
 
-async function extractOverview(cwd: string): Promise<string> {
-  let overview = "# Project Overview\n\n";
+async function buildTreeSummary(
+  sourcePath: string,
+  depth = 0,
+  maxDepth = 2,
+): Promise<string> {
+  if (depth > maxDepth) return "";
+
+  const indent = "  ".repeat(depth);
+  let summary = "";
 
   try {
-    const readmePath = path.join(cwd, "README.md");
-    const readmeContent = await fs.readFile(readmePath, "utf-8");
-    const firstSection = readmeContent.split("\n").slice(0, 20).join("\n");
-    overview += `## From README\n${firstSection}\n\n`;
-  } catch {
-    // No README
-  }
+    const entries = await fs.readdir(sourcePath, { withFileTypes: true });
+    const sorted = entries
+      .filter((e) => !e.name.startsWith("."))
+      .sort((a, b) => {
+        if (a.isDirectory() !== b.isDirectory()) {
+          return b.isDirectory() ? 1 : -1;
+        }
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, 200);
 
-  try {
-    const pkgPath = path.join(cwd, "package.json");
-    const pkgContent = await fs.readFile(pkgPath, "utf-8");
-    const pkg = JSON.parse(pkgContent);
-    overview += `## Package Info\n- Name: ${pkg.name}\n`;
-    if (pkg.description) overview += `- Description: ${pkg.description}\n`;
-    overview += "\n";
-  } catch {
-    // No package.json
-  }
-
-  overview += "## Key Constraints\n<!-- Analyzed from codebase structure -->\n";
-  return overview;
-}
-
-async function extractArchitecture(cwd: string): Promise<string> {
-  let arch = "# Architecture\n\n";
-  const mainDir = path.join(cwd, "src");
-
-  arch += "## System Design\n<!-- Extracted from codebase structure -->\n\n";
-  arch += "## Key Components\n";
-
-  try {
-    const entries = await fs.readdir(mainDir, { withFileTypes: true });
-    const dirs = entries
-      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-      .slice(0, 10);
-
-    for (const dir of dirs) {
-      arch += `- \`${dir.name}/\` - <!-- describe purpose -->\n`;
+    for (const entry of sorted) {
+      if (entry.isDirectory()) {
+        summary += `${indent}📁 ${entry.name}/\n`;
+        if (depth < maxDepth) {
+          summary += await buildTreeSummary(
+            path.join(sourcePath, entry.name),
+            depth + 1,
+            maxDepth,
+          );
+        }
+      } else {
+        summary += `${indent}📄 ${entry.name}\n`;
+      }
     }
   } catch {
-    // Directory doesn't exist
+    // Directory not readable
   }
 
-  arch += "\n## Data Flow\n<!-- How data moves through the system -->\n";
-  arch +=
-    "\n## Dependencies\n<!-- Major external dependencies and their roles -->\n";
-
-  return arch;
+  return summary;
 }
 
-async function extractConventions(cwd: string): Promise<string> {
-  let conventions = "# Conventions\n\n";
-  conventions +=
-    "## Naming Conventions\n<!-- Extracted from codebase analysis -->\n";
+async function detectLanguages(sourcePath: string): Promise<string[]> {
+  const languageMap: Record<string, string> = {
+    ts: "TypeScript",
+    tsx: "TypeScript",
+    js: "JavaScript",
+    jsx: "JavaScript",
+    py: "Python",
+    cpp: "C++",
+    hpp: "C++",
+    h: "C++",
+    c: "C",
+    java: "Java",
+    go: "Go",
+    rs: "Rust",
+    rb: "Ruby",
+    php: "PHP",
+  };
 
-  const files = await glob("**/*.{ts,tsx,js,jsx,py,cpp,h,hpp,c}", {
-    cwd,
-    nodir: true,
-  });
+  const counts: Record<string, number> = {};
 
-  const lang = detectPrimaryLanguage(files);
-  if (lang) {
-    conventions += `Detected language: ${lang}\n\n`;
+  try {
+    const files = await glob(
+      "**/*.{ts,tsx,js,jsx,py,cpp,hpp,h,c,java,go,rs,rb,php}",
+      {
+        cwd: sourcePath,
+        nodir: true,
+      },
+    );
+
+    for (const file of files) {
+      const ext = path.extname(file).slice(1);
+      const lang = languageMap[ext];
+      if (lang) {
+        counts[lang] = (counts[lang] || 0) + 1;
+      }
+    }
+  } catch {
+    // Glob failed
   }
 
-  conventions += "## Code Style\n<!-- Extracted from source files -->\n";
-  conventions += "## Architecture Patterns\n<!-- Common patterns found -->\n";
-  conventions += "## Error Handling\n<!-- Error handling approach -->\n";
-
-  return conventions;
+  // Return languages sorted by count (most frequent first)
+  return Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .map(([lang]) => lang);
 }
 
-async function extractSecurity(): Promise<string> {
-  let security = "# Security\n\n";
-  security += "## Threat Model\n<!-- Analyzed from codebase -->\n";
-  security += "## Authentication\n<!-- Authentication mechanisms found -->\n";
-  security += "## Authorization\n<!-- Authorization/permission model -->\n";
-  security += "## Data Protection\n<!-- Data protection strategies -->\n";
-  security += "## Compliance\n<!-- Regulatory/compliance requirements -->\n";
+async function collectManifestFiles(
+  sourcePath: string,
+): Promise<Record<string, string>> {
+  const manifestFileNames = [
+    "package.json",
+    "pyproject.toml",
+    "CMakeLists.txt",
+    "Cargo.toml",
+    "go.mod",
+    "pom.xml",
+    "build.gradle",
+    "setup.py",
+    "requirements.txt",
+    "Makefile",
+  ];
 
-  return security;
-}
+  const result: Record<string, string> = {};
 
-function detectPrimaryLanguage(files: string[]): string | null {
-  const typescriptCount = files.filter(
-    (f) => f.endsWith(".ts") || f.endsWith(".tsx"),
-  ).length;
-  const pythonCount = files.filter((f) => f.endsWith(".py")).length;
-  const cppCount = files.filter(
-    (f) => f.endsWith(".cpp") || f.endsWith(".hpp"),
-  ).length;
-
-  if (typescriptCount > pythonCount && typescriptCount > cppCount) {
-    return "TypeScript";
-  } else if (pythonCount > cppCount) {
-    return "Python";
-  } else if (cppCount > 0) {
-    return "C++";
+  for (const fileName of manifestFileNames) {
+    const filePath = path.join(sourcePath, fileName);
+    try {
+      let content = await fs.readFile(filePath, "utf-8");
+      // Cap at 200 lines for readability
+      const lines = content.split("\n");
+      if (lines.length > 200) {
+        content = lines.slice(0, 200).join("\n") + "\n... (truncated)";
+      }
+      result[fileName] = content;
+    } catch {
+      // File not found, skip
+    }
   }
 
-  return null;
+  return result;
 }
 
-function computeContentHash(analysis: ContentAnalysis): string {
+async function extractReadmeExcerpt(sourcePath: string): Promise<string> {
+  try {
+    const readmePath = path.join(sourcePath, "README.md");
+    const content = await fs.readFile(readmePath, "utf-8");
+    const lines = content.split("\n");
+    const excerpt = lines.slice(0, 40).join("\n");
+    return excerpt.length < content.length
+      ? excerpt + "\n... (truncated)"
+      : excerpt;
+  } catch {
+    return "(No README.md found)";
+  }
+}
+
+function computeFactsHash(facts: StructuralFacts): string {
   const content =
-    analysis.overview +
-    analysis.architecture +
-    analysis.conventions +
-    analysis.security;
+    facts.treeSummary +
+    facts.detectedLanguages.join(",") +
+    JSON.stringify(facts.manifestFiles) +
+    facts.readmeExcerpt;
   return createHash("sha256").update(content).digest("hex");
 }
 
-async function updateMemoryFiles(
-  pDir: string,
-  analysis: ContentAnalysis,
-): Promise<void> {
-  const internalDir = path.join(pDir, "memory", "internal");
-
-  await fs.writeFile(
-    path.join(internalDir, "overview.md"),
-    analysis.overview,
-    "utf-8",
-  );
-  await fs.writeFile(
-    path.join(internalDir, "architecture.md"),
-    analysis.architecture,
-    "utf-8",
-  );
-  await fs.writeFile(
-    path.join(internalDir, "conventions.md"),
-    analysis.conventions,
-    "utf-8",
-  );
-  await fs.writeFile(
-    path.join(internalDir, "security.md"),
-    analysis.security,
-    "utf-8",
-  );
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function metaExists(metaPath: string): Promise<boolean> {

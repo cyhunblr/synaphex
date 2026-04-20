@@ -104,6 +104,8 @@ When moving from one agent to another (e.g., from **Coder** to **Reviewer**), Sy
 
    > _"Use the 'memorize' tool to analyze the directory /path/to/my_app for the 'my_app' project."_
 
+   The memorize tool operates in delegated mode: it scans the source tree for structural facts (directory structure, languages, build files) and returns analysis instructions. The IDE model then synthesizes content for all seven memory topics (overview, architecture, interfaces, build, conventions, security, glossary) and calls `write_memory` to persist each one. This ensures comprehensive memory coverage before running the task pipeline.
+
 3. **Starting a Task (Pipeline)**
    To use the multi-agent pipeline:
 

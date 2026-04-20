@@ -68,6 +68,25 @@ The Claude Code extension registers Synaphex skills as namespaced slash commands
 
 _Note: Ensure your `node` on `PATH` is Node.js 18+. If you use `fnm` or `nvm`, wrap the launch: `eval "$(fnm env)" && claude`_
 
+### Memorize Delegated Workflow
+
+The `/synaphex:memorize <project> <source-path>` command follows a delegated-mode pattern where Claude (the IDE model) does the actual analysis:
+
+1. **Tool call**: `/synaphex:memorize` calls the MCP tool with project name and source path
+2. **Structural scan**: The tool scans the source tree (directory structure, file types, manifest files) and returns analysis instructions
+3. **Idempotency check**: If the content hash is unchanged from the last memorize, the tool returns `skip: true` and you're done
+4. **Agent synthesis**: Otherwise, Claude reads the source path and synthesizes content for **all seven memory topics**:
+   - overview
+   - architecture
+   - interfaces
+   - build
+   - conventions
+   - security
+   - glossary
+5. **Write memory**: For each topic, Claude calls `write_memory` to persist the content atomically
+
+All seven topics are required—Claude will not skip any. This ensures complete memory coverage for the downstream task pipeline.
+
 ### Model Configuration for Claude Code
 
 Configure each agent in `~/.synaphex/<project>/settings.json` using Claude Code model IDs:

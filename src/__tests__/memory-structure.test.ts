@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   initializeMemoryStructure,
   createTaskMemory,
+  MEMORY_TOPICS,
 } from "../memory/structure.js";
 
 describe("Memory Structure", () => {
@@ -44,22 +45,37 @@ describe("Memory Structure", () => {
       expect(researchExists).toBe(true);
     });
 
-    it("should create default template files", async () => {
+    it("should create default template files for all core topics", async () => {
       await initializeMemoryStructure(projectDir);
 
       const internal = path.join(projectDir, "memory", "internal");
-      const files = [
-        "overview.md",
-        "architecture.md",
-        "conventions.md",
-        "security.md",
-        "dependencies.md",
-      ];
 
-      for (const file of files) {
-        const filePath = path.join(internal, file);
+      // Verify all MEMORY_TOPICS are created
+      for (const topic of MEMORY_TOPICS) {
+        const filePath = path.join(internal, `${topic}.md`);
         const exists = await fileExists(filePath);
         expect(exists).toBe(true);
+      }
+    });
+
+    it("should ensure allowlist (MEMORY_TOPICS) matches scaffold templates", () => {
+      // This test ensures that when new topics are added to the scaffold,
+      // the MEMORY_TOPICS constant is also updated, so write_memory tool
+      // allowlist stays in sync.
+      const expectedTopics = [
+        "overview",
+        "architecture",
+        "interfaces",
+        "build",
+        "conventions",
+        "security",
+        "glossary",
+      ];
+
+      expect(MEMORY_TOPICS.length).toBe(expectedTopics.length);
+
+      for (const topic of expectedTopics) {
+        expect(MEMORY_TOPICS).toContain(topic);
       }
     });
 
