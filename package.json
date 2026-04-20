@@ -1,6 +1,6 @@
 {
   "name": "synaphex",
-  "version": "2.3.8",
+  "version": "2.3.9",
   "description": "Project memory management for Claude Code — memorize, recall, and link project knowledge",
   "type": "module",
   "main": "dist/index.js",
