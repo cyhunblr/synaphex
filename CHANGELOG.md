@@ -1,3 +1,10 @@
+## [2.3.12](https://github.com/cyhunblr/synaphex/compare/v2.3.11...v2.3.12) (2026-04-20)
+
+
+### Bug Fixes
+
+* register MCP server with node + script path instead of shebang binary ([782afc6](https://github.com/cyhunblr/synaphex/commit/782afc6b5f0a9e0d5d70221f31dc4efb5c02b70b))
+
 ## [2.3.11](https://github.com/cyhunblr/synaphex/compare/v2.3.10...v2.3.11) (2026-04-20)
 
 
