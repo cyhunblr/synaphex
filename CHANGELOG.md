@@ -1,3 +1,10 @@
+## [2.3.9](https://github.com/cyhunblr/synaphex/compare/v2.3.8...v2.3.9) (2026-04-20)
+
+
+### Bug Fixes
+
+* register MCP server in ~/.claude.json for claude CLI compatibility ([6f2bc7a](https://github.com/cyhunblr/synaphex/commit/6f2bc7a4897d10177b77703757a4c21fd79270ad))
+
 ## [2.3.8](https://github.com/cyhunblr/synaphex/compare/v2.3.7...v2.3.8) (2026-04-20)
 
 

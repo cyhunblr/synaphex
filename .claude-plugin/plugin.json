@@ -1,7 +1,7 @@
 {
   "name": "synaphex",
   "description": "Project memory management for Claude Code — memorize, recall, and link project knowledge",
-  "version": "2.3.8",
+  "version": "2.3.9",
   "author": {
     "name": "cyhunblr"
   },
