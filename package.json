@@ -24,7 +24,8 @@
     "format": "prettier --write 'src/**/*.{js,ts}' '**/*.md' '*.json'",
     "lint:md": "markdownlint '**/*.md'",
     "lint:secrets": "secretlint '**/*'",
-    "prepare": "husky"
+    "prepare": "husky",
+    "sync-plugin-version": "node -e \"const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));const plugin=JSON.parse(fs.readFileSync('.claude-plugin/plugin.json','utf8'));plugin.version=pkg.version;fs.writeFileSync('.claude-plugin/plugin.json',JSON.stringify(plugin,null,2)+'\\n','utf8');console.log('Synced plugin.json to v'+pkg.version);\""
   },
   "engines": {
     "node": ">=18.0.0"
@@ -44,6 +45,7 @@
     "@eslint/js": "^10.0.1",
     "@secretlint/secretlint-rule-preset-recommend": "^11.7.1",
     "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
