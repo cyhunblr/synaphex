@@ -1,3 +1,10 @@
+# [3.2.0](https://github.com/cyhunblr/synaphex/compare/v3.1.0...v3.2.0) (2026-04-20)
+
+
+### Features
+
+* add configuration headers for agent skills ([16ef9d8](https://github.com/cyhunblr/synaphex/commit/16ef9d8fc9005f8f680817225396949099823dfb))
+
 # [3.1.0](https://github.com/cyhunblr/synaphex/compare/v3.0.0...v3.1.0) (2026-04-20)
 
 
