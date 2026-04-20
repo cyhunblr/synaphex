@@ -1,25 +1,28 @@
 name: CD Pipeline (Semantic Release)
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI Pipeline"]
     branches:
       - main
-  workflow_dispatch:
+    types:
+      - completed
 
 jobs:
   release:
     name: Release
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed to push package.json and tags
+      contents: write
       issues: write
       pull-requests: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required by semantic-release to find commits
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
@@ -31,14 +34,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run checks & build
-        run: |
-          npm run lint:secrets
-          npm run lint
-          npm run build
-
-      - name: Run tests
-        run: npm test
+      - name: Build
+        run: npm run build
 
       - name: Semantic Release
         env:
