@@ -1,3 +1,10 @@
+## [2.3.7](https://github.com/cyhunblr/synaphex/compare/v2.3.6...v2.3.7) (2026-04-20)
+
+
+### Bug Fixes
+
+* register MCP server with npx in synaphex init ([bf50e52](https://github.com/cyhunblr/synaphex/commit/bf50e523aa18aaca80c4570145d87e8d9cb727c1))
+
 ## [2.3.6](https://github.com/cyhunblr/synaphex/compare/v2.3.5...v2.3.6) (2026-04-20)
 
 
