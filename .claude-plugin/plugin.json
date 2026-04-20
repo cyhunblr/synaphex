@@ -5,12 +5,5 @@
   "author": {
     "name": "cyhunblr"
   },
-  "mcpServers": {
-    "synaphex": {
-      "command": "npx",
-      "args": [
-        "synaphex"
-      ]
-    }
-  }
+  "mcpServerHint": "Run `synaphex init` to register the MCP server in your Claude Code settings."
 }
