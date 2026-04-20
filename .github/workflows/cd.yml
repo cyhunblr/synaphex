@@ -37,6 +37,9 @@ jobs:
           npm run lint
           npm run build
 
+      - name: Run tests
+        run: npm test
+
       - name: Semantic Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
