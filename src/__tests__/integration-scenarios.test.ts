@@ -13,10 +13,10 @@ describe("Integration Scenarios (Section 11)", () => {
       const workflow = [
         "create",
         "examine",
-        "planner",
-        "coder",
+        "plan",
+        "implement",
         "answerer",
-        "reviewer",
+        "review",
       ];
       const completed: string[] = [];
 
@@ -41,11 +41,14 @@ describe("Integration Scenarios (Section 11)", () => {
       taskMeta.completed_steps.push("examine");
       expect(taskMeta.completed_steps).toContain("examine");
 
-      taskMeta.completed_steps.push("planner");
-      expect(taskMeta.completed_steps).toContain("planner");
+      taskMeta.completed_steps.push("plan");
+      expect(taskMeta.completed_steps).toContain("plan");
 
       // Validation should pass for next step
-      const result = validateTaskSequence("coder", taskMeta.completed_steps);
+      const result = validateTaskSequence(
+        "implement",
+        taskMeta.completed_steps,
+      );
       expect(result.valid).toBe(true);
     });
   });
@@ -55,10 +58,10 @@ describe("Integration Scenarios (Section 11)", () => {
       const workflow = [
         "create",
         "examine",
-        "planner",
-        "coder",
+        "plan",
+        "implement",
         "answerer",
-        "reviewer",
+        "review",
       ];
       const completed: string[] = [];
 
@@ -80,10 +83,10 @@ describe("Integration Scenarios (Section 11)", () => {
         "create",
         "examine",
         "researcher",
-        "planner",
-        "coder",
+        "plan",
+        "implement",
         "answerer",
-        "reviewer",
+        "review",
       ];
       const completed: string[] = [];
 
@@ -100,14 +103,18 @@ describe("Integration Scenarios (Section 11)", () => {
   describe("11.3 State validation prevents out-of-order execution", () => {
     it("should prevent execution in wrong order", () => {
       const wrongOrder = [
-        { step: "planner", completed: ["create"], shouldFail: true },
-        { step: "coder", completed: ["create", "examine"], shouldFail: true },
+        { step: "plan", completed: ["create"], shouldFail: true },
         {
-          step: "reviewer",
+          step: "implement",
           completed: ["create", "examine"],
           shouldFail: true,
         },
-        { step: "answerer", completed: ["create"], shouldFail: true },
+        {
+          step: "review",
+          completed: ["create", "examine"],
+          shouldFail: true,
+        },
+        { step: "answerer", completed: ["create"], shouldFail: false },
       ];
 
       for (const { step, completed, shouldFail } of wrongOrder) {
@@ -121,10 +128,10 @@ describe("Integration Scenarios (Section 11)", () => {
       expect(validateTaskSequence("examine", completed).valid).toBe(true);
 
       completed = ["create", "examine"];
-      expect(validateTaskSequence("planner", completed).valid).toBe(true);
+      expect(validateTaskSequence("plan", completed).valid).toBe(true);
 
-      completed = ["create", "examine", "planner"];
-      expect(validateTaskSequence("coder", completed).valid).toBe(true);
+      completed = ["create", "examine", "plan"];
+      expect(validateTaskSequence("implement", completed).valid).toBe(true);
     });
   });
 
@@ -199,7 +206,7 @@ describe("Integration Scenarios (Section 11)", () => {
       };
 
       const taskMeta: TaskMetaType = {
-        completed_steps: ["create", "examine", "planner", "coder", "answerer"],
+        completed_steps: ["create", "examine", "plan", "implement", "answerer"],
         iteration: 1,
         answerer_escalation: {
           question: "Should we use Redis or in-memory cache?",
@@ -221,10 +228,10 @@ describe("Integration Scenarios (Section 11)", () => {
 
     it("should allow planner after escalation is resolved", () => {
       // After user provides decision in task-meta.json
-      const completed = ["create", "examine", "planner", "coder", "answerer"];
+      const completed = ["create", "examine", "plan", "implement", "answerer"];
 
       // Planner can run again (iteration 2)
-      const result = validateTaskSequence("planner", completed);
+      const result = validateTaskSequence("plan", completed);
 
       // Should this be allowed? According to state machine, planner shouldn't run twice
       // Instead, iteration counter tracks the re-planning
@@ -238,28 +245,28 @@ describe("Integration Scenarios (Section 11)", () => {
 
   describe("11.8 Error messages are clear and helpful", () => {
     it("should provide actionable error for out-of-order execution", () => {
-      const result = validateTaskSequence("coder", ["create", "examine"]);
+      const result = validateTaskSequence("implement", ["create", "examine"]);
 
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("planner");
+      expect(result.error).toContain("plan");
       expect(result.error).toContain("not completed yet");
     });
 
     it("should list all missing required steps", () => {
-      const result = validateTaskSequence("reviewer", ["create"]);
+      const result = validateTaskSequence("review", ["create"]);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("examine");
-      expect(result.error).toContain("planner");
-      expect(result.error).toContain("coder");
+      expect(result.error).toContain("plan");
+      expect(result.error).toContain("implement");
     });
 
     it("should prevent duplicate execution with clear message", () => {
-      const result = validateTaskSequence("coder", [
+      const result = validateTaskSequence("implement", [
         "create",
         "examine",
-        "planner",
-        "coder",
+        "plan",
+        "implement",
       ]);
 
       expect(result.valid).toBe(false);
@@ -272,10 +279,10 @@ describe("Integration Scenarios (Section 11)", () => {
       const steps = [
         "create",
         "examine",
-        "planner",
-        "coder",
+        "plan",
+        "implement",
         "answerer",
-        "reviewer",
+        "review",
       ];
 
       for (let i = 0; i < steps.length; i++) {
@@ -289,10 +296,10 @@ describe("Integration Scenarios (Section 11)", () => {
         "create",
         "examine",
         "researcher",
-        "planner",
-        "coder",
+        "plan",
+        "implement",
         "answerer",
-        "reviewer",
+        "review",
       ];
 
       for (let i = 0; i < steps.length; i++) {
@@ -309,12 +316,12 @@ describe("Integration Scenarios (Section 11)", () => {
       expect(validateTaskSequence("examine", completed).valid).toBe(true);
 
       completed.push("examine");
-      expect(validateTaskSequence("planner", completed).valid).toBe(true);
+      expect(validateTaskSequence("plan", completed).valid).toBe(true);
 
-      completed.push("planner");
-      expect(validateTaskSequence("coder", completed).valid).toBe(true);
+      completed.push("plan");
+      expect(validateTaskSequence("implement", completed).valid).toBe(true);
 
-      completed.push("coder");
+      completed.push("implement");
       expect(validateTaskSequence("answerer", completed).valid).toBe(true);
 
       // After escalation detected and user decides:

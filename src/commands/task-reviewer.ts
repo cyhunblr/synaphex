@@ -22,7 +22,10 @@ import {
 } from "../agents/reviewer.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
-import { buildDelegatedPrompt } from "../lib/delegated-prompt.js";
+import {
+  buildDelegatedPrompt,
+  buildNextStepHint,
+} from "../lib/delegated-prompt.js";
 
 export async function handleTaskReview(
   project: string,
@@ -46,7 +49,7 @@ export async function handleTaskReview(
   const metaPath = `${taskDir}/task-meta.json`;
   const meta = await readJsonFile<TaskMeta>(metaPath);
 
-  const validation = validateTaskSequence("reviewer", meta.completed_steps);
+  const validation = validateTaskSequence("review", meta.completed_steps);
   if (!validation.valid) {
     throw new Error(validation.error);
   }
@@ -130,8 +133,8 @@ export async function handleTaskReview(
   // Update completed steps
   if (parsed.verdict === "approved") {
     meta.status = "complete";
-    if (!meta.completed_steps.includes("reviewer")) {
-      meta.completed_steps.push("reviewer");
+    if (!meta.completed_steps.includes("review")) {
+      meta.completed_steps.push("review");
     }
   } else {
     meta.status = "reviewed";
@@ -160,6 +163,8 @@ export async function handleTaskReview(
       `</feedback_for_planner>`,
     );
   }
+
+  parts.push("", buildNextStepHint("reviewer", project, slug, task, cwd));
 
   return parts.join("\n");
 }

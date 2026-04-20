@@ -1,29 +1,18 @@
 # [2.4.0](https://github.com/cyhunblr/synaphex/compare/v2.3.12...v2.4.0) (2026-04-20)
 
-
 ### Features
 
-* redesign memorize to delegated mode with write_memory MCP tool ([86a29f3](https://github.com/cyhunblr/synaphex/commit/86a29f3402353e547956d6438941d75c28cb3e92))
-
-<<<<<<< HEAD
-
-# [2.4.0](https://github.com/cyhunblr/synaphex/compare/v2.3.11...v2.4.0) (2026-04-20)
-
-### Features
-
-- **memorize:** redesign to delegated mode with structural facts collection and agent-driven synthesis
-- **memorize:** add new `write_memory` MCP tool for IDE model to populate all 7 memory topics atomically
-- **memory:** require all 7 core topics (overview, architecture, interfaces, build, conventions, security, glossary) in every memorize run
-- **structural-facts:** implement directory tree scanning with language detection and manifest extraction
+- redesign memorize to delegated mode with write_memory MCP tool ([86a29f3](https://github.com/cyhunblr/synaphex/commit/86a29f3402353e547956d6438941d75c28cb3e92))
+- add structural facts collection: directory tree scanning, language detection, manifest extraction
+- require all 7 core memory topics in every memorize run (overview, architecture, interfaces, build, conventions, security, glossary)
+- implement new write_memory MCP tool for IDE delegated mode synthesis
 
 ### BREAKING CHANGES
 
-- **memorize:** tool output format changed from string-based file writes to `MemorizePayload` JSON with analysis instructions
-  - Memorize now returns `{ topics: [...], structuralFacts: {...}, contentHash: "...", skip: false }`
-  - IDE delegated mode must call new `write_memory` tool for each topic to persist results
-  - CLI mode remains automatic (memorize handles write_memory internally)
-- **memory:** all 7 core topics are now mandatory in every memorize run (previously only 4 were populated)
-- # **memory:** removed `dependencies.md` from scaffold (now using 7-topic model instead of 8-topic)
+- memorize tool output format changed from string-based file writes to MemorizePayload JSON with analysis instructions
+- all 7 core topics now required in every memorize run (previously only 4 were populated)
+- removed dependencies.md from scaffold (7-topic model: overview, architecture, interfaces, build, conventions, security, glossary)
+- IDE delegated mode must call new write_memory tool to persist synthesized content (CLI mode remains automatic)
 
 ## [2.3.12](https://github.com/cyhunblr/synaphex/compare/v2.3.11...v2.3.12) (2026-04-20)
 

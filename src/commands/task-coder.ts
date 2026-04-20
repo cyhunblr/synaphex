@@ -28,6 +28,11 @@ import {
   buildCoderPrompt,
 } from "../agents/coder.js";
 import {
+  buildTransitionNote,
+  buildNextStepHint,
+  buildDelegatedPrompt,
+} from "../lib/delegated-prompt.js";
+import {
   ANSWERER_SYSTEM_PROMPT,
   buildAnswererPrompt,
   parseAnswererResponse,
@@ -35,7 +40,6 @@ import {
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
 import { addUsage, emptyUsage } from "../lib/pipeline-types.js";
-import { buildDelegatedPrompt } from "../lib/delegated-prompt.js";
 
 export async function handleTaskImplement(
   project: string,
@@ -60,7 +64,7 @@ export async function handleTaskImplement(
   const metaPath = `${taskDir}/task-meta.json`;
   const meta = await readJsonFile<TaskMeta>(metaPath);
 
-  const validation = validateTaskSequence("coder", meta.completed_steps);
+  const validation = validateTaskSequence("implement", meta.completed_steps);
   if (!validation.valid) {
     throw new Error(validation.error);
   }
@@ -237,8 +241,8 @@ export async function handleTaskImplement(
 
   // Update completed steps
   meta.status = "implemented";
-  if (!meta.completed_steps.includes("coder")) {
-    meta.completed_steps.push("coder");
+  if (!meta.completed_steps.includes("implement")) {
+    meta.completed_steps.push("implement");
   }
   await writeJsonFile(metaPath, meta);
 
@@ -266,6 +270,9 @@ export async function handleTaskImplement(
     `<implementation_summary>`,
     result.textOutput,
     `</implementation_summary>`,
+    "",
+    buildNextStepHint("coder", project, slug, task, cwd),
+    buildTransitionNote("coder", settings),
   );
 
   return parts.join("\n");

@@ -33,7 +33,7 @@ const PIPELINE_ORDER: AgentName[] = [
 /**
  * Build a model-switch advisory if the next agent has different settings.
  */
-function buildTransitionNote(
+export function buildTransitionNote(
   currentAgent: AgentName,
   settings: SynaphexSettings,
 ): string {
@@ -76,7 +76,7 @@ function buildTransitionNote(
 /**
  * Format the next-step command hint for the IDE model.
  */
-function buildNextStepHint(
+export function buildNextStepHint(
   agentName: AgentName,
   project: string,
   slug: string,

@@ -117,15 +117,8 @@ export function validateTaskSequence(
   valid: boolean;
   error?: string;
 } {
-  const requiredSteps = [
-    "create",
-    "examine",
-    "planner",
-    "coder",
-    "answerer",
-    "reviewer",
-  ];
-  const optionalSteps = ["remember", "researcher"];
+  const requiredSteps = ["create", "examine", "plan", "implement", "review"];
+  const optionalSteps = ["remember", "researcher", "answerer"];
   const allSteps = [...requiredSteps, ...optionalSteps];
 
   if (!allSteps.includes(step)) {
@@ -192,10 +185,10 @@ export async function validateCompletedSteps(steps: unknown): Promise<{
     "examine",
     "remember",
     "researcher",
-    "planner",
-    "coder",
+    "plan",
+    "implement",
     "answerer",
-    "reviewer",
+    "review",
   ];
   const invalidSteps = steps.filter((s) => !validSteps.includes(s as string));
 

@@ -53,7 +53,7 @@ describe("Edge Cases (Section 13)", () => {
       const result = await validateCompletedSteps([
         "create",
         "examine",
-        "planner",
+        "plan",
       ]);
 
       expect(result.valid).toBe(true);
@@ -124,10 +124,10 @@ describe("Edge Cases (Section 13)", () => {
         "examine",
         "remember",
         "researcher",
-        "planner",
-        "coder",
+        "plan",
+        "implement",
         "answerer",
-        "reviewer",
+        "review",
       ];
 
       for (const step of validSteps) {
@@ -142,11 +142,11 @@ describe("Edge Cases (Section 13)", () => {
         "bad1",
         "examine",
         "bad2",
-        "planner",
+        "plan",
         "bad3",
       ]);
 
-      expect(result.repaired).toEqual(["create", "examine", "planner"]);
+      expect(result.repaired).toEqual(["create", "examine", "plan"]);
       expect(result.repaired).not.toContain("bad1");
       expect(result.repaired).not.toContain("bad2");
       expect(result.repaired).not.toContain("bad3");

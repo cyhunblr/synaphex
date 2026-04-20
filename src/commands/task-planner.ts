@@ -19,7 +19,11 @@ import {
 } from "../agents/planner.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
-import { buildDelegatedPrompt } from "../lib/delegated-prompt.js";
+import {
+  buildDelegatedPrompt,
+  buildTransitionNote,
+  buildNextStepHint,
+} from "../lib/delegated-prompt.js";
 
 export async function handleTaskPlan(
   project: string,
@@ -42,7 +46,7 @@ export async function handleTaskPlan(
   const metaPath = `${taskDir}/task-meta.json`;
   const meta = await readJsonFile<TaskMeta>(metaPath);
 
-  const validation = validateTaskSequence("planner", meta.completed_steps);
+  const validation = validateTaskSequence("plan", meta.completed_steps);
   if (!validation.valid) {
     throw new Error(validation.error);
   }
@@ -90,12 +94,15 @@ export async function handleTaskPlan(
 
   // Update completed steps
   meta.status = "planned";
-  if (!meta.completed_steps.includes("planner")) {
-    meta.completed_steps.push("planner");
+  if (!meta.completed_steps.includes("plan")) {
+    meta.completed_steps.push("plan");
   }
   await writeJsonFile(metaPath, meta);
 
   const usage = result.usage;
+
+  const transitionNote = buildTransitionNote("planner", settings);
+  const nextStep = buildNextStepHint("planner", project, slug, task, cwd);
 
   return [
     `Plan v${iter} generated.`,
@@ -105,5 +112,8 @@ export async function handleTaskPlan(
     `<plan>`,
     plan,
     `</plan>`,
+    "",
+    nextStep,
+    transitionNote,
   ].join("\n");
 }

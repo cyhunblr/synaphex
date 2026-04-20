@@ -13,6 +13,7 @@ import { MEMORY_TOPICS } from "./memory/structure.js";
 import { handleSettingsRead } from "./commands/settings-read.js";
 import { handleSettingsUpdate } from "./commands/settings-update.js";
 import { handleTaskStart as handleTaskCreate } from "./commands/task-create.js";
+import { handleTask } from "./commands/task.js";
 import { handleTaskExamine } from "./commands/task-examine.js";
 import { handleTaskPlan as handleTaskPlanner } from "./commands/task-planner.js";
 import { handleTaskImplement as handleTaskCoder } from "./commands/task-coder.js";
@@ -26,7 +27,7 @@ import { handleTaskRemember } from "./commands/task-remember.js";
 const server = new McpServer(
   {
     name: "synaphex",
-    version: "2.0.0",
+    version: "2.5.0",
   },
   {
     capabilities: {
@@ -320,6 +321,37 @@ server.registerTool(
   },
 );
 
+// === Tool: synaphex_task ===
+
+server.registerTool(
+  "task",
+  {
+    description:
+      "Run a full task pipeline: examine → plan → implement → review. " +
+      "Convenience wrapper that calls discrete agents in sequence.",
+    inputSchema: z.object({
+      project: z.string().min(1).max(64).describe("Project name"),
+      slug: z.string().min(1).describe("Task slug from task_start"),
+      cwd: z.string().min(1).describe("Absolute path to the working directory"),
+      task: z.string().min(1).describe("Task description"),
+      memory_digest: z.string().describe("Memory digest from task_start"),
+    }),
+  },
+  async ({ project, slug, cwd, task, memory_digest }) => {
+    try {
+      const result = await handleTask(project, slug, task, cwd, memory_digest);
+      return {
+        content: [{ type: "text", text: result }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
 // === Tool: synaphex_task_examine ===
 
 server.registerTool(
@@ -360,7 +392,7 @@ server.registerTool(
 // === Tool: synaphex_task_plan ===
 
 server.registerTool(
-  "task_planner",
+  "task_plan",
   {
     description:
       "Run the Planner agent to create an implementation plan from examiner output.",
@@ -417,7 +449,7 @@ server.registerTool(
 // === Tool: synaphex_task_implement ===
 
 server.registerTool(
-  "task_coder",
+  "task_implement",
   {
     description:
       "Run the Coder agent to implement the plan. " +
@@ -475,7 +507,7 @@ server.registerTool(
 // === Tool: synaphex_task_review ===
 
 server.registerTool(
-  "task_reviewer",
+  "task_review",
   {
     description:
       "Run the Reviewer agent to check implementation quality. " +

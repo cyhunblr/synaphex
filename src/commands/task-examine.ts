@@ -23,7 +23,10 @@ import {
 } from "../agents/examiner.js";
 import type { SynaphexSettings, AgentName } from "../lib/settings-schema.js";
 import type { TaskMeta } from "../lib/pipeline-types.js";
-import { buildDelegatedPrompt } from "../lib/delegated-prompt.js";
+import {
+  buildDelegatedPrompt,
+  buildNextStepHint,
+} from "../lib/delegated-prompt.js";
 
 export async function handleTaskExamine(
   project: string,
@@ -167,5 +170,7 @@ export async function handleTaskExamine(
     `<examiner_compact>`,
     compactOutput,
     `</examiner_compact>`,
+    "",
+    buildNextStepHint("examiner", project, slug, task, cwd),
   ].join("\n");
 }

@@ -1,147 +1,141 @@
 /**
- * State validation tests for Phase 3 v2.0.0
- * Tests: 6.4-6.7 from Phase 3 refactoring tasks
+ * State validation tests for Phase 3 v2.0.0 discrete commands
+ * Tests validateTaskSequence with new step names: examine, plan, implement, review
  */
 
 import { validateTaskSequence } from "../lib/project-store.js";
 
 describe("State Validation (Section 6)", () => {
-  describe("6.4 Test validation: Cannot run planner before examine", () => {
-    it("should reject planner if examine not completed", () => {
+  describe("6.1 Test validation: Cannot run plan before examine", () => {
+    it("should reject plan if examine not completed", () => {
       const completedSteps = ["create"];
-      const result = validateTaskSequence("planner", completedSteps);
+      const result = validateTaskSequence("plan", completedSteps);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("examine");
       expect(result.error).toContain("not completed yet");
     });
 
-    it("should allow planner after examine is completed", () => {
+    it("should allow plan after examine is completed", () => {
       const completedSteps = ["create", "examine"];
-      const result = validateTaskSequence("planner", completedSteps);
+      const result = validateTaskSequence("plan", completedSteps);
 
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
     });
   });
 
-  describe("6.5 Test validation: Can skip researcher", () => {
-    it("should allow planner without researcher", () => {
+  describe("6.2 Test validation: Can skip researcher", () => {
+    it("should allow plan without researcher", () => {
       const completedSteps = ["create", "examine"];
-      const result = validateTaskSequence("planner", completedSteps);
+      const result = validateTaskSequence("plan", completedSteps);
 
       expect(result.valid).toBe(true);
     });
 
-    it("should allow coder without researcher", () => {
-      const completedSteps = ["create", "examine", "planner"];
-      const result = validateTaskSequence("coder", completedSteps);
+    it("should allow implement without researcher", () => {
+      const completedSteps = ["create", "examine", "plan"];
+      const result = validateTaskSequence("implement", completedSteps);
 
       expect(result.valid).toBe(true);
     });
 
     it("should allow answerer without researcher", () => {
-      const completedSteps = ["create", "examine", "planner", "coder"];
+      const completedSteps = ["create", "examine", "plan", "implement"];
       const result = validateTaskSequence("answerer", completedSteps);
 
       expect(result.valid).toBe(true);
     });
 
-    it("should allow reviewer without researcher", () => {
-      const completedSteps = [
-        "create",
-        "examine",
-        "planner",
-        "coder",
-        "answerer",
-      ];
-      const result = validateTaskSequence("reviewer", completedSteps);
+    it("should allow review without researcher", () => {
+      const completedSteps = ["create", "examine", "plan", "implement"];
+      const result = validateTaskSequence("review", completedSteps);
 
       expect(result.valid).toBe(true);
     });
   });
 
-  describe("6.6 Test validation: Cannot skip examine", () => {
-    it("should reject planner if examine not completed", () => {
+  describe("6.3 Test validation: Cannot skip examine", () => {
+    it("should reject plan if examine not completed", () => {
       const completedSteps = ["create"];
-      const result = validateTaskSequence("planner", completedSteps);
+      const result = validateTaskSequence("plan", completedSteps);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("examine");
     });
 
-    it("should reject coder if examine not completed", () => {
-      const completedSteps = ["create", "planner"];
-      const result = validateTaskSequence("coder", completedSteps);
+    it("should reject implement if examine not completed", () => {
+      const completedSteps = ["create", "plan"];
+      const result = validateTaskSequence("implement", completedSteps);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("examine");
     });
 
-    it("should reject answerer if examine not completed", () => {
-      const completedSteps = ["create", "planner", "coder"];
+    it("should allow answerer without examine completed", () => {
+      // answerer has no hard dependencies, can be called anytime
+      const completedSteps = ["create"];
       const result = validateTaskSequence("answerer", completedSteps);
 
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain("examine");
+      expect(result.valid).toBe(true);
     });
 
-    it("should reject reviewer if examine not completed", () => {
-      const completedSteps = ["create", "planner", "coder"];
-      const result = validateTaskSequence("reviewer", completedSteps);
+    it("should reject review if examine not completed", () => {
+      const completedSteps = ["create", "plan", "implement"];
+      const result = validateTaskSequence("review", completedSteps);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("examine");
     });
   });
 
-  describe("6.7 Test validation: Cannot run coder before planner", () => {
-    it("should reject coder if planner not completed", () => {
+  describe("6.4 Test validation: Cannot run implement before plan", () => {
+    it("should reject implement if plan not completed", () => {
       const completedSteps = ["create", "examine"];
-      const result = validateTaskSequence("coder", completedSteps);
+      const result = validateTaskSequence("implement", completedSteps);
 
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("planner");
+      expect(result.error).toContain("plan");
       expect(result.error).toContain("not completed yet");
     });
 
-    it("should allow coder after planner is completed", () => {
-      const completedSteps = ["create", "examine", "planner"];
-      const result = validateTaskSequence("coder", completedSteps);
+    it("should allow implement after plan is completed", () => {
+      const completedSteps = ["create", "examine", "plan"];
+      const result = validateTaskSequence("implement", completedSteps);
 
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
     });
 
-    it("should reject answerer if planner not completed", () => {
-      const completedSteps = ["create", "examine", "coder"];
+    it("should allow answerer without plan completed", () => {
+      // answerer is optional with no hard dependencies
+      const completedSteps = ["create", "examine"];
       const result = validateTaskSequence("answerer", completedSteps);
 
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain("planner");
+      expect(result.valid).toBe(true);
     });
 
-    it("should reject reviewer if planner not completed", () => {
-      const completedSteps = ["create", "examine", "coder"];
-      const result = validateTaskSequence("reviewer", completedSteps);
+    it("should reject review if plan not completed", () => {
+      const completedSteps = ["create", "examine", "implement"];
+      const result = validateTaskSequence("review", completedSteps);
 
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("planner");
+      expect(result.error).toContain("plan");
     });
   });
 
-  describe("Additional: Prevent duplicate steps", () => {
-    it("should reject running the same step twice", () => {
-      const completedSteps = ["create", "examine", "planner"];
-      const result = validateTaskSequence("planner", completedSteps);
+  describe("6.5 Test validation: Phase reruns allowed", () => {
+    it("should initially reject phase rerun", () => {
+      const completedSteps = ["create", "examine"];
+      const result = validateTaskSequence("examine", completedSteps);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("already been completed");
     });
 
-    it("should reject running create twice", () => {
-      const completedSteps = ["create"];
-      const result = validateTaskSequence("create", completedSteps);
+    it("should reject plan rerun after completion", () => {
+      const completedSteps = ["create", "examine", "plan"];
+      const result = validateTaskSequence("plan", completedSteps);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("already been completed");
@@ -150,14 +144,7 @@ describe("State Validation (Section 6)", () => {
 
   describe("Additional: Full workflow validation", () => {
     it("should validate complete workflow sequence", () => {
-      const steps = [
-        "create",
-        "examine",
-        "planner",
-        "coder",
-        "answerer",
-        "reviewer",
-      ];
+      const steps = ["create", "examine", "plan", "implement", "review"];
 
       for (let i = 0; i < steps.length; i++) {
         const completedSteps = steps.slice(0, i);
@@ -174,10 +161,10 @@ describe("State Validation (Section 6)", () => {
         "remember",
         "examine",
         "researcher",
-        "planner",
-        "coder",
+        "plan",
+        "implement",
         "answerer",
-        "reviewer",
+        "review",
       ];
 
       for (let i = 0; i < steps.length; i++) {
@@ -190,12 +177,12 @@ describe("State Validation (Section 6)", () => {
     });
 
     it("should reject out-of-order execution", () => {
-      // Try to run reviewer before planner
+      // Try to run review before plan
       const completedSteps = ["create", "examine"];
-      const result = validateTaskSequence("reviewer", completedSteps);
+      const result = validateTaskSequence("review", completedSteps);
 
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("planner");
+      expect(result.error).toContain("plan");
     });
   });
 
@@ -213,11 +200,19 @@ describe("State Validation (Section 6)", () => {
 
     it("should provide helpful error message with required steps", () => {
       const completedSteps = ["create"];
-      const result = validateTaskSequence("coder", completedSteps);
+      const result = validateTaskSequence("implement", completedSteps);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("'examine'");
-      expect(result.error).toContain("'planner'");
+      expect(result.error).toContain("'plan'");
+    });
+
+    it("should reject review without implement", () => {
+      const completedSteps = ["create", "examine", "plan"];
+      const result = validateTaskSequence("review", completedSteps);
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("implement");
     });
   });
 });
