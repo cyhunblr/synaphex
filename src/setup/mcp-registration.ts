@@ -1,20 +1,6 @@
 import { readFileSync, writeFileSync, copyFileSync, existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { z } from "zod";
-
-const MCPServerSchema = z.record(
-  z.object({
-    command: z.string(),
-    args: z.array(z.string()).optional(),
-  }),
-);
-
-const ClaudeSettingsSchema = z.object({
-  mcpServers: z.optional(MCPServerSchema),
-});
-
-type ClaudeSettings = z.infer<typeof ClaudeSettingsSchema>;
 
 export interface RegistrationResult {
   success: boolean;
@@ -24,65 +10,55 @@ export interface RegistrationResult {
 }
 
 export async function registerMCPServer(): Promise<RegistrationResult> {
-  const settingsPath = join(homedir(), ".claude", "settings.json");
-  let settings: ClaudeSettings = {};
+  const configPath = join(homedir(), ".claude.json");
+  let config: Record<string, unknown> = {};
 
   try {
-    if (existsSync(settingsPath)) {
-      const content = readFileSync(settingsPath, "utf-8");
-      const parsed = JSON.parse(content);
-      const validated = ClaudeSettingsSchema.parse(parsed);
-      settings = validated;
+    if (existsSync(configPath)) {
+      const content = readFileSync(configPath, "utf-8");
+      config = JSON.parse(content);
     }
   } catch (error) {
     if (error instanceof SyntaxError) {
       return {
         success: false,
-        message: `Invalid JSON in ~/.claude/settings.json: ${error.message}`,
+        message: `Invalid JSON in ~/.claude.json: ${error.message}`,
       };
     }
     return {
       success: false,
-      message: `Failed to read ~/.claude/settings.json: ${error}`,
+      message: `Failed to read ~/.claude.json: ${error}`,
     };
   }
 
-  if (!settings.mcpServers) {
-    settings.mcpServers = {};
-  }
+  const mcpServers =
+    (config.mcpServers as Record<string, unknown> | undefined) ?? {};
+  const wasAlreadyConfigured = !!mcpServers.synaphex;
 
-  const wasAlreadyConfigured = !!settings.mcpServers.synaphex;
-
-  settings.mcpServers.synaphex = { command: "npx", args: ["synaphex"] };
+  mcpServers.synaphex = { command: "npx", args: ["synaphex"] };
+  config.mcpServers = mcpServers;
 
   try {
-    const jsonString = JSON.stringify(settings, null, 2);
-    ClaudeSettingsSchema.parse(JSON.parse(jsonString));
+    const jsonString = JSON.stringify(config, null, 2);
 
-    const backupPath = `${settingsPath}.bak`;
-    if (existsSync(settingsPath)) {
-      copyFileSync(settingsPath, backupPath);
+    const backupPath = `${configPath}.bak`;
+    if (existsSync(configPath)) {
+      copyFileSync(configPath, backupPath);
     }
 
-    writeFileSync(settingsPath, jsonString + "\n", "utf-8");
+    writeFileSync(configPath, jsonString + "\n", "utf-8");
 
     return {
       success: true,
-      message: "MCP server registered in ~/.claude/settings.json",
+      message: "MCP server registered in ~/.claude.json",
       isNew: !wasAlreadyConfigured,
       wasAlreadyConfigured,
     };
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return {
-        success: false,
-        message: `Settings validation failed: ${error.message}`,
-      };
-    }
     if ((error as NodeJS.ErrnoException).code === "EACCES") {
       return {
         success: false,
-        message: "Permission denied: Cannot write ~/.claude/settings.json",
+        message: "Permission denied: Cannot write ~/.claude.json",
       };
     }
     return {
