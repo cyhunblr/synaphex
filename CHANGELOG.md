@@ -1,3 +1,10 @@
+# [3.1.0](https://github.com/cyhunblr/synaphex/compare/v3.0.0...v3.1.0) (2026-04-20)
+
+
+### Features
+
+* add interactive configuration for agents ([274bc93](https://github.com/cyhunblr/synaphex/commit/274bc9386dae3488bd417885688001a216d42abd))
+
 # [3.0.0](https://github.com/cyhunblr/synaphex/compare/v2.4.0...v3.0.0) (2026-04-20)
 
 
