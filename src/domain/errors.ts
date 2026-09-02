@@ -66,6 +66,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "AGENT_CALL_FORBIDDEN",
   "AGENT_CALL_UNAVAILABLE",
   "AGENT_INVOCATION_DEPTH_EXCEEDED",
+  "CODEX_CLI_EXECUTION_FAILED",
 ] as const;
 
 export type SynaphexErrorCode = (typeof SYNAPHEX_ERROR_CODES)[number];
@@ -644,6 +645,33 @@ export class AgentInvocationDepthExceededError extends SynaphexError<"AGENT_INVO
       "AGENT_INVOCATION_DEPTH_EXCEEDED",
       `Agent invocation depth ${attemptedDepth} exceeds maximum ${maximumDepth}`,
       { currentDepth, attemptedDepth, maximumDepth },
+    );
+  }
+}
+
+export type CodexCliExecutionFailureReason =
+  | "unsupported_route"
+  | "unsupported_settings"
+  | "invalid_workspace"
+  | "temporary_io"
+  | "spawn_failed"
+  | "non_zero_exit"
+  | "timeout"
+  | "missing_result"
+  | "empty_result"
+  | "malformed_result";
+
+export class CodexCliExecutionError extends SynaphexError<"CODEX_CLI_EXECUTION_FAILED"> {
+  constructor(
+    reason: CodexCliExecutionFailureReason,
+    details: Readonly<Record<string, unknown>> = {},
+    options?: ErrorOptions,
+  ) {
+    super(
+      "CODEX_CLI_EXECUTION_FAILED",
+      `OpenAI Codex CLI execution failed: ${reason.replaceAll("_", " ")}`,
+      { reason, ...details },
+      options,
     );
   }
 }

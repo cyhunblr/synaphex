@@ -7,6 +7,7 @@ export {
   AgentExecutionFailedError,
   AgentInvocationDepthExceededError,
   AgentUnconfiguredError,
+  CodexCliExecutionError,
   ArtifactNotFoundError,
   ImmutableContractViolationError,
   InvalidArtifactError,
@@ -54,6 +55,7 @@ export {
   TaskNotFoundError,
   UnsupportedAgentBehaviorError,
   type SynaphexErrorCode,
+  type CodexCliExecutionFailureReason,
 } from "./domain/errors.js";
 export { AGENT_NAMES, isAgentName, type AgentName } from "./domain/agent.js";
 export {
@@ -132,6 +134,21 @@ export type {
   ProcessedReviewerResult,
 } from "./domain/processed-agent-result.js";
 export { parseAgentHandoff } from "./core/agent-handoff-validator.js";
+export {
+  CodexCliAgentExecutor,
+  type CodexCliAgentExecutorOptions,
+  type CodexSandbox,
+} from "./providers/codex-cli-agent-executor.js";
+export {
+  CodexCliRuntimeAvailability,
+  type CodexCliRuntimeAvailabilityOptions,
+} from "./providers/codex-cli-runtime-availability.js";
+export {
+  SpawnProcessRunner,
+  type ProcessRunInput,
+  type ProcessResult,
+  type ProcessRunner,
+} from "./infrastructure/process-runner.js";
 export { validateAgentResult } from "./core/agent-result-validator.js";
 export {
   AGENT_PROVIDERS,
