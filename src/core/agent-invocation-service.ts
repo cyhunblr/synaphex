@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { AgentConfigManager } from "./agent-config-manager.js";
 import { validateAgentResult } from "./agent-result-validator.js";
 import { ArtifactManager } from "./artifact-manager.js";
@@ -14,17 +15,32 @@ import { RuleResolver } from "./rule-resolver.js";
 import { SessionManager } from "./session-manager.js";
 import { TaskManager } from "./task-manager.js";
 import type { AgentName } from "../domain/agent.js";
+import type { AgentHandoff } from "../domain/agent-context.js";
 import type {
   AgentExecutor,
   AgentInvocationResult,
+  AnyAgentInvocationResult,
+  CallerContinuation,
   ForbiddenHelperCallClassification,
   HelperCallClassification,
   HelperCallUnavailableErrorCode,
+  HelperContinuationOutcome,
+  HelperExecutionRequest,
+  HelperExecutionResult,
+  InvocationId,
+  InvocationLineage,
+  ResumeCallerRequest,
   UserAgentInvocationRequest,
 } from "../domain/agent-invocation.js";
 import type { RequestedAgentCall } from "../domain/agent-result.js";
 import {
+  AgentCallApprovalRequiredError,
+  AgentCallDeniedError,
+  AgentCallForbiddenError,
+  AgentCallUnavailableError,
   AgentExecutionFailedError,
+  AgentInvocationDepthExceededError,
+  InvalidAgentHandoffError,
   NoProjectBoundError,
   NoTaskBoundError,
   PlanDraftPendingError,
@@ -35,6 +51,7 @@ import {
 } from "../domain/errors.js";
 import type { RuntimeAvailability } from "../domain/provider-routing.js";
 import type { Project } from "../domain/project.js";
+import type { SessionId } from "../domain/session.js";
 import type { Task } from "../domain/task.js";
 import { StateStore } from "../infrastructure/state-store.js";
 
@@ -49,6 +66,18 @@ interface InvocationScope {
   readonly project: Project;
   readonly task: Task | null;
 }
+
+interface PreparedInvocation<TAgent extends AgentName> {
+  readonly sessionId: SessionId;
+  readonly agent: TAgent;
+  readonly host: UserAgentInvocationRequest["host"];
+  readonly scope: InvocationScope;
+  readonly lineage: InvocationLineage;
+  readonly instruction?: string;
+  readonly handoff?: AgentHandoff;
+}
+
+const MAX_INVOCATION_DEPTH = 8;
 
 export class AgentInvocationService {
   private readonly executor: AgentExecutor;
@@ -110,16 +139,112 @@ export class AgentInvocationService {
       request.sessionId,
       request.agent,
     );
-    const config = await this.configs.validateAgent(request.agent);
-    const context = await this.contextBuilder.build({
+    return this.invokePrepared({
       sessionId: request.sessionId,
       agent: request.agent,
+      host: request.host,
+      scope,
+      lineage: createRootLineage(request.agent),
       ...(request.instruction === undefined
         ? {}
         : { instruction: request.instruction }),
     });
-    const route = await this.router.resolve({
+  }
+
+  async executeHelper(
+    request: HelperExecutionRequest,
+  ): Promise<HelperExecutionResult> {
+    const previousClassification = findParentClassification(
+      request.parentInvocation,
+      request.helperClassification,
+    );
+    const caller = request.parentInvocation.agent;
+    const target = previousClassification.request.target;
+
+    await this.resolveAndValidatePreflight(request.sessionId, caller);
+    const helperScope = await this.resolveAndValidatePreflight(
+      request.sessionId,
+      target,
+    );
+    const effectiveClassification = await this.classifySingleHelperCall(
+      previousClassification.request,
+      caller,
+      helperScope,
+    );
+    assertHelperExecutable(
+      previousClassification,
+      effectiveClassification,
+      request.approvalGranted === true,
+    );
+    const lineage = createChildLineage(
+      request.parentInvocation.lineage,
+      target,
+    );
+
+    const helperInvocation = (await this.invokePrepared({
+      sessionId: request.sessionId,
+      agent: target,
       host: request.host,
+      scope: helperScope,
+      lineage,
+      handoff: previousClassification.request.handoff,
+    })) as AnyAgentInvocationResult;
+    const continuation = await this.buildContinuation(
+      caller,
+      previousClassification.request,
+      helperInvocation,
+      helperScope,
+    );
+    return {
+      previousClassification,
+      effectiveClassification,
+      helperInvocation,
+      continuation,
+    };
+  }
+
+  async resumeCaller(
+    request: ResumeCallerRequest,
+  ): Promise<AgentInvocationResult> {
+    const { continuation, helperInvocation } = request.helperExecution;
+    assertContinuationIntegrity(request.helperExecution);
+    const lineage = createChildLineage(
+      helperInvocation.lineage,
+      continuation.originalCaller,
+    );
+    const scope = await this.resolveAndValidatePreflight(
+      request.sessionId,
+      continuation.originalCaller,
+    );
+    return this.invokePrepared({
+      sessionId: request.sessionId,
+      agent: continuation.originalCaller,
+      host: request.host,
+      scope,
+      lineage,
+      handoff: continuation.handoff,
+      ...(request.instruction === undefined
+        ? {}
+        : { instruction: request.instruction }),
+    });
+  }
+
+  private async invokePrepared<TAgent extends AgentName>(
+    invocation: PreparedInvocation<TAgent>,
+  ): Promise<AgentInvocationResult<TAgent>> {
+    const config = await this.configs.validateAgent(invocation.agent);
+    const context = await this.contextBuilder.build({
+      sessionId: invocation.sessionId,
+      agent: invocation.agent,
+      ...(invocation.instruction === undefined
+        ? {}
+        : { instruction: invocation.instruction }),
+      ...(invocation.handoff === undefined
+        ? {}
+        : { handoff: invocation.handoff }),
+    });
+    const route = await this.router.resolve({
+      host: invocation.host,
       targetConfig: config,
     });
 
@@ -128,27 +253,28 @@ export class AgentInvocationService {
       rawResult = await this.executor.execute({ route, context });
     } catch (error) {
       throw new AgentExecutionFailedError(
-        request.agent,
+        invocation.agent,
         route.provider,
         route.effectiveSurface,
         { cause: error },
       );
     }
 
-    const validatedResult = validateAgentResult(request.agent, rawResult);
+    const validatedResult = validateAgentResult(invocation.agent, rawResult);
     const helperCalls = await this.classifyHelperCalls(
       validatedResult.requestedCalls ?? [],
-      request.agent,
-      scope,
+      invocation.agent,
+      invocation.scope,
     );
     // ResultProcessor deliberately validates again at the mutation boundary.
     const processedResult = await this.resultProcessor.process({
-      sessionId: request.sessionId,
-      expectedAgent: request.agent,
+      sessionId: invocation.sessionId,
+      expectedAgent: invocation.agent,
       result: validatedResult,
     });
     return {
-      agent: request.agent,
+      agent: invocation.agent,
+      lineage: invocation.lineage,
       route,
       processedResult,
       helperCalls,
@@ -156,7 +282,7 @@ export class AgentInvocationService {
   }
 
   private async resolveAndValidatePreflight(
-    sessionId: string,
+    sessionId: SessionId,
     agent: AgentName,
   ): Promise<InvocationScope> {
     const binding = await this.sessions.getCurrentBinding(sessionId);
@@ -182,7 +308,11 @@ export class AgentInvocationService {
       throw new TaskCompletedError(task.id);
     }
 
-    if (agent === "coder" && task !== null && (await this.plans.hasDraft(task.id))) {
+    if (
+      agent === "coder" &&
+      task !== null &&
+      (await this.plans.hasDraft(task.id))
+    ) {
       throw new PlanDraftPendingError(task.id);
     }
     if (
@@ -197,6 +327,20 @@ export class AgentInvocationService {
       throw new ReviewTargetNotAvailableError(task.id);
     }
     return { project, task };
+  }
+
+  private async classifySingleHelperCall(
+    request: RequestedAgentCall,
+    caller: AgentName,
+    scope: InvocationScope,
+  ): Promise<HelperCallClassification> {
+    const classification = (
+      await this.classifyHelperCalls([request], caller, scope)
+    )[0];
+    if (classification === undefined) {
+      throw new TypeError("Helper classification unexpectedly produced no result");
+    }
+    return classification;
   }
 
   private async classifyHelperCalls(
@@ -296,6 +440,264 @@ export class AgentInvocationService {
           }
         : {}),
     });
+  }
+
+  private async buildContinuation(
+    originalCaller: AgentName,
+    originalRequest: RequestedAgentCall,
+    helperInvocation: AnyAgentInvocationResult,
+    scope: InvocationScope,
+  ): Promise<CallerContinuation> {
+    const processed = helperInvocation.processedResult;
+    const message = continuationMessage(processed);
+    const helperArtifactRefs = [...processed.persistedArtifacts];
+    const blockedByPendingPlan =
+      originalCaller === "coder" &&
+      helperInvocation.agent === "planner" &&
+      scope.task !== null &&
+      (await this.plans.hasDraft(scope.task.id));
+    const summary =
+      message === undefined
+        ? processed.summary
+        : `${processed.summary}\n\nHelper response: ${message}`;
+    return {
+      status: blockedByPendingPlan ? "blocked_by_pending_plan" : "ready",
+      originalCaller,
+      helperAgent: helperInvocation.agent,
+      originalPurpose: originalRequest.purpose,
+      helperSummary: processed.summary,
+      helperArtifactRefs,
+      helperOutcome: continuationOutcome(processed),
+      ...(message === undefined ? {} : { message }),
+      handoff: {
+        caller: helperInvocation.agent,
+        target: originalCaller,
+        purpose: originalRequest.purpose,
+        summary,
+        ...(helperArtifactRefs.length === 0
+          ? {}
+          : { artifactRefs: helperArtifactRefs.map(({ id }) => id) }),
+      },
+      lineage: helperInvocation.lineage,
+    };
+  }
+}
+
+function createInvocationId(): InvocationId {
+  return `invocation_${randomUUID().replaceAll("-", "")}`;
+}
+
+function createRootLineage(agent: AgentName): InvocationLineage {
+  const id = createInvocationId();
+  return {
+    rootInvocationId: id,
+    currentInvocationId: id,
+    parentInvocationId: null,
+    depth: 0,
+    agent,
+  };
+}
+
+function createChildLineage(
+  parent: InvocationLineage,
+  agent: AgentName,
+): InvocationLineage {
+  const depth = parent.depth + 1;
+  if (depth > MAX_INVOCATION_DEPTH) {
+    throw new AgentInvocationDepthExceededError(
+      parent.depth,
+      depth,
+      MAX_INVOCATION_DEPTH,
+    );
+  }
+  return {
+    rootInvocationId: parent.rootInvocationId,
+    currentInvocationId: createInvocationId(),
+    parentInvocationId: parent.currentInvocationId,
+    depth,
+    agent,
+  };
+}
+
+function findParentClassification(
+  parent: AnyAgentInvocationResult,
+  supplied: HelperCallClassification,
+): HelperCallClassification {
+  if (parent.lineage.agent !== parent.agent) {
+    throw new InvalidAgentHandoffError(
+      "parent invocation lineage does not match its agent",
+    );
+  }
+  const match = parent.helperCalls.find(
+    (candidate) =>
+      candidate.status === supplied.status &&
+      JSON.stringify(candidate.request) === JSON.stringify(supplied.request),
+  );
+  if (match === undefined) {
+    throw new InvalidAgentHandoffError(
+      "helper classification does not belong to the parent invocation",
+    );
+  }
+  return match;
+}
+
+function assertHelperExecutable(
+  previous: HelperCallClassification,
+  current: HelperCallClassification,
+  approvalGranted: boolean,
+): void {
+  const caller = previous.request.handoff.caller;
+  const target = previous.request.target;
+  if (previous.status === "denied" || current.status === "denied") {
+    throw new AgentCallDeniedError(
+      caller,
+      target,
+      previous.status,
+      current.status,
+      current.effectiveRule?.source ?? null,
+    );
+  }
+  if (previous.status === "forbidden" || current.status === "forbidden") {
+    const forbidden =
+      current.status === "forbidden"
+        ? current
+        : previous.status === "forbidden"
+          ? previous
+          : null;
+    throw new AgentCallForbiddenError(
+      caller,
+      target,
+      previous.status,
+      current.status,
+      forbidden?.immutableReason ?? null,
+    );
+  }
+  if (previous.status === "unavailable" || current.status === "unavailable") {
+    const unavailable =
+      current.status === "unavailable"
+        ? current
+        : previous.status === "unavailable"
+          ? previous
+          : null;
+    throw new AgentCallUnavailableError(
+      caller,
+      target,
+      previous.status,
+      current.status,
+      unavailable?.errorCode ?? null,
+    );
+  }
+  if (
+    (previous.status === "approval_required" ||
+      current.status === "approval_required") &&
+    !approvalGranted
+  ) {
+    throw new AgentCallApprovalRequiredError(
+      caller,
+      target,
+      previous.status,
+      current.status,
+      current.effectiveRule.source,
+    );
+  }
+}
+
+function assertContinuationIntegrity(execution: HelperExecutionResult): void {
+  const {
+    previousClassification,
+    effectiveClassification,
+    continuation,
+    helperInvocation,
+  } = execution;
+  const expectedArtifactIds = helperInvocation.processedResult.persistedArtifacts.map(
+    ({ id }) => id,
+  );
+  if (
+    JSON.stringify(previousClassification.request) !==
+      JSON.stringify(effectiveClassification.request) ||
+    continuation.originalCaller !==
+      previousClassification.request.handoff.caller ||
+    continuation.helperAgent !== previousClassification.request.target ||
+    continuation.originalPurpose !== previousClassification.request.purpose ||
+    continuation.helperAgent !== helperInvocation.agent ||
+    continuation.helperOutcome.agent !== helperInvocation.agent ||
+    JSON.stringify(continuation.lineage) !==
+      JSON.stringify(helperInvocation.lineage) ||
+    continuation.handoff.caller !== helperInvocation.agent ||
+    continuation.handoff.target !== continuation.originalCaller ||
+    continuation.handoff.purpose !== continuation.originalPurpose ||
+    JSON.stringify(continuation.helperArtifactRefs.map(({ id }) => id)) !==
+      JSON.stringify(expectedArtifactIds) ||
+    JSON.stringify(continuation.handoff.artifactRefs ?? []) !==
+      JSON.stringify(expectedArtifactIds)
+  ) {
+    throw new InvalidAgentHandoffError(
+      "helper continuation does not match its helper invocation",
+    );
+  }
+}
+
+function continuationMessage(
+  processed: AgentInvocationResult["processedResult"],
+): string | undefined {
+  switch (processed.agent) {
+    case "questioner":
+      return processed.state === "pending_question"
+        ? processed.question
+        : undefined;
+    case "examiner":
+      return processed.memoryConflict?.summary;
+    case "planner":
+      return processed.consultation?.message;
+    case "researcher":
+    case "coder":
+    case "reviewer":
+      return undefined;
+  }
+}
+
+function continuationOutcome(
+  processed: AgentInvocationResult["processedResult"],
+): HelperContinuationOutcome {
+  switch (processed.agent) {
+    case "questioner":
+      return {
+        agent: processed.agent,
+        outcome: processed.outcome,
+        state: processed.state,
+        ...(processed.state === "pending_question"
+          ? { question: processed.question }
+          : {}),
+      };
+    case "researcher":
+      return { agent: processed.agent, outcome: processed.outcome };
+    case "examiner":
+      return {
+        agent: processed.agent,
+        outcome: processed.outcome,
+        ...(processed.memoryConflict === undefined
+          ? {}
+          : { conflictSummary: processed.memoryConflict.summary }),
+      };
+    case "planner":
+      return {
+        agent: processed.agent,
+        outcome: processed.outcome,
+        ...(processed.consultation === undefined
+          ? {}
+          : { consultation: processed.consultation }),
+      };
+    case "coder":
+      return { agent: processed.agent, outcome: processed.outcome };
+    case "reviewer":
+      return {
+        agent: processed.agent,
+        outcome: processed.outcome,
+        reviewStatus: processed.reviewStatus,
+        ...(processed.failureOrigin === undefined
+          ? {}
+          : { failureOrigin: processed.failureOrigin }),
+      };
   }
 }
 

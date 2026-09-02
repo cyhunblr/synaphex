@@ -2,6 +2,7 @@ import type { AgentName } from "./agent.js";
 import type {
   AgentResultOutcome,
   MemoryConflict,
+  PlannerConsultation,
   RequestedAgentCall,
   ReviewerFailureOrigin,
   ReviewerStatus,
@@ -99,11 +100,16 @@ export interface ProcessedReviewerResult
   readonly failureOrigin?: ReviewerFailureOrigin;
 }
 
+export interface ProcessedPlannerResult
+  extends ProcessedAgentResultBase<"planner"> {
+  readonly consultation?: PlannerConsultation;
+}
+
 export type ProcessedAgentResult =
   | ProcessedQuestionerResult
   | ProcessedAgentResultBase<"researcher">
   | ProcessedExaminerResult
-  | ProcessedAgentResultBase<"planner">
+  | ProcessedPlannerResult
   | ProcessedAgentResultBase<"coder">
   | ProcessedReviewerResult;
 

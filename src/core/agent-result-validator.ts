@@ -1,5 +1,6 @@
 import {
   AGENT_RESULT_OUTCOMES,
+  PLANNER_CONSULTATION_DISPOSITIONS,
   REVIEWER_FAILURE_ORIGINS,
   REVIEWER_STATUSES,
   type AgentResultFor,
@@ -129,7 +130,7 @@ function validateExaminer(value: Record<string, unknown>): void {
 }
 
 function validatePlanner(value: Record<string, unknown>): void {
-  assertAllowedKeys(value, "planner", ["draftPlanMarkdown"]);
+  assertAllowedKeys(value, "planner", ["draftPlanMarkdown", "consultation"]);
   if (
     Object.hasOwn(value, "draftPlanMarkdown") &&
     !isNonEmptyString(value.draftPlanMarkdown)
@@ -138,6 +139,37 @@ function validatePlanner(value: Record<string, unknown>): void {
       "planner",
       "draftPlanMarkdown must be non-empty when provided",
     );
+  }
+  if (Object.hasOwn(value, "consultation")) {
+    if (
+      !isPlainObject(value.consultation) ||
+      !hasExactKeys(value.consultation, ["disposition", "message"]) ||
+      typeof value.consultation.disposition !== "string" ||
+      !(PLANNER_CONSULTATION_DISPOSITIONS as readonly string[]).includes(
+        value.consultation.disposition,
+      ) ||
+      !isNonEmptyString(value.consultation.message)
+    ) {
+      throw invalid("planner", "consultation is invalid");
+    }
+    if (
+      value.consultation.disposition === "revision_required" &&
+      !Object.hasOwn(value, "draftPlanMarkdown")
+    ) {
+      throw invalid(
+        "planner",
+        "revision_required consultation requires draftPlanMarkdown",
+      );
+    }
+    if (
+      value.consultation.disposition === "plan_still_valid" &&
+      Object.hasOwn(value, "draftPlanMarkdown")
+    ) {
+      throw invalid(
+        "planner",
+        "plan_still_valid consultation cannot include draftPlanMarkdown",
+      );
+    }
   }
 }
 

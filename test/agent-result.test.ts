@@ -100,6 +100,59 @@ test("validates PLANNER draft result but rejects plan acceptance fields", () => 
   );
 });
 
+test("validates consistent PLANNER consultation results", () => {
+  const clarification = validateAgentResult("planner", {
+    agent: "planner",
+    outcome: "success",
+    summary: "The accepted plan remains valid.",
+    consultation: {
+      disposition: "plan_still_valid",
+      message: "Continue with the accepted plan.",
+    },
+  });
+  assert.equal(clarification.consultation?.disposition, "plan_still_valid");
+
+  const revision = validateAgentResult("planner", {
+    agent: "planner",
+    outcome: "success",
+    summary: "A revision is required.",
+    consultation: {
+      disposition: "revision_required",
+      message: "Review the proposed revision.",
+    },
+    draftPlanMarkdown: "# Revised plan\n",
+  });
+  assert.equal(revision.consultation?.disposition, "revision_required");
+
+  assert.throws(
+    () =>
+      validateAgentResult("planner", {
+        agent: "planner",
+        outcome: "success",
+        summary: "Missing revision draft.",
+        consultation: {
+          disposition: "revision_required",
+          message: "A revision is needed.",
+        },
+      }),
+    InvalidAgentResultError,
+  );
+  assert.throws(
+    () =>
+      validateAgentResult("planner", {
+        agent: "planner",
+        outcome: "success",
+        summary: "Contradictory clarification.",
+        consultation: {
+          disposition: "plan_still_valid",
+          message: "No revision is needed.",
+        },
+        draftPlanMarkdown: "# Contradictory draft\n",
+      }),
+    InvalidAgentResultError,
+  );
+});
+
 test("validates CODER opaque work-record result", () => {
   const result = validateAgentResult("coder", {
     agent: "coder",

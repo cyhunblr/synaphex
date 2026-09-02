@@ -1,7 +1,18 @@
-import type { AgentContext } from "./agent-context.js";
-import type { AgentName } from "./agent.js";
-import type { RequestedAgentCall } from "./agent-result.js";
 import type {
+  AgentCallPurpose,
+  AgentContext,
+  AgentHandoff,
+} from "./agent-context.js";
+import type { AgentName } from "./agent.js";
+import type {
+  AgentResultOutcome,
+  PlannerConsultation,
+  RequestedAgentCall,
+  ReviewerFailureOrigin,
+  ReviewerStatus,
+} from "./agent-result.js";
+import type {
+  PersistedArtifactReference,
   ProcessedAgentResultFor,
 } from "./processed-agent-result.js";
 import type { ExecutionRoute } from "./provider-routing.js";
@@ -24,6 +35,16 @@ export interface UserAgentInvocationRequest<TAgent extends AgentName = AgentName
   readonly agent: TAgent;
   readonly instruction?: string;
   readonly host: HostRuntime;
+}
+
+export type InvocationId = `invocation_${string}`;
+
+export interface InvocationLineage {
+  readonly rootInvocationId: InvocationId;
+  readonly currentInvocationId: InvocationId;
+  readonly parentInvocationId: InvocationId | null;
+  readonly depth: number;
+  readonly agent: AgentName;
 }
 
 export const HELPER_CALL_CLASSIFICATIONS = [
@@ -87,7 +108,83 @@ export type HelperCallClassification =
 
 export interface AgentInvocationResult<TAgent extends AgentName = AgentName> {
   readonly agent: TAgent;
+  readonly lineage: InvocationLineage;
   readonly route: ExecutionRoute;
   readonly processedResult: ProcessedAgentResultFor<TAgent>;
   readonly helperCalls: readonly HelperCallClassification[];
+}
+
+export type AnyAgentInvocationResult = {
+  readonly [TAgent in AgentName]: AgentInvocationResult<TAgent>;
+}[AgentName];
+
+export interface HelperExecutionRequest {
+  readonly sessionId: SessionId;
+  readonly parentInvocation: AnyAgentInvocationResult;
+  readonly helperClassification: HelperCallClassification;
+  readonly host: HostRuntime;
+  readonly approvalGranted?: boolean;
+}
+
+export type HelperContinuationOutcome =
+  | {
+      readonly agent: "questioner";
+      readonly outcome: AgentResultOutcome;
+      readonly state: "pending_question" | "context_complete";
+      readonly question?: string;
+    }
+  | {
+      readonly agent: "researcher";
+      readonly outcome: AgentResultOutcome;
+    }
+  | {
+      readonly agent: "examiner";
+      readonly outcome: AgentResultOutcome;
+      readonly conflictSummary?: string;
+    }
+  | {
+      readonly agent: "planner";
+      readonly outcome: AgentResultOutcome;
+      readonly consultation?: PlannerConsultation;
+    }
+  | {
+      readonly agent: "coder";
+      readonly outcome: AgentResultOutcome;
+    }
+  | {
+      readonly agent: "reviewer";
+      readonly outcome: AgentResultOutcome;
+      readonly reviewStatus: ReviewerStatus;
+      readonly failureOrigin?: ReviewerFailureOrigin;
+    };
+
+export type CallerContinuationStatus =
+  | "ready"
+  | "blocked_by_pending_plan";
+
+export interface CallerContinuation {
+  readonly status: CallerContinuationStatus;
+  readonly originalCaller: AgentName;
+  readonly helperAgent: AgentName;
+  readonly originalPurpose: AgentCallPurpose;
+  readonly helperSummary: string;
+  readonly helperArtifactRefs: readonly PersistedArtifactReference[];
+  readonly helperOutcome: HelperContinuationOutcome;
+  readonly message?: string;
+  readonly handoff: AgentHandoff;
+  readonly lineage: InvocationLineage;
+}
+
+export interface HelperExecutionResult {
+  readonly previousClassification: HelperCallClassification;
+  readonly effectiveClassification: HelperCallClassification;
+  readonly helperInvocation: AnyAgentInvocationResult;
+  readonly continuation: CallerContinuation;
+}
+
+export interface ResumeCallerRequest {
+  readonly sessionId: SessionId;
+  readonly helperExecution: HelperExecutionResult;
+  readonly host: HostRuntime;
+  readonly instruction?: string;
 }

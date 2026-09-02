@@ -61,6 +61,11 @@ export const SYNAPHEX_ERROR_CODES = [
   "PLAN_DRAFT_PENDING",
   "REVIEW_TARGET_NOT_AVAILABLE",
   "AGENT_EXECUTION_FAILED",
+  "AGENT_CALL_APPROVAL_REQUIRED",
+  "AGENT_CALL_DENIED",
+  "AGENT_CALL_FORBIDDEN",
+  "AGENT_CALL_UNAVAILABLE",
+  "AGENT_INVOCATION_DEPTH_EXCEEDED",
 ] as const;
 
 export type SynaphexErrorCode = (typeof SYNAPHEX_ERROR_CODES)[number];
@@ -559,6 +564,86 @@ export class AgentExecutionFailedError extends SynaphexError<"AGENT_EXECUTION_FA
       `Agent execution failed at the provider boundary: ${agent}`,
       { agent, provider, surface },
       options,
+    );
+  }
+}
+
+export class AgentCallApprovalRequiredError extends SynaphexError<"AGENT_CALL_APPROVAL_REQUIRED"> {
+  constructor(
+    caller: AgentName,
+    target: AgentName,
+    previousStatus: string,
+    currentStatus: string,
+    source: string | null,
+  ) {
+    super(
+      "AGENT_CALL_APPROVAL_REQUIRED",
+      `One-time approval is required for ${caller} to invoke ${target}`,
+      { caller, target, previousStatus, currentStatus, source },
+    );
+  }
+}
+
+export class AgentCallDeniedError extends SynaphexError<"AGENT_CALL_DENIED"> {
+  constructor(
+    caller: AgentName,
+    target: AgentName,
+    previousStatus: string,
+    currentStatus: string,
+    source: string | null,
+  ) {
+    super(
+      "AGENT_CALL_DENIED",
+      `Agent call is denied: ${caller} -> ${target}`,
+      { caller, target, previousStatus, currentStatus, source },
+    );
+  }
+}
+
+export class AgentCallForbiddenError extends SynaphexError<"AGENT_CALL_FORBIDDEN"> {
+  constructor(
+    caller: AgentName,
+    target: AgentName,
+    previousStatus: string,
+    currentStatus: string,
+    reason: string | null,
+  ) {
+    super(
+      "AGENT_CALL_FORBIDDEN",
+      `Immutable role contract forbids agent call: ${caller} -> ${target}`,
+      { caller, target, previousStatus, currentStatus, reason },
+    );
+  }
+}
+
+export class AgentCallUnavailableError extends SynaphexError<"AGENT_CALL_UNAVAILABLE"> {
+  constructor(
+    caller: AgentName,
+    target: AgentName,
+    previousStatus: string,
+    currentStatus: string,
+    classificationErrorCode: string | null,
+  ) {
+    super(
+      "AGENT_CALL_UNAVAILABLE",
+      `Agent-call permission is unavailable: ${caller} -> ${target}`,
+      {
+        caller,
+        target,
+        previousStatus,
+        currentStatus,
+        classificationErrorCode,
+      },
+    );
+  }
+}
+
+export class AgentInvocationDepthExceededError extends SynaphexError<"AGENT_INVOCATION_DEPTH_EXCEEDED"> {
+  constructor(currentDepth: number, attemptedDepth: number, maximumDepth: number) {
+    super(
+      "AGENT_INVOCATION_DEPTH_EXCEEDED",
+      `Agent invocation depth ${attemptedDepth} exceeds maximum ${maximumDepth}`,
+      { currentDepth, attemptedDepth, maximumDepth },
     );
   }
 }

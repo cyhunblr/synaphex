@@ -1,6 +1,11 @@
 export {
   AgentConfigurationRemovedError,
+  AgentCallApprovalRequiredError,
+  AgentCallDeniedError,
+  AgentCallForbiddenError,
+  AgentCallUnavailableError,
   AgentExecutionFailedError,
+  AgentInvocationDepthExceededError,
   AgentUnconfiguredError,
   ArtifactNotFoundError,
   ImmutableContractViolationError,
@@ -56,12 +61,21 @@ export {
   type AgentExecutionInput,
   type AgentExecutor,
   type AgentInvocationResult,
+  type AnyAgentInvocationResult,
+  type CallerContinuation,
+  type CallerContinuationStatus,
   type ConfigurableHelperCallClassification,
   type ForbiddenHelperCallClassification,
   type HelperCallClassification,
   type HelperCallClassificationStatus,
   type HelperCallImmutableReason,
   type HelperCallUnavailableErrorCode,
+  type HelperContinuationOutcome,
+  type HelperExecutionRequest,
+  type HelperExecutionResult,
+  type InvocationId,
+  type InvocationLineage,
+  type ResumeCallerRequest,
   type UnavailableHelperCallClassification,
   type UserAgentInvocationRequest,
 } from "./domain/agent-invocation.js";
@@ -81,6 +95,7 @@ export {
 } from "./domain/agent-context.js";
 export {
   AGENT_RESULT_OUTCOMES,
+  PLANNER_CONSULTATION_DISPOSITIONS,
   REVIEWER_FAILURE_ORIGINS,
   REVIEWER_STATUSES,
   type AgentResult,
@@ -92,6 +107,8 @@ export {
   type ExaminerResult,
   type MemoryConflict,
   type PlannerResult,
+  type PlannerConsultation,
+  type PlannerConsultationDisposition,
   type QuestionerContextCompleteResult,
   type QuestionerPendingQuestionResult,
   type QuestionerResult,
@@ -111,6 +128,7 @@ export type {
   ProcessedQuestionerCompleteResult,
   ProcessedQuestionerPendingResult,
   ProcessedQuestionerResult,
+  ProcessedPlannerResult,
   ProcessedReviewerResult,
 } from "./domain/processed-agent-result.js";
 export { parseAgentHandoff } from "./core/agent-handoff-validator.js";

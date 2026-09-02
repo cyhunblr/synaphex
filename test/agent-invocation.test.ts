@@ -16,14 +16,20 @@ import type { AgentName } from "../src/domain/agent.js";
 import type {
   AgentExecutionInput,
   AgentExecutor,
+  AnyAgentInvocationResult,
 } from "../src/domain/agent-invocation.js";
 import type { AgentCallPurpose } from "../src/domain/agent-context.js";
 import type { AgentProvider, AgentSurface } from "../src/domain/agent-config.js";
 import type { RequestedAgentCall } from "../src/domain/agent-result.js";
 import type { TaskArtifactScope } from "../src/domain/artifact.js";
 import {
+  AgentCallApprovalRequiredError,
+  AgentCallDeniedError,
+  AgentCallForbiddenError,
+  AgentCallUnavailableError,
   AgentConfigurationRemovedError,
   AgentExecutionFailedError,
+  AgentInvocationDepthExceededError,
   AgentUnconfiguredError,
   InvalidAgentModelError,
   InvalidAgentResultError,
@@ -61,7 +67,7 @@ class FakeRuntimeAvailability implements RuntimeAvailability {
     readonly surface: AgentSurface;
   }> = [];
 
-  constructor(private readonly available: boolean = true) {}
+  constructor(public available: boolean = true) {}
 
   async isAvailable(
     provider: AgentProvider,
@@ -1203,4 +1209,853 @@ test("CODER to PLANNER without accepted plan is immutable-forbidden even when ru
     (await fixture.artifacts.listCoderWorkRecords(taskScope(fixture))).length,
     1,
   );
+});
+
+test("explicit helper execution enforces allowed and ephemeral ask approval", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "helper-approval";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "researcher");
+  await configure(fixture, "examiner");
+  await configure(fixture, "questioner");
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "researcher", target: "examiner" },
+    "allow",
+  );
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "researcher", target: "questioner" },
+    "ask",
+  );
+  const calls = [
+    requestedCall("researcher", "examiner", "memory_update"),
+    requestedCall("researcher", "questioner", "clarification"),
+  ];
+  const executor = new FakeAgentExecutor(({ context }) => {
+    if (context.agent === "researcher") {
+      return {
+        agent: "researcher",
+        outcome: "success",
+        summary: "Main research complete.",
+        researchArtifact: { findings: [] },
+        requestedCalls: calls,
+      };
+    }
+    if (context.agent === "examiner") {
+      assert.deepEqual(context.handoff, calls[0]?.handoff);
+      return {
+        agent: "examiner",
+        outcome: "success",
+        summary: "No memory change needed.",
+        memoryIntent: { kind: "none" },
+      };
+    }
+    assert.equal(context.agent, "questioner");
+    assert.deepEqual(context.handoff, calls[1]?.handoff);
+    return {
+      agent: "questioner",
+      outcome: "needs_user",
+      summary: "A question remains.",
+      state: "pending_question",
+      question: "Please clarify the constraint.",
+    };
+  });
+  const invocation = service(fixture, executor);
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  const rulesBefore = await fixture.store.readText("rules.jsonc");
+
+  const allowed = await invocation.executeHelper({
+    sessionId,
+    parentInvocation: parent,
+    helperClassification: parent.helperCalls[0]!,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(allowed.helperInvocation.agent, "examiner");
+  assert.equal(allowed.helperInvocation.lineage.depth, 1);
+  assert.equal(executor.calls.length, 2);
+
+  await assert.rejects(
+    invocation.executeHelper({
+      sessionId,
+      parentInvocation: parent,
+      helperClassification: parent.helperCalls[1]!,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    AgentCallApprovalRequiredError,
+  );
+  assert.equal(executor.calls.length, 2);
+
+  const approved = await invocation.executeHelper({
+    sessionId,
+    parentInvocation: parent,
+    helperClassification: parent.helperCalls[1]!,
+    approvalGranted: true,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(approved.helperInvocation.agent, "questioner");
+  assert.equal(approved.continuation.message, "Please clarify the constraint.");
+  assert.equal(executor.calls.length, 3);
+  assert.equal(await fixture.store.readText("rules.jsonc"), rulesBefore);
+
+  await assert.rejects(
+    invocation.executeHelper({
+      sessionId,
+      parentInvocation: parent,
+      helperClassification: parent.helperCalls[1]!,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    AgentCallApprovalRequiredError,
+  );
+  assert.equal(executor.calls.length, 3);
+});
+
+test("denied and immutable-forbidden helpers cannot execute even with approval", async (t) => {
+  const deniedFixture = await createFixture(t);
+  const deniedSession = "helper-denied";
+  await bindTask(deniedFixture, deniedSession);
+  await configure(deniedFixture, "researcher");
+  await deniedFixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "researcher", target: "examiner" },
+    "deny",
+  );
+  const deniedExecutor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Denied helper requested.",
+    researchArtifact: { findings: [] },
+    requestedCalls: [
+      requestedCall("researcher", "examiner", "memory_update"),
+    ],
+  }));
+  const deniedService = service(deniedFixture, deniedExecutor);
+  const deniedParent = await deniedService.invokeUserAgent({
+    sessionId: deniedSession,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await assert.rejects(
+    deniedService.executeHelper({
+      sessionId: deniedSession,
+      parentInvocation: deniedParent,
+      helperClassification: deniedParent.helperCalls[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    AgentCallDeniedError,
+  );
+  assert.equal(deniedExecutor.calls.length, 1);
+
+  const forbiddenFixture = await createFixture(t);
+  const forbiddenSession = "helper-forbidden";
+  await bindTask(forbiddenFixture, forbiddenSession);
+  await configure(forbiddenFixture, "planner");
+  const forbiddenExecutor = new FakeAgentExecutor(() => ({
+    agent: "planner",
+    outcome: "success",
+    summary: "Forbidden helper requested.",
+    requestedCalls: [
+      requestedCall("planner", "coder", "implementation_deviation"),
+    ],
+  }));
+  const forbiddenService = service(forbiddenFixture, forbiddenExecutor);
+  const forbiddenParent = await forbiddenService.invokeUserAgent({
+    sessionId: forbiddenSession,
+    agent: "planner",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await assert.rejects(
+    forbiddenService.executeHelper({
+      sessionId: forbiddenSession,
+      parentInvocation: forbiddenParent,
+      helperClassification: forbiddenParent.helperCalls[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    AgentCallForbiddenError,
+  );
+  assert.equal(forbiddenExecutor.calls.length, 1);
+});
+
+test("helper execution reclassifies current rule state and reports refusal audit details", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "helper-rule-drift";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "researcher");
+  const key = {
+    kind: "agent_call" as const,
+    caller: "researcher" as const,
+    target: "examiner" as const,
+  };
+  await fixture.rules.setRule("global", key, "allow");
+  const executor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Allowed helper requested.",
+    researchArtifact: { findings: [] },
+    requestedCalls: [
+      requestedCall("researcher", "examiner", "memory_update"),
+    ],
+  }));
+  const invocation = service(fixture, executor);
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await fixture.rules.setRule("task", key, "deny", {
+    projectId: fixture.project.id,
+    taskId: fixture.task.id,
+  });
+
+  await assert.rejects(
+    invocation.executeHelper({
+      sessionId,
+      parentInvocation: parent,
+      helperClassification: parent.helperCalls[0]!,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    (error: unknown) =>
+      error instanceof AgentCallDeniedError &&
+      error.details?.previousStatus === "allowed" &&
+      error.details.currentStatus === "denied" &&
+      error.details.source === "task",
+  );
+  assert.equal(executor.calls.length, 1);
+});
+
+test("ask approval cannot override a current deny and unavailable is never executable", async (t) => {
+  const deniedFixture = await createFixture(t);
+  const deniedSession = "helper-ask-drift";
+  await bindTask(deniedFixture, deniedSession);
+  await configure(deniedFixture, "researcher");
+  const key = {
+    kind: "agent_call" as const,
+    caller: "researcher" as const,
+    target: "examiner" as const,
+  };
+  await deniedFixture.rules.setRule("global", key, "ask");
+  const deniedExecutor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Ask helper requested.",
+    researchArtifact: { findings: [] },
+    requestedCalls: [requestedCall("researcher", "examiner", "memory_update")],
+  }));
+  const deniedService = service(deniedFixture, deniedExecutor);
+  const deniedParent = await deniedService.invokeUserAgent({
+    sessionId: deniedSession,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await deniedFixture.rules.setRule("global", key, "deny");
+  await assert.rejects(
+    deniedService.executeHelper({
+      sessionId: deniedSession,
+      parentInvocation: deniedParent,
+      helperClassification: deniedParent.helperCalls[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    AgentCallDeniedError,
+  );
+  assert.equal(deniedExecutor.calls.length, 1);
+
+  const unavailableFixture = await createFixture(t);
+  const unavailableSession = "helper-unavailable-execution";
+  await bindTask(unavailableFixture, unavailableSession);
+  await configure(unavailableFixture, "researcher");
+  const unavailableExecutor = new FakeAgentExecutor(async () => {
+    await unavailableFixture.store.writeJson("rules.jsonc", []);
+    return {
+      agent: "researcher",
+      outcome: "success",
+      summary: "Unavailable helper requested.",
+      researchArtifact: { findings: [] },
+      requestedCalls: [
+        requestedCall("researcher", "examiner", "memory_update"),
+      ],
+    };
+  });
+  const unavailableService = service(unavailableFixture, unavailableExecutor);
+  const unavailableParent = await unavailableService.invokeUserAgent({
+    sessionId: unavailableSession,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await assert.rejects(
+    unavailableService.executeHelper({
+      sessionId: unavailableSession,
+      parentInvocation: unavailableParent,
+      helperClassification: unavailableParent.helperCalls[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    AgentCallUnavailableError,
+  );
+  assert.equal(unavailableExecutor.calls.length, 1);
+});
+
+test("helper target configuration and runtime availability are revalidated", async (t) => {
+  const configFixture = await createFixture(t);
+  const configSession = "helper-config-drift";
+  await bindTask(configFixture, configSession);
+  await configure(configFixture, "researcher");
+  await configure(configFixture, "examiner");
+  await configFixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "researcher", target: "examiner" },
+    "allow",
+  );
+  const configExecutor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Helper requested before config drift.",
+    researchArtifact: { findings: [] },
+    requestedCalls: [requestedCall("researcher", "examiner", "memory_update")],
+  }));
+  const configService = service(configFixture, configExecutor);
+  const configParent = await configService.invokeUserAgent({
+    sessionId: configSession,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await configFixture.configs.markUnconfigured("examiner");
+  await assert.rejects(
+    configService.executeHelper({
+      sessionId: configSession,
+      parentInvocation: configParent,
+      helperClassification: configParent.helperCalls[0]!,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    AgentUnconfiguredError,
+  );
+  assert.equal(configExecutor.calls.length, 1);
+
+  const runtimeFixture = await createFixture(t);
+  const runtimeSession = "helper-runtime-drift";
+  await bindTask(runtimeFixture, runtimeSession);
+  await configure(runtimeFixture, "researcher");
+  await configure(runtimeFixture, "examiner", "anthropic", "vscode");
+  await runtimeFixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "researcher", target: "examiner" },
+    "allow",
+  );
+  const availability = new FakeRuntimeAvailability(true);
+  const runtimeExecutor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Helper requested before runtime drift.",
+    researchArtifact: { findings: [] },
+    requestedCalls: [requestedCall("researcher", "examiner", "memory_update")],
+  }));
+  const runtimeService = service(runtimeFixture, runtimeExecutor, availability);
+  const runtimeParent = await runtimeService.invokeUserAgent({
+    sessionId: runtimeSession,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  availability.available = false;
+  await assert.rejects(
+    runtimeService.executeHelper({
+      sessionId: runtimeSession,
+      parentInvocation: runtimeParent,
+      helperClassification: runtimeParent.helperCalls[0]!,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    ProviderCliUnavailableError,
+  );
+  assert.equal(runtimeExecutor.calls.length, 1);
+});
+
+test("CODER explicitly resumes after PLANNER confirms the accepted plan", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "coder-planner-clarification-resume";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "coder");
+  await configure(fixture, "planner");
+  await fixture.plans.saveDraft(fixture.task.id, "# Accepted plan\n");
+  await fixture.plans.acceptDraft(fixture.task.id);
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "coder", target: "planner" },
+    "allow",
+  );
+  const helperRequest = requestedCall(
+    "coder",
+    "planner",
+    "plan_clarification",
+    "Confirm whether the accepted plan still covers the implementation.",
+  );
+  const executor = new FakeAgentExecutor(({ context }) => {
+    if (executor.calls.length === 1) {
+      assert.equal(context.agent, "coder");
+      assert.equal(context.memory.task?.hasContent, false);
+      return {
+        agent: "coder",
+        outcome: "success",
+        summary: "Implementation paused for clarification.",
+        workRecord: { files_changed: ["src/first.ts"] },
+        requestedCalls: [helperRequest],
+      };
+    }
+    if (executor.calls.length === 2) {
+      assert.equal(context.agent, "planner");
+      assert.deepEqual(context.handoff, helperRequest.handoff);
+      assert.equal(context.plan?.current?.content, "# Accepted plan\n");
+      return {
+        agent: "planner",
+        outcome: "success",
+        summary: "Plan clarification complete.",
+        consultation: {
+          disposition: "plan_still_valid",
+          message: "The accepted plan already covers this implementation detail.",
+        },
+      };
+    }
+    assert.equal(context.agent, "coder");
+    assert.equal(context.plan?.current?.content, "# Accepted plan\n");
+    assert.equal(context.plan?.hasPendingDraft, false);
+    assert.equal(context.memory.task?.content, "fresh resume memory");
+    assert.equal(context.handoff?.caller, "planner");
+    assert.equal(context.handoff?.target, "coder");
+    assert.match(context.handoff?.summary ?? "", /already covers/);
+    assert.equal(
+      context.rules.outgoingAgentCalls.find(
+        ({ key }) => key.kind === "agent_call" && key.target === "researcher",
+      )?.source,
+      "task",
+    );
+    return {
+      agent: "coder",
+      outcome: "success",
+      summary: "Implementation resumed after clarification.",
+      workRecord: { files_changed: ["src/resumed.ts"] },
+    };
+  });
+  const invocation = service(fixture, executor);
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "coder",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(parent.lineage.depth, 0);
+  assert.equal(executor.calls.length, 1);
+
+  const helper = await invocation.executeHelper({
+    sessionId,
+    parentInvocation: parent,
+    helperClassification: parent.helperCalls[0]!,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(executor.calls.length, 2);
+  assert.equal(helper.continuation.status, "ready");
+  assert.equal(helper.continuation.helperOutcome.agent, "planner");
+  assert.equal(helper.helperInvocation.lineage.depth, 1);
+  assert.equal(
+    helper.helperInvocation.lineage.parentInvocationId,
+    parent.lineage.currentInvocationId,
+  );
+  assert.equal(await fixture.plans.getDraft(fixture.task.id), null);
+
+  await fixture.memory.replaceCanonicalMemory(
+    taskScope(fixture),
+    "fresh resume memory",
+  );
+  await fixture.rules.setRule(
+    "task",
+    { kind: "agent_call", caller: "coder", target: "researcher" },
+    "allow",
+    { projectId: fixture.project.id, taskId: fixture.task.id },
+  );
+  const resumed = await invocation.resumeCaller({
+    sessionId,
+    helperExecution: helper,
+    host: { provider: "openai", surface: "vscode" },
+  });
+
+  assert.equal(executor.calls.length, 3);
+  assert.equal(resumed.agent, "coder");
+  assert.equal(resumed.lineage.depth, 2);
+  assert.equal(
+    resumed.lineage.parentInvocationId,
+    helper.helperInvocation.lineage.currentInvocationId,
+  );
+  assert.equal(resumed.lineage.rootInvocationId, parent.lineage.rootInvocationId);
+  assert.equal(
+    (await fixture.plans.getCurrent(fixture.task.id))?.content,
+    "# Accepted plan\n",
+  );
+});
+
+test("PLANNER revision helper persists a draft and blocks CODER resumption", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "coder-planner-revision-block";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "coder");
+  await configure(fixture, "planner");
+  await fixture.plans.saveDraft(fixture.task.id, "# Accepted plan\n");
+  await fixture.plans.acceptDraft(fixture.task.id);
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "coder", target: "planner" },
+    "allow",
+  );
+  const executor = new FakeAgentExecutor(({ context }) =>
+    context.agent === "coder"
+      ? {
+          agent: "coder",
+          outcome: "success",
+          summary: "A material deviation needs planning.",
+          workRecord: { files_changed: [] },
+          requestedCalls: [
+            requestedCall("coder", "planner", "plan_revision"),
+          ],
+        }
+      : {
+          agent: "planner",
+          outcome: "success",
+          summary: "A revised plan is required.",
+          consultation: {
+            disposition: "revision_required",
+            message: "Review and accept the revised plan before continuing.",
+          },
+          draftPlanMarkdown: "# Proposed revision\n",
+        },
+  );
+  const invocation = service(fixture, executor);
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "coder",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  const helper = await invocation.executeHelper({
+    sessionId,
+    parentInvocation: parent,
+    helperClassification: parent.helperCalls[0]!,
+    host: { provider: "openai", surface: "vscode" },
+  });
+
+  assert.equal(executor.calls.length, 2);
+  assert.equal(helper.continuation.status, "blocked_by_pending_plan");
+  assert.equal(
+    (await fixture.plans.getDraft(fixture.task.id))?.content,
+    "# Proposed revision\n",
+  );
+  assert.equal(
+    (await fixture.plans.getCurrent(fixture.task.id))?.content,
+    "# Accepted plan\n",
+  );
+  await assert.rejects(
+    invocation.resumeCaller({
+      sessionId,
+      helperExecution: helper,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    PlanDraftPendingError,
+  );
+  assert.equal(executor.calls.length, 2);
+});
+
+test("CODER to PLANNER helper loses authority when the accepted plan is removed", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "coder-planner-plan-drift";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "coder");
+  await fixture.plans.saveDraft(fixture.task.id, "# Accepted plan\n");
+  await fixture.plans.acceptDraft(fixture.task.id);
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "coder", target: "planner" },
+    "allow",
+  );
+  const executor = new FakeAgentExecutor(() => ({
+    agent: "coder",
+    outcome: "success",
+    summary: "Planner clarification requested.",
+    workRecord: { files_changed: [] },
+    requestedCalls: [requestedCall("coder", "planner", "plan_clarification")],
+  }));
+  const invocation = service(fixture, executor);
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "coder",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await fixture.plans.archiveCurrent(fixture.task.id);
+
+  await assert.rejects(
+    invocation.executeHelper({
+      sessionId,
+      parentInvocation: parent,
+      helperClassification: parent.helperCalls[0]!,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    AgentCallForbiddenError,
+  );
+  assert.equal(executor.calls.length, 1);
+});
+
+test("helper artifact continuation rebuilds fresh caller context", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "artifact-continuation";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "questioner");
+  await configure(fixture, "researcher");
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "questioner", target: "researcher" },
+    "allow",
+  );
+  const call = requestedCall(
+    "questioner",
+    "researcher",
+    "research",
+    "Research the unresolved requirement.",
+  );
+  const executor = new FakeAgentExecutor(({ context }) => {
+    if (executor.calls.length === 1) {
+      assert.equal(context.agent, "questioner");
+      assert.equal(context.memory.task?.hasContent, false);
+      return {
+        agent: "questioner",
+        outcome: "success",
+        summary: "Research is needed.",
+        state: "context_complete",
+        requestedCalls: [call],
+      };
+    }
+    if (executor.calls.length === 2) {
+      assert.equal(context.agent, "researcher");
+      assert.deepEqual(context.handoff, call.handoff);
+      return {
+        agent: "researcher",
+        outcome: "success",
+        summary: "The evidence resolves the requirement.",
+        researchArtifact: { findings: ["verified"] },
+      };
+    }
+    assert.equal(context.agent, "questioner");
+    assert.equal(context.memory.task?.content, "state changed after helper");
+    assert.equal(context.artifacts.explicitlyReferenced.length, 1);
+    assert.equal(
+      context.artifacts.explicitlyReferenced[0]?.category,
+      "researcher",
+    );
+    assert.equal(context.handoff?.artifactRefs?.length, 1);
+    assert.equal(
+      context.rules.outgoingAgentCalls.find(
+        ({ key }) => key.kind === "agent_call" && key.target === "examiner",
+      )?.source,
+      "task",
+    );
+    return {
+      agent: "questioner",
+      outcome: "success",
+      summary: "Questioner resumed with explicit evidence.",
+      state: "context_complete",
+    };
+  });
+  const invocation = service(fixture, executor);
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "questioner",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  const helper = await invocation.executeHelper({
+    sessionId,
+    parentInvocation: parent,
+    helperClassification: parent.helperCalls[0]!,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(executor.calls.length, 2);
+  assert.equal(helper.continuation.helperArtifactRefs.length, 1);
+  assert.equal(helper.continuation.handoff.artifactRefs?.length, 1);
+  assert.equal(
+    (await fixture.artifacts.listResearchArtifacts(taskScope(fixture))).length,
+    1,
+  );
+
+  await fixture.memory.replaceCanonicalMemory(
+    taskScope(fixture),
+    "state changed after helper",
+  );
+  await fixture.rules.setRule(
+    "task",
+    { kind: "agent_call", caller: "questioner", target: "examiner" },
+    "ask",
+    { projectId: fixture.project.id, taskId: fixture.task.id },
+  );
+  await invocation.resumeCaller({
+    sessionId,
+    helperExecution: helper,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(executor.calls.length, 3);
+});
+
+test("nested helpers stay explicit, carry lineage, and obey the maximum depth", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "nested-helper-depth";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "researcher");
+  await configure(fixture, "examiner");
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "researcher", target: "examiner" },
+    "allow",
+  );
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "examiner", target: "researcher" },
+    "allow",
+  );
+  const firstCall = requestedCall(
+    "researcher",
+    "examiner",
+    "memory_update",
+  );
+  const nestedCall = requestedCall("examiner", "researcher", "research");
+  let executionCount = 0;
+  const executor = new FakeAgentExecutor(({ context }) => {
+    executionCount += 1;
+    if (context.agent === "examiner") {
+      return {
+        agent: "examiner",
+        outcome: "success",
+        summary: "Memory review requests supporting research.",
+        memoryIntent: { kind: "none" },
+        requestedCalls: [nestedCall],
+      };
+    }
+    return {
+      agent: "researcher",
+      outcome: "success",
+      summary: "Research execution complete.",
+      researchArtifact: { findings: [] },
+      ...(executionCount === 1 ? { requestedCalls: [firstCall] } : {}),
+    };
+  });
+  const invocation = service(fixture, executor);
+  const root = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  const helper = await invocation.executeHelper({
+    sessionId,
+    parentInvocation: root,
+    helperClassification: root.helperCalls[0]!,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(executor.calls.length, 2);
+  assert.equal(helper.helperInvocation.helperCalls[0]?.status, "allowed");
+  assert.equal(helper.helperInvocation.lineage.depth, 1);
+
+  const nested = await invocation.executeHelper({
+    sessionId,
+    parentInvocation: helper.helperInvocation,
+    helperClassification: helper.helperInvocation.helperCalls[0]!,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(executor.calls.length, 3);
+  assert.equal(nested.helperInvocation.lineage.depth, 2);
+  assert.equal(
+    nested.helperInvocation.lineage.rootInvocationId,
+    root.lineage.rootInvocationId,
+  );
+  assert.equal(
+    nested.helperInvocation.lineage.parentInvocationId,
+    helper.helperInvocation.lineage.currentInvocationId,
+  );
+
+  const deepParent: AnyAgentInvocationResult = {
+    ...helper.helperInvocation,
+    lineage: { ...helper.helperInvocation.lineage, depth: 8 },
+  };
+  await assert.rejects(
+    invocation.executeHelper({
+      sessionId,
+      parentInvocation: deepParent,
+      helperClassification: deepParent.helperCalls[0]!,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    AgentInvocationDepthExceededError,
+  );
+  assert.equal(executor.calls.length, 3);
+
+  const newRoot = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(newRoot.lineage.depth, 0);
+  assert.equal(newRoot.lineage.parentInvocationId, null);
+  assert.notEqual(newRoot.lineage.rootInvocationId, root.lineage.rootInvocationId);
+  assert.equal(executor.calls.length, 4);
+});
+
+test("REVIEWER helper applies its own result but never archives the task", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "reviewer-helper-no-archive";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "researcher");
+  await configure(fixture, "reviewer");
+  await fixture.artifacts.saveCoderWorkRecord(taskScope(fixture), {
+    files_changed: ["src/review-target.ts"],
+  });
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "researcher", target: "reviewer" },
+    "allow",
+  );
+  const executor = new FakeAgentExecutor(({ context }) =>
+    context.agent === "researcher"
+      ? {
+          agent: "researcher",
+          outcome: "success",
+          summary: "Reviewer evidence requested.",
+          researchArtifact: { findings: [] },
+          requestedCalls: [
+            requestedCall("researcher", "reviewer", "review_followup"),
+          ],
+        }
+      : {
+          agent: "reviewer",
+          outcome: "success",
+          summary: "Review passed.",
+          reviewStatus: "PASS",
+          report: { requirement_compliance: true },
+        },
+  );
+  const invocation = service(fixture, executor);
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await invocation.executeHelper({
+    sessionId,
+    parentInvocation: parent,
+    helperClassification: parent.helperCalls[0]!,
+    host: { provider: "openai", surface: "vscode" },
+  });
+
+  assert.equal(
+    (await fixture.tasks.get(fixture.project.id, fixture.task.id)).status,
+    "completed",
+  );
+  assert.equal(
+    (await fixture.tasks.listArchived(fixture.project.id)).some(
+      ({ id }) => id === fixture.task.id,
+    ),
+    false,
+  );
+  assert.equal(executor.calls.length, 2);
 });

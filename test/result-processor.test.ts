@@ -682,6 +682,33 @@ test("PLANNER saves only draft while preserving an accepted current plan", async
   assert.equal((await persisted.getDraft(fixture.taskA.id))?.content, "# Proposed revision\n");
 });
 
+test("PLANNER consultation is preserved in the processed result", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "planner-consultation";
+  await bindTask(fixture, sessionId);
+
+  const processed = await fixture.processor.process({
+    sessionId,
+    expectedAgent: "planner",
+    result: {
+      agent: "planner",
+      outcome: "success",
+      summary: "The accepted plan remains valid.",
+      consultation: {
+        disposition: "plan_still_valid",
+        message: "Continue without changing the plan.",
+      },
+    },
+  });
+
+  assert.deepEqual(processed.consultation, {
+    disposition: "plan_still_valid",
+    message: "Continue without changing the plan.",
+  });
+  assert.deepEqual(processed.stateEffects, []);
+  assert.equal(await fixture.plans.getDraft(fixture.taskA.id), null);
+});
+
 test("PLANNER never creates current plan and invalid drafts cause no mutation", async (t) => {
   const fixture = await createFixture(t);
   const sessionId = "planner-no-accept";

@@ -328,6 +328,14 @@ export class ResultProcessor {
               : { failureOrigin: result.failureOrigin }),
           }
         : {}),
+      ...(result.agent === "planner" && result.consultation !== undefined
+        ? {
+            consultation: {
+              disposition: result.consultation.disposition,
+              message: result.consultation.message,
+            },
+          }
+        : {}),
     } as ProcessedAgentResult;
   }
 

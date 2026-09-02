@@ -82,8 +82,22 @@ export interface ExaminerResult extends AgentResultBase<"examiner"> {
   readonly memoryConflict?: MemoryConflict;
 }
 
+export const PLANNER_CONSULTATION_DISPOSITIONS = [
+  "plan_still_valid",
+  "revision_required",
+] as const;
+
+export type PlannerConsultationDisposition =
+  (typeof PLANNER_CONSULTATION_DISPOSITIONS)[number];
+
+export interface PlannerConsultation {
+  readonly disposition: PlannerConsultationDisposition;
+  readonly message: string;
+}
+
 export interface PlannerResult extends AgentResultBase<"planner"> {
   readonly draftPlanMarkdown?: string;
+  readonly consultation?: PlannerConsultation;
 }
 
 export interface CoderResult extends AgentResultBase<"coder"> {
