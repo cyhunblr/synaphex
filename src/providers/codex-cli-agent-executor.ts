@@ -14,9 +14,14 @@ import type {
 } from "../domain/agent-invocation.js";
 import {
   CodexCliExecutionError,
+  ProviderExecutionPolicyUnsupportedError,
   type CodexCliExecutionFailureReason,
 } from "../domain/errors.js";
-import type { RoleContractSnapshot } from "../domain/agent-context.js";
+import {
+  isActionUsable,
+  type ExecutionPolicy,
+} from "../domain/execution-policy.js";
+import { ACTION_NAMES, isRuleDecision } from "../domain/rule.js";
 import {
   SpawnProcessRunner,
   type ProcessRunner,
@@ -65,6 +70,7 @@ export class CodexCliAgentExecutor implements AgentExecutor {
 
   async execute(input: AgentExecutionInput): Promise<unknown> {
     assertSupportedRoute(input);
+    assertSupportedExecutionPolicy(input);
     await assertWorkspace(input.context.project.sourcePath);
 
     let temporaryDirectory: string | undefined;
@@ -81,8 +87,8 @@ export class CodexCliAgentExecutor implements AgentExecutor {
         mode: 0o600,
         flag: "wx",
       });
-      const prompt = `${this.promptSerializer.serialize(input.context)}\n${this.wireCodec.instructions(input.context)}\n`;
-      const sandbox = resolveCodexSandbox(input.context.roleContract);
+      const prompt = `${this.promptSerializer.serialize(input.context, input.executionPolicy)}\n${this.wireCodec.instructions(input.context)}\n`;
+      const sandbox = resolveCodexSandbox(input.executionPolicy);
       const processResult = await this.runCodex(
         input,
         schemaPath,
@@ -158,9 +164,59 @@ async function cleanupTemporaryDirectory(path: string): Promise<void> {
 }
 
 export function resolveCodexSandbox(
-  contract: RoleContractSnapshot,
+  policy: ExecutionPolicy,
 ): CodexSandbox {
-  return contract.mayModifySourceCode ? "workspace-write" : "read-only";
+  return policy.sourceModification === "workspace_write"
+    ? "workspace-write"
+    : "read-only";
+}
+
+function assertSupportedExecutionPolicy(input: AgentExecutionInput): void {
+  const { executionPolicy, context } = input;
+  const expectedSourceModification = context.roleContract.mayModifySourceCode
+    ? "workspace_write"
+    : "read_only";
+  if (executionPolicy.sourceModification !== expectedSourceModification) {
+    throw new ProviderExecutionPolicyUnsupportedError(
+      "openai",
+      "source modification policy does not match the immutable role contract",
+    );
+  }
+  const actionKeys = Object.keys(executionPolicy.actions).sort();
+  const expectedKeys = [...ACTION_NAMES].sort();
+  if (
+    actionKeys.length !== expectedKeys.length ||
+    actionKeys.some((key, index) => key !== expectedKeys[index])
+  ) {
+    throw new ProviderExecutionPolicyUnsupportedError(
+      "openai",
+      "action policy is incomplete or contains an unknown action",
+    );
+  }
+  for (const action of ACTION_NAMES) {
+    const policy = executionPolicy.actions[action];
+    if (
+      policy === null ||
+      typeof policy !== "object" ||
+      !isRuleDecision(policy.decision) ||
+      !["global", "project", "task", "default_deny"].includes(policy.source) ||
+      typeof policy.approvedForInvocation !== "boolean" ||
+      (policy.approvedForInvocation && policy.decision !== "ask")
+    ) {
+      throw new ProviderExecutionPolicyUnsupportedError(
+        "openai",
+        "action policy is malformed",
+        action,
+      );
+    }
+    if (isActionUsable(policy)) {
+      throw new ProviderExecutionPolicyUnsupportedError(
+        "openai",
+        "this Codex CLI adapter does not yet map enabled actions to provider-native enforcement",
+        action,
+      );
+    }
+  }
 }
 
 function assertSupportedRoute(input: AgentExecutionInput): void {

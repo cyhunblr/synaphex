@@ -62,6 +62,58 @@ test("validates RESEARCHER result and a structured requested call", () => {
   assert.equal(result.requestedCalls?.[0]?.target, "examiner");
 });
 
+test("validates requested actions and allows helper/action requests together", () => {
+  const result = validateAgentResult("researcher", {
+    agent: "researcher",
+    outcome: "blocked",
+    summary: "Local work completed; upstream evidence still needed.",
+    researchArtifact: { findings: ["local"] },
+    requestedCalls: [
+      {
+        target: "examiner",
+        purpose: "memory_update",
+        handoff: {
+          caller: "researcher",
+          target: "examiner",
+          purpose: "memory_update",
+          summary: "Distill the local findings.",
+        },
+      },
+    ],
+    requestedActions: [
+      { action: "network", reason: "Inspect upstream documentation." },
+    ],
+  });
+
+  assert.equal(result.requestedCalls?.length, 1);
+  assert.deepEqual(result.requestedActions, [
+    { action: "network", reason: "Inspect upstream documentation." },
+  ]);
+});
+
+test("rejects malformed requested actions at the complete result boundary", () => {
+  for (const requestedActions of [
+    "network",
+    [{ action: "shell", reason: "Run an arbitrary command." }],
+    [{ action: "network", reason: "   " }],
+    [{ action: "network", reason: "Valid.", command: "curl" }],
+  ]) {
+    assert.throws(
+      () =>
+        validateAgentResult("researcher", {
+          agent: "researcher",
+          outcome: "blocked",
+          summary: "Invalid action request.",
+          researchArtifact: {},
+          requestedActions,
+        }),
+      (error: unknown) =>
+        error instanceof InvalidAgentResultError &&
+        error.code === "INVALID_AGENT_RESULT",
+    );
+  }
+});
+
 test("validates EXAMINER memory replacement intent without applying it", () => {
   const result = validateAgentResult("examiner", {
     agent: "examiner",

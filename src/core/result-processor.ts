@@ -12,6 +12,7 @@ import type {
   AgentResultFor,
   ExaminerMemoryIntent,
   RequestedAgentCall,
+  RequestedAction,
 } from "../domain/agent-result.js";
 import type {
   ArtifactPayload,
@@ -308,6 +309,7 @@ export class ResultProcessor {
       warnings: [...(result.warnings ?? [])],
       persistedArtifacts,
       requestedCalls: copyRequestedCalls(result.requestedCalls ?? []),
+      requestedActions: copyRequestedActions(result.requestedActions ?? []),
       stateEffects,
       ...(result.agent === "questioner"
         ? {
@@ -432,4 +434,10 @@ function copyRequestedCalls(
         : { artifactRefs: [...call.handoff.artifactRefs] }),
     },
   }));
+}
+
+function copyRequestedActions(
+  actions: readonly RequestedAction[],
+): RequestedAction[] {
+  return actions.map(({ action, reason }) => ({ action, reason }));
 }

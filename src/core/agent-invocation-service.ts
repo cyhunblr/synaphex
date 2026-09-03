@@ -15,10 +15,16 @@ import { RuleResolver } from "./rule-resolver.js";
 import { SessionManager } from "./session-manager.js";
 import { TaskManager } from "./task-manager.js";
 import type { AgentName } from "../domain/agent.js";
-import type { AgentHandoff } from "../domain/agent-context.js";
+import type {
+  AgentHandoff,
+  RoleContractSnapshot,
+} from "../domain/agent-context.js";
 import type {
   AgentExecutor,
   AgentInvocationResult,
+  ActionApprovalContinuationRequest,
+  ActionClassification,
+  ActionUnavailableErrorCode,
   AnyAgentInvocationResult,
   CallerContinuation,
   ForbiddenHelperCallClassification,
@@ -32,8 +38,16 @@ import type {
   ResumeCallerRequest,
   UserAgentInvocationRequest,
 } from "../domain/agent-invocation.js";
-import type { RequestedAgentCall } from "../domain/agent-result.js";
+import type {
+  RequestedAction,
+  RequestedAgentCall,
+} from "../domain/agent-result.js";
+import type { ExecutionPolicy } from "../domain/execution-policy.js";
+import { sourceModificationPolicy } from "../domain/execution-policy.js";
 import {
+  ActionApprovalRequiredError,
+  ActionDeniedError,
+  ActionUnavailableError,
   AgentCallApprovalRequiredError,
   AgentCallDeniedError,
   AgentCallForbiddenError,
@@ -41,6 +55,7 @@ import {
   AgentExecutionFailedError,
   AgentInvocationDepthExceededError,
   InvalidAgentHandoffError,
+  InvalidActionContinuationError,
   NoProjectBoundError,
   NoTaskBoundError,
   PlanDraftPendingError,
@@ -49,6 +64,7 @@ import {
   TaskArchivedError,
   TaskCompletedError,
 } from "../domain/errors.js";
+import { ACTION_NAMES, type ActionName } from "../domain/rule.js";
 import type { RuntimeAvailability } from "../domain/provider-routing.js";
 import type { Project } from "../domain/project.js";
 import type { SessionId } from "../domain/session.js";
@@ -75,6 +91,7 @@ interface PreparedInvocation<TAgent extends AgentName> {
   readonly lineage: InvocationLineage;
   readonly instruction?: string;
   readonly handoff?: AgentHandoff;
+  readonly approvedActions?: ReadonlySet<ActionName>;
 }
 
 const MAX_INVOCATION_DEPTH = 8;
@@ -229,6 +246,53 @@ export class AgentInvocationService {
     });
   }
 
+  async resumeCallerWithActionApproval(
+    request: ActionApprovalContinuationRequest,
+  ): Promise<AgentInvocationResult> {
+    const previousClassification = findActionClassification(
+      request.previousInvocation,
+      request.actionClassification,
+    );
+    if (previousClassification.status !== "approval_required") {
+      throw new InvalidActionContinuationError(
+        "only an approval_required action can be continued",
+      );
+    }
+
+    const scope = await this.resolveAndValidatePreflight(
+      request.sessionId,
+      request.previousInvocation.agent,
+    );
+    const effectiveClassification = await this.classifySingleAction(
+      previousClassification.request,
+      scope,
+    );
+    assertActionContinuationAllowed(
+      effectiveClassification,
+      request.approvalGranted,
+    );
+    const approvedActions =
+      effectiveClassification.status === "approval_required" &&
+      request.approvalGranted
+        ? new Set<ActionName>([effectiveClassification.request.action])
+        : new Set<ActionName>();
+
+    return this.invokePrepared({
+      sessionId: request.sessionId,
+      agent: request.previousInvocation.agent,
+      host: request.host,
+      scope,
+      lineage: createChildLineage(
+        request.previousInvocation.lineage,
+        request.previousInvocation.agent,
+      ),
+      approvedActions,
+      ...(request.instruction === undefined
+        ? {}
+        : { instruction: request.instruction }),
+    });
+  }
+
   private async invokePrepared<TAgent extends AgentName>(
     invocation: PreparedInvocation<TAgent>,
   ): Promise<AgentInvocationResult<TAgent>> {
@@ -243,6 +307,11 @@ export class AgentInvocationService {
         ? {}
         : { handoff: invocation.handoff }),
     });
+    const executionPolicy = await this.buildExecutionPolicy(
+      context.roleContract,
+      invocation.scope,
+      invocation.approvedActions ?? new Set<ActionName>(),
+    );
     const route = await this.router.resolve({
       host: invocation.host,
       targetConfig: config,
@@ -250,7 +319,11 @@ export class AgentInvocationService {
 
     let rawResult: unknown;
     try {
-      rawResult = await this.executor.execute({ route, context });
+      rawResult = await this.executor.execute({
+        route,
+        context,
+        executionPolicy,
+      });
     } catch (error) {
       throw new AgentExecutionFailedError(
         invocation.agent,
@@ -266,6 +339,10 @@ export class AgentInvocationService {
       invocation.agent,
       invocation.scope,
     );
+    const actionClassifications = await this.classifyActions(
+      validatedResult.requestedActions ?? [],
+      invocation.scope,
+    );
     // ResultProcessor deliberately validates again at the mutation boundary.
     const processedResult = await this.resultProcessor.process({
       sessionId: invocation.sessionId,
@@ -276,8 +353,43 @@ export class AgentInvocationService {
       agent: invocation.agent,
       lineage: invocation.lineage,
       route,
+      executionPolicy,
       processedResult,
       helperCalls,
+      actionClassifications,
+    };
+  }
+
+  private async buildExecutionPolicy(
+    roleContract: RoleContractSnapshot,
+    scope: InvocationScope,
+    approvedActions: ReadonlySet<ActionName>,
+  ): Promise<ExecutionPolicy> {
+    const effectiveRules = await Promise.all(
+      ACTION_NAMES.map((action) =>
+        this.rules.resolveRuleReadOnly(
+          { kind: "action", action },
+          {
+            projectId: scope.project.id,
+            ...(scope.task === null ? {} : { taskId: scope.task.id }),
+          },
+        ),
+      ),
+    );
+    return {
+      sourceModification: sourceModificationPolicy(roleContract),
+      actions: Object.fromEntries(
+        ACTION_NAMES.map((action, index) => [
+          action,
+          {
+            decision: effectiveRules[index]!.decision,
+            source: effectiveRules[index]!.source,
+            approvedForInvocation:
+              effectiveRules[index]!.decision === "ask" &&
+              approvedActions.has(action),
+          },
+        ]),
+      ) as ExecutionPolicy["actions"],
     };
   }
 
@@ -341,6 +453,57 @@ export class AgentInvocationService {
       throw new TypeError("Helper classification unexpectedly produced no result");
     }
     return classification;
+  }
+
+  private async classifySingleAction(
+    request: RequestedAction,
+    scope: InvocationScope,
+  ): Promise<ActionClassification> {
+    const classification = (await this.classifyActions([request], scope))[0];
+    if (classification === undefined) {
+      throw new TypeError("Action classification unexpectedly produced no result");
+    }
+    return classification;
+  }
+
+  private async classifyActions(
+    actions: readonly RequestedAction[],
+    scope: InvocationScope,
+  ): Promise<ActionClassification[]> {
+    const classifications: ActionClassification[] = [];
+    for (const request of actions) {
+      try {
+        const effectiveRule = await this.rules.resolveRuleReadOnly(
+          { kind: "action", action: request.action },
+          {
+            projectId: scope.project.id,
+            ...(scope.task === null ? {} : { taskId: scope.task.id }),
+          },
+        );
+        classifications.push({
+          status:
+            effectiveRule.decision === "allow"
+              ? "allowed"
+              : effectiveRule.decision === "ask"
+                ? "approval_required"
+                : "denied",
+          request,
+          effectiveRule,
+        });
+      } catch (error) {
+        const errorCode = actionUnavailableErrorCode(error);
+        if (errorCode === null) {
+          throw error;
+        }
+        classifications.push({
+          status: "unavailable",
+          request,
+          effectiveRule: null,
+          errorCode,
+        });
+      }
+    }
+    return classifications;
   }
 
   private async classifyHelperCalls(
@@ -541,6 +704,60 @@ function findParentClassification(
   return match;
 }
 
+function findActionClassification(
+  parent: AnyAgentInvocationResult,
+  supplied: ActionClassification,
+): ActionClassification {
+  if (parent.lineage.agent !== parent.agent) {
+    throw new InvalidActionContinuationError(
+      "previous invocation lineage does not match its agent",
+    );
+  }
+  if (
+    JSON.stringify(parent.processedResult.requestedActions) !==
+    JSON.stringify(parent.actionClassifications.map(({ request }) => request))
+  ) {
+    throw new InvalidActionContinuationError(
+      "action classifications do not match the previous invocation result",
+    );
+  }
+  const matches = parent.actionClassifications.filter(
+    (candidate) =>
+      candidate.status === supplied.status &&
+      JSON.stringify(candidate.request) === JSON.stringify(supplied.request),
+  );
+  if (matches.length !== 1) {
+    throw new InvalidActionContinuationError(
+      "action classification does not uniquely belong to the previous invocation",
+    );
+  }
+  return matches[0]!;
+}
+
+function assertActionContinuationAllowed(
+  current: ActionClassification,
+  approvalGranted: boolean,
+): void {
+  if (current.status === "denied") {
+    throw new ActionDeniedError(
+      current.request.action,
+      current.effectiveRule.source,
+    );
+  }
+  if (current.status === "unavailable") {
+    throw new ActionUnavailableError(
+      current.request.action,
+      current.errorCode,
+    );
+  }
+  if (current.status === "approval_required" && !approvalGranted) {
+    throw new ActionApprovalRequiredError(
+      current.request.action,
+      current.effectiveRule.source,
+    );
+  }
+}
+
 function assertHelperExecutable(
   previous: HelperCallClassification,
   current: HelperCallClassification,
@@ -719,4 +936,15 @@ function unavailableErrorCode(
     default:
       return null;
   }
+}
+
+function actionUnavailableErrorCode(
+  error: unknown,
+): ActionUnavailableErrorCode | null {
+  if (!(error instanceof SynaphexError)) {
+    return null;
+  }
+  return error.code === "INVALID_RULE" || error.code === "INVALID_RULE_VALUE"
+    ? error.code
+    : null;
 }

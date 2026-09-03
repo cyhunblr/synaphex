@@ -39,6 +39,24 @@ test("nullable common and handoff wire values normalize to omitted Core fields",
   });
 });
 
+test("requested actions decode into the strict Core shape", () => {
+  const context = syntheticAgentContext("researcher", "/source", {
+    outputFields: ["findings"],
+  });
+  const decoded = codec.decode(context, {
+    ...commonWire("researcher"),
+    requestedActions: [
+      { action: "network", reason: "Need upstream documentation." },
+    ],
+    payloadJson: JSON.stringify({ findings: "Local evidence gathered." }),
+  });
+
+  const validated = validateAgentResult("researcher", decoded);
+  assert.deepEqual(validated.requestedActions, [
+    { action: "network", reason: "Need upstream documentation." },
+  ]);
+});
+
 test("opaque JSON objects with nested arrays and objects round-trip without dropping fields", () => {
   const context = syntheticAgentContext("researcher", "/source", {
     outputFields: ["findings"],
@@ -155,5 +173,6 @@ function commonWire(
     summary: "Synthetic wire result.",
     warnings: null,
     requestedCalls: null,
+    requestedActions: null,
   };
 }

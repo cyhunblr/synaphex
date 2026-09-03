@@ -33,8 +33,18 @@ test("optional Core fields are required nullable fields on the Codex wire", () =
     "array",
     "null",
   ]);
+  assert.deepEqual(researcherProperties.requestedActions?.type, [
+    "array",
+    "null",
+  ]);
   assert.ok((researcher.required as string[]).includes("warnings"));
   assert.ok((researcher.required as string[]).includes("requestedCalls"));
+  assert.ok((researcher.required as string[]).includes("requestedActions"));
+
+  const requestedAction = researcherProperties.requestedActions
+    ?.items as Schema;
+  const actionProperties = requestedAction.properties as Record<string, Schema>;
+  assert.deepEqual(actionProperties.action?.enum, ["git_push", "network", "ci"]);
 
   const requestedCall = researcherProperties.requestedCalls?.items as Schema;
   const callProperties = requestedCall.properties as Record<string, Schema>;

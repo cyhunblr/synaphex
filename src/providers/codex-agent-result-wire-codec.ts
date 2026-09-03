@@ -7,6 +7,7 @@ const COMMON_KEYS = [
   "summary",
   "warnings",
   "requestedCalls",
+  "requestedActions",
 ] as const;
 
 const ROLE_KEYS = {
@@ -31,6 +32,9 @@ export class CodexAgentResultWireCodec {
     copyNullable(result, "warnings", wire.warnings);
     if (wire.requestedCalls !== null) {
       result.requestedCalls = decodeRequestedCalls(wire.requestedCalls);
+    }
+    if (wire.requestedActions !== null) {
+      result.requestedActions = decodeRequestedActions(wire.requestedActions);
     }
 
     switch (context.agent) {
@@ -137,6 +141,18 @@ function decodeRequestedCalls(value: unknown): unknown[] {
       purpose: call.purpose,
       handoff: decodedHandoff,
     };
+  });
+}
+
+function decodeRequestedActions(value: unknown): unknown[] {
+  if (!Array.isArray(value)) {
+    throw malformedWire("requestedActions");
+  }
+  return value.map((entry, index) => {
+    const field = `requestedActions[${index}]`;
+    const action = requireRecord(entry, field);
+    requireExactKeys(action, ["action", "reason"], field);
+    return { action: action.action, reason: action.reason };
   });
 }
 

@@ -4,6 +4,9 @@ export {
   AgentCallDeniedError,
   AgentCallForbiddenError,
   AgentCallUnavailableError,
+  ActionApprovalRequiredError,
+  ActionDeniedError,
+  ActionUnavailableError,
   AgentExecutionFailedError,
   AgentInvocationDepthExceededError,
   AgentUnconfiguredError,
@@ -19,6 +22,7 @@ export {
   InvalidAgentHandoffError,
   InvalidAgentModelError,
   InvalidAgentResultError,
+  InvalidActionContinuationError,
   InvalidAgentSettingError,
   InvalidPlanContentError,
   InvalidProviderRouteError,
@@ -44,6 +48,7 @@ export {
   ProjectPathAlreadyRegisteredError,
   ProjectPathNotFoundError,
   ProviderCliUnavailableError,
+  ProviderExecutionPolicyUnsupportedError,
   ReviewTargetNotAvailableError,
   SYNAPHEX_ERROR_CODES,
   SessionAlreadyBoundToTaskError,
@@ -60,6 +65,11 @@ export {
 export { AGENT_NAMES, isAgentName, type AgentName } from "./domain/agent.js";
 export {
   HELPER_CALL_CLASSIFICATIONS,
+  ACTION_CLASSIFICATIONS,
+  type ActionApprovalContinuationRequest,
+  type ActionClassification,
+  type ActionClassificationStatus,
+  type ActionUnavailableErrorCode,
   type AgentExecutionInput,
   type AgentExecutor,
   type AgentInvocationResult,
@@ -79,6 +89,8 @@ export {
   type InvocationLineage,
   type ResumeCallerRequest,
   type UnavailableHelperCallClassification,
+  type UnavailableActionClassification,
+  type ResolvedActionClassification,
   type UserAgentInvocationRequest,
 } from "./domain/agent-invocation.js";
 export {
@@ -115,11 +127,20 @@ export {
   type QuestionerPendingQuestionResult,
   type QuestionerResult,
   type RequestedAgentCall,
+  type RequestedAction,
   type ResearcherResult,
   type ReviewerFailureOrigin,
   type ReviewerResult,
   type ReviewerStatus,
 } from "./domain/agent-result.js";
+export {
+  SOURCE_MODIFICATION_POLICIES,
+  isActionUsable,
+  sourceModificationPolicy,
+  type ExecutionActionPolicy,
+  type ExecutionPolicy,
+  type SourceModificationPolicy,
+} from "./domain/execution-policy.js";
 export type {
   AgentStateEffect,
   PersistedArtifactReference,
@@ -220,10 +241,12 @@ export type {
   PlanStatus,
 } from "./domain/plan.js";
 export {
+  ACTION_NAMES,
   RULE_DECISIONS,
   RULE_SCOPES,
   formatRuleKey,
   type ActionRuleKey,
+  type ActionName,
   type AgentCallRuleKey,
   type EffectiveRule,
   type EffectiveRuleSource,

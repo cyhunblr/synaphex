@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AgentPromptSerializer } from "../src/providers/agent-prompt-serializer.js";
-import { syntheticAgentContext } from "./fixtures/synthetic-agent-context.js";
+import {
+  syntheticAgentContext,
+  syntheticExecutionPolicy,
+} from "./fixtures/synthetic-agent-context.js";
 
 test("prompt serializes only selected structured context with explicit protection", () => {
   const prompt = new AgentPromptSerializer().serialize(
     syntheticAgentContext("coder", "/canonical/source"),
+    syntheticExecutionPolicy("coder"),
   );
 
   for (const section of [
@@ -18,6 +22,7 @@ test("prompt serializes only selected structured context with explicit protectio
     "CURRENT PLAN STATE",
     "RELEVANT ARTIFACTS",
     "EFFECTIVE RULES",
+    "EXECUTION POLICY",
     "OUTPUT CONTRACT",
     "USER INSTRUCTION / HANDOFF",
   ]) {
@@ -32,6 +37,9 @@ test("prompt serializes only selected structured context with explicit protectio
   assert.match(prompt, /SELECTED_ARTIFACT/);
   assert.match(prompt, /CONTINUATION_HANDOFF/);
   assert.match(prompt, /custom_field/);
+  assert.match(prompt, /requestedActions/);
+  assert.match(prompt, /"network": \{/);
+  assert.match(prompt, /"state": "denied"/);
   assert.match(prompt, /Do not directly create, edit, delete, or otherwise mutate Synaphex internal state under ~\/\.synaphex/);
   assert.doesNotMatch(prompt, /TRANSITIVE_OR_UNRELATED_MEMORY/);
   assert.doesNotMatch(prompt, /UNRELATED_ARCHIVED_ARTIFACT/);
@@ -41,12 +49,15 @@ test("shared serializer emits concise role-specific immutable instructions", () 
   const serializer = new AgentPromptSerializer();
   const examiner = serializer.serialize(
     syntheticAgentContext("examiner", "/source"),
+    syntheticExecutionPolicy("examiner"),
   );
   const reviewer = serializer.serialize(
     syntheticAgentContext("reviewer", "/source"),
+    syntheticExecutionPolicy("reviewer"),
   );
   const planner = serializer.serialize(
     syntheticAgentContext("planner", "/source"),
+    syntheticExecutionPolicy("planner"),
   );
 
   assert.match(examiner, /only logical role allowed to request canonical-memory mutation/);

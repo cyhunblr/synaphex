@@ -221,10 +221,16 @@ test("QUESTIONER without context performs no mutation and returns a helper reque
           },
         },
       ],
+      requestedActions: [
+        { action: "network", reason: "Need external confirmation." },
+      ],
     },
   });
 
   assert.equal(processed.requestedCalls[0]?.target, "examiner");
+  assert.deepEqual(processed.requestedActions, [
+    { action: "network", reason: "Need external confirmation." },
+  ]);
   assert.deepEqual(processed.stateEffects, []);
   assert.equal(
     (await fixture.artifacts.getQuestionerContext(taskScope(fixture))).hasContext,
@@ -539,7 +545,6 @@ test("EXAMINER rejects project-only task targets and all foreign scopes before m
     }),
     InvalidAgentResultError,
   );
-
   assert.equal((await fixture.memory.getProjectCanonicalMemory(fixture.projectA.id)).content, "project original");
   assert.equal((await fixture.memory.getTaskCanonicalMemory(fixture.projectA.id, fixture.otherTaskA.id)).content, "other original");
   assert.equal((await fixture.memory.getProjectCanonicalMemory(fixture.projectB.id)).content, "foreign original");
@@ -1025,6 +1030,24 @@ test("invalid REVIEWER result and behavior fields cause no report or lifecycle m
         summary: "Malformed pass.",
         reviewStatus: "PASS_WITH_WARNINGS",
         report: { requirement_compliance: true },
+      },
+    }),
+    InvalidAgentResultError,
+  );
+  await assert.rejects(
+    fixture.processor.process({
+      sessionId,
+      expectedAgent: "reviewer",
+      result: {
+        agent: "reviewer",
+        outcome: "success",
+        summary: "Malformed action request.",
+        reviewStatus: "FAIL",
+        failureOrigin: "implementation",
+        report: { requirement_compliance: false },
+        requestedActions: [
+          { action: "network", reason: "", extra: "invalid" },
+        ],
       },
     }),
     InvalidAgentResultError,

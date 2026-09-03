@@ -9,7 +9,13 @@ import type {
   ArtifactId,
   ArtifactScope,
 } from "./artifact.js";
-import { formatRuleKey, type RuleDecision, type RuleKey } from "./rule.js";
+import {
+  formatRuleKey,
+  type ActionName,
+  type EffectiveRuleSource,
+  type RuleDecision,
+  type RuleKey,
+} from "./rule.js";
 import type { SessionId } from "./session.js";
 import type { TaskId, TaskStatus } from "./task.js";
 
@@ -65,7 +71,12 @@ export const SYNAPHEX_ERROR_CODES = [
   "AGENT_CALL_DENIED",
   "AGENT_CALL_FORBIDDEN",
   "AGENT_CALL_UNAVAILABLE",
+  "ACTION_APPROVAL_REQUIRED",
+  "ACTION_DENIED",
+  "ACTION_UNAVAILABLE",
+  "INVALID_ACTION_CONTINUATION",
   "AGENT_INVOCATION_DEPTH_EXCEEDED",
+  "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
   "CODEX_CLI_EXECUTION_FAILED",
 ] as const;
 
@@ -635,6 +646,52 @@ export class AgentCallUnavailableError extends SynaphexError<"AGENT_CALL_UNAVAIL
         currentStatus,
         classificationErrorCode,
       },
+    );
+  }
+}
+
+export class ActionApprovalRequiredError extends SynaphexError<"ACTION_APPROVAL_REQUIRED"> {
+  constructor(action: ActionName, source: EffectiveRuleSource) {
+    super(
+      "ACTION_APPROVAL_REQUIRED",
+      `One-time approval is required for action: ${action}`,
+      { action, source },
+    );
+  }
+}
+
+export class ActionDeniedError extends SynaphexError<"ACTION_DENIED"> {
+  constructor(action: ActionName, source: EffectiveRuleSource) {
+    super("ACTION_DENIED", `Action is denied: ${action}`, { action, source });
+  }
+}
+
+export class ActionUnavailableError extends SynaphexError<"ACTION_UNAVAILABLE"> {
+  constructor(action: ActionName, classificationErrorCode: string | null) {
+    super(
+      "ACTION_UNAVAILABLE",
+      `Action permission is unavailable: ${action}`,
+      { action, classificationErrorCode },
+    );
+  }
+}
+
+export class InvalidActionContinuationError extends SynaphexError<"INVALID_ACTION_CONTINUATION"> {
+  constructor(reason: string) {
+    super(
+      "INVALID_ACTION_CONTINUATION",
+      `Invalid action-approval continuation: ${reason}`,
+      { reason },
+    );
+  }
+}
+
+export class ProviderExecutionPolicyUnsupportedError extends SynaphexError<"PROVIDER_EXECUTION_POLICY_UNSUPPORTED"> {
+  constructor(provider: AgentProvider, reason: string, action?: ActionName) {
+    super(
+      "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
+      `Provider cannot safely enforce the requested execution policy: ${provider}`,
+      { provider, reason, ...(action === undefined ? {} : { action }) },
     );
   }
 }

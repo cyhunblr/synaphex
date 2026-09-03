@@ -4,6 +4,7 @@ import type {
   MemoryConflict,
   PlannerConsultation,
   RequestedAgentCall,
+  RequestedAction,
   ReviewerFailureOrigin,
   ReviewerStatus,
 } from "./agent-result.js";
@@ -71,6 +72,7 @@ export interface ProcessedAgentResultBase<TAgent extends AgentName> {
   readonly warnings: readonly string[];
   readonly persistedArtifacts: readonly PersistedArtifactReference[];
   readonly requestedCalls: readonly RequestedAgentCall[];
+  readonly requestedActions: readonly RequestedAction[];
   readonly stateEffects: readonly AgentStateEffect[];
 }
 

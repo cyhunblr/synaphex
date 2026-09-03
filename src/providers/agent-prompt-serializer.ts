@@ -1,5 +1,6 @@
 import type { AgentName } from "../domain/agent.js";
 import type { AgentContext } from "../domain/agent-context.js";
+import type { ExecutionPolicy } from "../domain/execution-policy.js";
 
 const ROLE_INSTRUCTIONS = {
   questioner: [
@@ -36,7 +37,7 @@ const ROLE_INSTRUCTIONS = {
 } as const satisfies Readonly<Record<AgentName, readonly string[]>>;
 
 export class AgentPromptSerializer {
-  serialize(context: AgentContext): string {
+  serialize(context: AgentContext, executionPolicy: ExecutionPolicy): string {
     const sections = [
       section(
         "SYNAPHEX AGENT",
@@ -73,6 +74,35 @@ export class AgentPromptSerializer {
       section("RELEVANT ARTIFACTS", formatJson(context.artifacts)),
       section("EFFECTIVE RULES", formatJson(context.rules)),
       section(
+        "EXECUTION POLICY",
+        [
+          formatJson({
+            sourceModification: executionPolicy.sourceModification,
+            actions: Object.fromEntries(
+              Object.entries(executionPolicy.actions).map(([action, policy]) => [
+                action,
+                {
+                  state:
+                    policy.decision === "allow" ||
+                    (policy.decision === "ask" &&
+                      policy.approvedForInvocation)
+                      ? "enabled"
+                      : policy.decision === "ask"
+                        ? "approval_required"
+                        : "denied",
+                  decision: policy.decision,
+                  source: policy.source,
+                  approvedForInvocation: policy.approvedForInvocation,
+                },
+              ]),
+            ),
+          }),
+          "If an action requires approval, do not attempt to bypass the restriction; return it through requestedActions.",
+          "If an action is denied, do not attempt it.",
+          "If an action is enabled, the provider runtime may expose it only through provider-native enforcement.",
+        ].join("\n"),
+      ),
+      section(
         "OUTPUT CONTRACT",
         formatJson({
           agent: context.agent,
@@ -80,6 +110,7 @@ export class AgentPromptSerializer {
           requirements: [
             "Use only the configured payload fields where behavior is present.",
             "Express helper requests only as structured requestedCalls with a structured handoff.",
+            "Express external or side-effecting permission requests only as structured requestedActions.",
             "Express Synaphex state changes only through the role-specific AgentResult fields.",
           ],
         }),

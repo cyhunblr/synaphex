@@ -15,6 +15,7 @@ import type { AgentExecutionInput } from "../../src/domain/agent-invocation.js";
 import { CodexCliExecutionError } from "../../src/domain/errors.js";
 import { SpawnProcessRunner } from "../../src/infrastructure/process-runner.js";
 import { CodexCliAgentExecutor } from "../../src/providers/codex-cli-agent-executor.js";
+import type { ExecutionPolicy } from "../../src/domain/execution-policy.js";
 
 const liveEnabled = process.env.SYNAPHEX_CODEX_LIVE_TEST === "1";
 const liveModel = process.env.SYNAPHEX_CODEX_LIVE_MODEL?.trim() ?? "";
@@ -55,6 +56,7 @@ test(
           settings: {},
         },
         context,
+        executionPolicy: readOnlySmokePolicy(),
       };
 
       stage = "Codex process execution / output parsing";
@@ -73,6 +75,7 @@ test(
       assert.equal(typeof findings, "string");
       assert.ok(typeof findings === "string" && findings.trim().length > 0);
       assert.equal(validated.requestedCalls?.length ?? 0, 0);
+      assert.equal(validated.requestedActions?.length ?? 0, 0);
 
       stage = "read-only workspace safety validation";
       const gitStatus = await processRunner.run({
@@ -140,7 +143,23 @@ function researcherContext(sourcePath: string): AgentContext {
     },
     behavior: { outputFields: ["findings"] },
     instruction:
-      "Return a successful RESEARCHER result for this smoke test. Set the Researcher payload's only field, findings, to a short value indicating that the Codex live adapter worked. Do not request any helper agent calls. Do not use the web and do not modify files.",
+      "Return a successful RESEARCHER result for this smoke test. Set the Researcher payload's only field, findings, to a short value indicating that the Codex live adapter worked. Do not request any helper agent calls or actions. Do not use the web and do not modify files.",
+  };
+}
+
+function readOnlySmokePolicy(): ExecutionPolicy {
+  const approvalRequired = {
+    decision: "ask",
+    source: "global",
+    approvedForInvocation: false,
+  } as const;
+  return {
+    sourceModification: "read_only",
+    actions: {
+      git_push: approvalRequired,
+      network: approvalRequired,
+      ci: approvalRequired,
+    },
   };
 }
 

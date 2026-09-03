@@ -8,6 +8,7 @@ import {
 } from "../domain/agent-result.js";
 import { isAgentName, type AgentName } from "../domain/agent.js";
 import { InvalidAgentResultError } from "../domain/errors.js";
+import { isActionName } from "../domain/rule.js";
 import { parseAgentHandoff } from "./agent-handoff-validator.js";
 
 const COMMON_KEYS = [
@@ -16,6 +17,7 @@ const COMMON_KEYS = [
   "summary",
   "warnings",
   "requestedCalls",
+  "requestedActions",
 ] as const;
 
 export function validateAgentResult<TAgent extends AgentName>(
@@ -57,6 +59,11 @@ function validateResult(expectedAgent: AgentName, value: unknown): void {
     expectedAgent,
     value.requestedCalls,
     Object.hasOwn(value, "requestedCalls"),
+  );
+  validateRequestedActions(
+    expectedAgent,
+    value.requestedActions,
+    Object.hasOwn(value, "requestedActions"),
   );
 
   switch (expectedAgent) {
@@ -316,6 +323,29 @@ function validateRequestedCalls(
         agent,
         "requested call and handoff caller/target/purpose must agree",
       );
+    }
+  }
+}
+
+function validateRequestedActions(
+  agent: AgentName,
+  value: unknown,
+  present: boolean,
+): void {
+  if (!present) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw invalid(agent, "requestedActions must be an array");
+  }
+  for (const requestedAction of value) {
+    if (
+      !isPlainObject(requestedAction) ||
+      !hasExactKeys(requestedAction, ["action", "reason"]) ||
+      !isActionName(requestedAction.action) ||
+      !isNonEmptyString(requestedAction.reason)
+    ) {
+      throw invalid(agent, "requested action has an invalid shape");
     }
   }
 }

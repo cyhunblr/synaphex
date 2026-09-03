@@ -3,6 +3,7 @@ import type { AgentName } from "./agent.js";
 import type { ArtifactPayload } from "./artifact.js";
 import type { ProjectId } from "./project.js";
 import type { TaskId } from "./task.js";
+import type { ActionName } from "./rule.js";
 
 export const AGENT_RESULT_OUTCOMES = [
   "success",
@@ -19,12 +20,18 @@ export interface RequestedAgentCall {
   readonly handoff: AgentHandoff;
 }
 
+export interface RequestedAction {
+  readonly action: ActionName;
+  readonly reason: string;
+}
+
 export interface AgentResultBase<TAgent extends AgentName> {
   readonly agent: TAgent;
   readonly outcome: AgentResultOutcome;
   readonly summary: string;
   readonly warnings?: readonly string[];
   readonly requestedCalls?: readonly RequestedAgentCall[];
+  readonly requestedActions?: readonly RequestedAction[];
 }
 
 export interface QuestionerPendingQuestionResult

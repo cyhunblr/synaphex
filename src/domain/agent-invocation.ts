@@ -10,7 +10,9 @@ import type {
   RequestedAgentCall,
   ReviewerFailureOrigin,
   ReviewerStatus,
+  RequestedAction,
 } from "./agent-result.js";
+import type { ExecutionPolicy } from "./execution-policy.js";
 import type {
   PersistedArtifactReference,
   ProcessedAgentResultFor,
@@ -24,6 +26,7 @@ import type { SynaphexErrorCode } from "./errors.js";
 export interface AgentExecutionInput {
   readonly route: ExecutionRoute;
   readonly context: AgentContext;
+  readonly executionPolicy: ExecutionPolicy;
 }
 
 export interface AgentExecutor {
@@ -106,12 +109,46 @@ export type HelperCallClassification =
   | ForbiddenHelperCallClassification
   | UnavailableHelperCallClassification;
 
+export const ACTION_CLASSIFICATIONS = [
+  "allowed",
+  "approval_required",
+  "denied",
+  "unavailable",
+] as const;
+
+export type ActionClassificationStatus =
+  (typeof ACTION_CLASSIFICATIONS)[number];
+
+export interface ResolvedActionClassification {
+  readonly status: "allowed" | "approval_required" | "denied";
+  readonly request: RequestedAction;
+  readonly effectiveRule: EffectiveRule;
+}
+
+export type ActionUnavailableErrorCode = Extract<
+  SynaphexErrorCode,
+  "INVALID_RULE" | "INVALID_RULE_VALUE"
+>;
+
+export interface UnavailableActionClassification {
+  readonly status: "unavailable";
+  readonly request: RequestedAction;
+  readonly effectiveRule: null;
+  readonly errorCode: ActionUnavailableErrorCode;
+}
+
+export type ActionClassification =
+  | ResolvedActionClassification
+  | UnavailableActionClassification;
+
 export interface AgentInvocationResult<TAgent extends AgentName = AgentName> {
   readonly agent: TAgent;
   readonly lineage: InvocationLineage;
   readonly route: ExecutionRoute;
+  readonly executionPolicy: ExecutionPolicy;
   readonly processedResult: ProcessedAgentResultFor<TAgent>;
   readonly helperCalls: readonly HelperCallClassification[];
+  readonly actionClassifications: readonly ActionClassification[];
 }
 
 export type AnyAgentInvocationResult = {
@@ -185,6 +222,15 @@ export interface HelperExecutionResult {
 export interface ResumeCallerRequest {
   readonly sessionId: SessionId;
   readonly helperExecution: HelperExecutionResult;
+  readonly host: HostRuntime;
+  readonly instruction?: string;
+}
+
+export interface ActionApprovalContinuationRequest {
+  readonly sessionId: SessionId;
+  readonly previousInvocation: AnyAgentInvocationResult;
+  readonly actionClassification: ActionClassification;
+  readonly approvalGranted: boolean;
   readonly host: HostRuntime;
   readonly instruction?: string;
 }

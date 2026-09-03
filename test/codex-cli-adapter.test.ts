@@ -24,8 +24,11 @@ import {
   CodexCliAgentExecutor,
   resolveCodexSandbox,
 } from "../src/providers/codex-cli-agent-executor.js";
-import { RoleContractRegistry } from "../src/core/role-contract-registry.js";
-import { syntheticAgentContext } from "./fixtures/synthetic-agent-context.js";
+import { ProviderExecutionPolicyUnsupportedError } from "../src/domain/errors.js";
+import {
+  syntheticAgentContext,
+  syntheticExecutionPolicy,
+} from "./fixtures/synthetic-agent-context.js";
 
 class FakeProcessRunner implements ProcessRunner {
   readonly calls: ProcessRunInput[] = [];
@@ -74,6 +77,7 @@ function executionInput(
       ...(settings === undefined ? {} : { settings }),
     },
     context: syntheticAgentContext(agent, sourcePath),
+    executionPolicy: syntheticExecutionPolicy(agent),
   };
 }
 
@@ -100,6 +104,7 @@ test("Codex adapter constructs secure non-interactive command and parses the res
     summary: "Implementation complete.",
     warnings: null,
     requestedCalls: null,
+    requestedActions: null,
     payloadJson: JSON.stringify({ custom_field: "done" }),
   };
   const runner = new FakeProcessRunner(async (call) => {
@@ -156,7 +161,6 @@ test("Codex adapter constructs secure non-interactive command and parses the res
 });
 
 test("sandbox mapping is capability-based for all six current roles", () => {
-  const contracts = new RoleContractRegistry();
   const agents: readonly AgentName[] = [
     "questioner",
     "researcher",
@@ -170,7 +174,7 @@ test("sandbox mapping is capability-based for all six current roles", () => {
     Object.fromEntries(
       agents.map((agent) => [
         agent,
-        resolveCodexSandbox(contracts.getSnapshot(agent)),
+        resolveCodexSandbox(syntheticExecutionPolicy(agent)),
       ]),
     ),
     {
@@ -184,8 +188,8 @@ test("sandbox mapping is capability-based for all six current roles", () => {
   );
   assert.equal(
     resolveCodexSandbox({
-      ...contracts.getSnapshot("reviewer"),
-      mayModifySourceCode: true,
+      ...syntheticExecutionPolicy("reviewer"),
+      sourceModification: "workspace_write",
     }),
     "workspace-write",
   );
@@ -212,6 +216,44 @@ test("unsupported routes, settings, and workspaces fail before process execution
   await assert.rejects(
     executor.execute(executionInput("coder", missingPath)),
     failureReason("invalid_workspace"),
+  );
+  assert.equal(runner.calls.length, 0);
+});
+
+test("unsupported action capability widening fails closed before Codex spawn", async (t) => {
+  const sourcePath = await workspace(t);
+  const runner = new FakeProcessRunner(() => success());
+  const executor = new CodexCliAgentExecutor({ processRunner: runner });
+  const input = executionInput("researcher", sourcePath);
+
+  await assert.rejects(
+    executor.execute({
+      ...input,
+      executionPolicy: syntheticExecutionPolicy("researcher", {
+        network: {
+          decision: "allow",
+          source: "global",
+          approvedForInvocation: false,
+        },
+      }),
+    }),
+    (error: unknown) =>
+      error instanceof ProviderExecutionPolicyUnsupportedError &&
+      error.code === "PROVIDER_EXECUTION_POLICY_UNSUPPORTED" &&
+      error.details?.action === "network",
+  );
+  await assert.rejects(
+    executor.execute({
+      ...input,
+      executionPolicy: syntheticExecutionPolicy("researcher", {
+        network: {
+          decision: "ask",
+          source: "global",
+          approvedForInvocation: true,
+        },
+      }),
+    }),
+    ProviderExecutionPolicyUnsupportedError,
   );
   assert.equal(runner.calls.length, 0);
 });

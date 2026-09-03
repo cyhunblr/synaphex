@@ -21,18 +21,23 @@ import type {
 import type { AgentCallPurpose } from "../src/domain/agent-context.js";
 import type { AgentProvider, AgentSurface } from "../src/domain/agent-config.js";
 import type { RequestedAgentCall } from "../src/domain/agent-result.js";
+import type { RequestedAction } from "../src/domain/agent-result.js";
 import type { TaskArtifactScope } from "../src/domain/artifact.js";
 import {
   AgentCallApprovalRequiredError,
   AgentCallDeniedError,
   AgentCallForbiddenError,
   AgentCallUnavailableError,
+  ActionApprovalRequiredError,
+  ActionDeniedError,
+  ActionUnavailableError,
   AgentConfigurationRemovedError,
   AgentExecutionFailedError,
   AgentInvocationDepthExceededError,
   AgentUnconfiguredError,
   InvalidAgentModelError,
   InvalidAgentResultError,
+  InvalidActionContinuationError,
   InvalidProviderRouteError,
   NoProjectBoundError,
   NoTaskBoundError,
@@ -191,6 +196,13 @@ function requestedCall(
     purpose,
     handoff: { caller, target, purpose, summary },
   };
+}
+
+function requestedAction(
+  action: RequestedAction["action"],
+  reason = `Permission is needed for ${action}`,
+): RequestedAction {
+  return { action, reason };
 }
 
 test("USER invokes QUESTIONER once with routed context and persisted working state", async (t) => {
@@ -405,9 +417,10 @@ test("USER invokes CODER in autonomous mode with no plan", async (t) => {
   const sessionId = "invoke-coder-autonomous";
   await bindTask(fixture, sessionId);
   await configure(fixture, "coder");
-  const executor = new FakeAgentExecutor(({ context }) => {
+  const executor = new FakeAgentExecutor(({ context, executionPolicy }) => {
     assert.equal(context.plan?.current, null);
     assert.equal(context.plan?.hasPendingDraft, false);
+    assert.equal(executionPolicy.sourceModification, "workspace_write");
     return {
       agent: "coder",
       outcome: "success",
@@ -478,7 +491,8 @@ test("USER invokes REVIEWER only with Coder evidence and persists complete revie
     };
   });
 
-  const result = await service(fixture, executor).invokeUserAgent({
+  const invocation = service(fixture, executor);
+  const result = await invocation.invokeUserAgent({
     sessionId,
     agent: "reviewer",
     host: { provider: "openai", surface: "vscode" },
@@ -2058,4 +2072,451 @@ test("REVIEWER helper applies its own result but never archives the task", async
     false,
   );
   assert.equal(executor.calls.length, 2);
+});
+
+test("action requests classify allow, ask, deny, and default deny in result order", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "action-rule-matrix";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "researcher");
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "network" },
+    "deny",
+  );
+  await fixture.rules.setRule(
+    "project",
+    { kind: "action", action: "network" },
+    "ask",
+    { projectId: fixture.project.id },
+  );
+  await fixture.rules.setRule(
+    "task",
+    { kind: "action", action: "network" },
+    "allow",
+    { projectId: fixture.project.id, taskId: fixture.task.id },
+  );
+  await fixture.rules.setRule(
+    "project",
+    { kind: "action", action: "git_push" },
+    "ask",
+    { projectId: fixture.project.id },
+  );
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "ci" },
+    "deny",
+  );
+  const executor = new FakeAgentExecutor(({ executionPolicy }) => {
+    assert.equal(executionPolicy.sourceModification, "read_only");
+    assert.deepEqual(executionPolicy.actions.network, {
+      decision: "allow",
+      source: "task",
+      approvedForInvocation: false,
+    });
+    assert.deepEqual(executionPolicy.actions.git_push, {
+      decision: "ask",
+      source: "project",
+      approvedForInvocation: false,
+    });
+    return {
+      agent: "researcher",
+      outcome: "success",
+      summary: "Action classification requested.",
+      researchArtifact: { findings: ["local"] },
+      requestedActions: [
+        requestedAction("network"),
+        requestedAction("git_push"),
+        requestedAction("ci"),
+      ],
+    };
+  });
+
+  const result = await service(fixture, executor).invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+
+  assert.deepEqual(
+    result.actionClassifications.map(({ status }) => status),
+    ["allowed", "approval_required", "denied"],
+  );
+  assert.deepEqual(
+    result.actionClassifications.map(({ effectiveRule }) =>
+      effectiveRule?.source
+    ),
+    ["task", "project", "global"],
+  );
+  assert.deepEqual(
+    result.processedResult.requestedActions,
+    result.actionClassifications.map(({ request }) => request),
+  );
+
+  await fixture.rules.removeRule(
+    "global",
+    { kind: "action", action: "ci" },
+  );
+  const defaultExecutor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Default-denied action requested.",
+    researchArtifact: { findings: [] },
+    requestedActions: [requestedAction("ci")],
+  }));
+  const defaultResult = await service(
+    fixture,
+    defaultExecutor,
+  ).invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(defaultResult.actionClassifications[0]?.status, "denied");
+  assert.equal(
+    defaultResult.actionClassifications[0]?.effectiveRule?.source,
+    "default_deny",
+  );
+});
+
+test("direct USER invocation applies action rules and action/helper requests coexist", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "direct-user-action-policy";
+  await bindProject(fixture, sessionId);
+  await configure(fixture, "researcher");
+  await fixture.rules.setRule(
+    "global",
+    { kind: "agent_call", caller: "researcher", target: "examiner" },
+    "allow",
+  );
+  const executor = new FakeAgentExecutor(({ executionPolicy }) => {
+    assert.deepEqual(executionPolicy.actions.network, {
+      decision: "ask",
+      source: "global",
+      approvedForInvocation: false,
+    });
+    return {
+      agent: "researcher",
+      outcome: "blocked",
+      summary: "Both permissions requested.",
+      researchArtifact: { findings: [] },
+      requestedCalls: [
+        requestedCall("researcher", "examiner", "memory_update"),
+      ],
+      requestedActions: [requestedAction("network")],
+    };
+  });
+
+  const result = await service(fixture, executor).invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+
+  assert.equal(result.helperCalls[0]?.status, "allowed");
+  assert.equal(result.actionClassifications[0]?.status, "approval_required");
+});
+
+test("malformed requested action and unexpected classification failure mutate no workflow state", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "invalid-action-no-mutation";
+  await bindProject(fixture, sessionId);
+  await configure(fixture, "researcher");
+  const malformedExecutor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Malformed action.",
+    researchArtifact: { findings: [] },
+    requestedActions: [{ action: "shell", reason: "Not a known action." }],
+  }));
+
+  await assert.rejects(
+    service(fixture, malformedExecutor).invokeUserAgent({
+      sessionId,
+      agent: "researcher",
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    InvalidAgentResultError,
+  );
+  assert.deepEqual(
+    await fixture.artifacts.listResearchArtifacts({
+      kind: "project",
+      projectId: fixture.project.id,
+    }),
+    [],
+  );
+
+  const classificationFailureExecutor = new FakeAgentExecutor(async () => {
+    await fixture.store.writeText("rules.jsonc", "{ invalid jsonc");
+    return {
+      agent: "researcher",
+      outcome: "success",
+      summary: "Valid result before classification failure.",
+      researchArtifact: { findings: [] },
+      requestedActions: [requestedAction("network")],
+    };
+  });
+  await assert.rejects(
+    service(fixture, classificationFailureExecutor).invokeUserAgent({
+      sessionId,
+      agent: "researcher",
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    SyntaxError,
+  );
+  assert.deepEqual(
+    await fixture.artifacts.listResearchArtifacts({
+      kind: "project",
+      projectId: fixture.project.id,
+    }),
+    [],
+  );
+});
+
+test("corrupt action rule is unavailable while the valid main result is processed", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "action-rule-unavailable";
+  await bindProject(fixture, sessionId);
+  await configure(fixture, "researcher");
+  const executor = new FakeAgentExecutor(async () => {
+    await fixture.store.writeJson("rules.jsonc", {
+      agent_calls: {},
+      actions: { network: "corrupt" },
+    });
+    return {
+      agent: "researcher",
+      outcome: "success",
+      summary: "Main result remains valid.",
+      researchArtifact: { findings: ["persist me"] },
+      requestedActions: [requestedAction("network")],
+    };
+  });
+
+  const invocation = service(fixture, executor);
+  const result = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+
+  assert.deepEqual(result.actionClassifications[0], {
+    status: "unavailable",
+    request: requestedAction("network"),
+    effectiveRule: null,
+    errorCode: "INVALID_RULE_VALUE",
+  });
+  await assert.rejects(
+    invocation.resumeCallerWithActionApproval({
+      sessionId,
+      previousInvocation: result,
+      actionClassification: result.actionClassifications[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    InvalidActionContinuationError,
+  );
+  assert.equal(executor.calls.length, 1);
+  assert.equal(
+    (
+      await fixture.artifacts.listResearchArtifacts({
+        kind: "project",
+        projectId: fixture.project.id,
+      })
+    ).length,
+    1,
+  );
+});
+
+test("one-time action approval resumes with fresh context and is never persisted", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "one-time-action-approval";
+  await bindProject(fixture, sessionId);
+  await configure(fixture, "researcher");
+  const observedApprovals: boolean[] = [];
+  const observedMemory: Array<string | null> = [];
+  const executor = new FakeAgentExecutor(({ context, executionPolicy }) => {
+    observedApprovals.push(
+      executionPolicy.actions.network.approvedForInvocation,
+    );
+    observedMemory.push(context.memory.project.content);
+    return {
+      agent: "researcher",
+      outcome: "success",
+      summary: "Research invocation complete.",
+      researchArtifact: { findings: [] },
+      ...(observedApprovals.length === 1
+        ? { requestedActions: [requestedAction("network")] }
+        : {}),
+    };
+  });
+  const invocation = service(fixture, executor);
+  const rulesBefore = await fixture.store.readText("rules.jsonc");
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  const classification = parent.actionClassifications[0]!;
+
+  await assert.rejects(
+    invocation.resumeCallerWithActionApproval({
+      sessionId,
+      previousInvocation: parent,
+      actionClassification: {
+        ...classification,
+        request: requestedAction("ci"),
+      },
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    InvalidActionContinuationError,
+  );
+  assert.equal(executor.calls.length, 1);
+
+  await assert.rejects(
+    invocation.resumeCallerWithActionApproval({
+      sessionId,
+      previousInvocation: parent,
+      actionClassification: classification,
+      approvalGranted: false,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    (error: unknown) =>
+      error instanceof ActionApprovalRequiredError &&
+      error.code === "ACTION_APPROVAL_REQUIRED",
+  );
+  assert.equal(executor.calls.length, 1);
+
+  await fixture.memory.replaceCanonicalMemory(
+    { kind: "project", projectId: fixture.project.id },
+    "fresh continuation memory",
+  );
+
+  const resumed = await invocation.resumeCallerWithActionApproval({
+    sessionId,
+    previousInvocation: parent,
+    actionClassification: classification,
+    approvalGranted: true,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(
+    resumed.lineage.parentInvocationId,
+    parent.lineage.currentInvocationId,
+  );
+  assert.deepEqual(observedApprovals, [false, true]);
+  assert.deepEqual(observedMemory, [null, "fresh continuation memory"]);
+  assert.equal(await fixture.store.readText("rules.jsonc"), rulesBefore);
+
+  await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.deepEqual(observedApprovals, [false, true, false]);
+});
+
+test("action approval re-resolves current rules and denied classifications cannot be approved", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "action-approval-revalidation";
+  await bindProject(fixture, sessionId);
+  await configure(fixture, "researcher");
+  const executor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Action requested.",
+    researchArtifact: { findings: [] },
+    requestedActions: [requestedAction("network")],
+  }));
+  const invocation = service(fixture, executor);
+  const askParent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+
+  await fixture.store.writeJson("rules.jsonc", {
+    agent_calls: {},
+    actions: { network: "corrupt", git_push: "ask", ci: "ask" },
+  });
+  await assert.rejects(
+    invocation.resumeCallerWithActionApproval({
+      sessionId,
+      previousInvocation: askParent,
+      actionClassification: askParent.actionClassifications[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    (error: unknown) =>
+      error instanceof ActionUnavailableError &&
+      error.code === "ACTION_UNAVAILABLE",
+  );
+  assert.equal(executor.calls.length, 1);
+  await fixture.store.writeJson("rules.jsonc", {
+    agent_calls: {},
+    actions: { network: "ask", git_push: "ask", ci: "ask" },
+  });
+
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "network" },
+    "deny",
+  );
+  await assert.rejects(
+    invocation.resumeCallerWithActionApproval({
+      sessionId,
+      previousInvocation: askParent,
+      actionClassification: askParent.actionClassifications[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    (error: unknown) =>
+      error instanceof ActionDeniedError && error.code === "ACTION_DENIED",
+  );
+  assert.equal(executor.calls.length, 1);
+
+  const deniedParent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await assert.rejects(
+    invocation.resumeCallerWithActionApproval({
+      sessionId,
+      previousInvocation: deniedParent,
+      actionClassification: deniedParent.actionClassifications[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    (error: unknown) =>
+      error instanceof InvalidActionContinuationError &&
+      error.code === "INVALID_ACTION_CONTINUATION",
+  );
+
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "network" },
+    "ask",
+  );
+  const secondAskParent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "network" },
+    "allow",
+  );
+  const allowedResume = await invocation.resumeCallerWithActionApproval({
+    sessionId,
+    previousInvocation: secondAskParent,
+    actionClassification: secondAskParent.actionClassifications[0]!,
+    approvalGranted: false,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.deepEqual(allowedResume.executionPolicy.actions.network, {
+    decision: "allow",
+    source: "global",
+    approvedForInvocation: false,
+  });
 });

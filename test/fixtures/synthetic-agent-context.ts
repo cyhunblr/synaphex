@@ -2,6 +2,11 @@ import { RoleContractRegistry } from "../../src/core/role-contract-registry.js";
 import type { AgentName } from "../../src/domain/agent.js";
 import type { AgentContext } from "../../src/domain/agent-context.js";
 import type { AgentBehavior } from "../../src/domain/agent-behavior.js";
+import type {
+  ExecutionActionPolicy,
+  ExecutionPolicy,
+} from "../../src/domain/execution-policy.js";
+import type { ActionName } from "../../src/domain/rule.js";
 
 export function syntheticAgentContext(
   agent: AgentName,
@@ -113,6 +118,29 @@ export function syntheticAgentContext(
       purpose: "research",
       summary: "CONTINUATION_HANDOFF",
       artifactRefs: ["artifact_selected"],
+    },
+  };
+}
+
+export function syntheticExecutionPolicy(
+  agent: AgentName,
+  overrides: Partial<Record<ActionName, ExecutionActionPolicy>> = {},
+): ExecutionPolicy {
+  const sourceModification = new RoleContractRegistry().getSnapshot(agent)
+    .mayModifySourceCode
+    ? "workspace_write"
+    : "read_only";
+  const denied: ExecutionActionPolicy = {
+    decision: "deny",
+    source: "default_deny",
+    approvedForInvocation: false,
+  };
+  return {
+    sourceModification,
+    actions: {
+      git_push: overrides.git_push ?? denied,
+      network: overrides.network ?? denied,
+      ci: overrides.ci ?? denied,
     },
   };
 }

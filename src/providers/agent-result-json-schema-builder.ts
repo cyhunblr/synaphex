@@ -7,6 +7,7 @@ import {
   REVIEWER_STATUSES,
 } from "../domain/agent-result.js";
 import type { AgentContext } from "../domain/agent-context.js";
+import { ACTION_NAMES } from "../domain/rule.js";
 
 export type AgentResultJsonSchema = Readonly<Record<string, unknown>>;
 
@@ -85,6 +86,13 @@ function resultObject(
     requestedCalls: nullable({
       type: "array",
       items: requestedCallSchema(agent),
+    }),
+    requestedActions: nullable({
+      type: "array",
+      items: strictObjectSchema({
+        action: stringEnumSchema(ACTION_NAMES),
+        reason: nonEmptyStringSchema(),
+      }),
     }),
     ...roleProperties,
   });
