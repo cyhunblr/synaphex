@@ -6,7 +6,7 @@ import type {
   ExecutionActionPolicy,
   ExecutionPolicy,
 } from "../../src/domain/execution-policy.js";
-import type { ActionName } from "../../src/domain/rule.js";
+import type { ProviderCapabilityName } from "../../src/domain/action.js";
 
 export function syntheticAgentContext(
   agent: AgentName,
@@ -124,7 +124,7 @@ export function syntheticAgentContext(
 
 export function syntheticExecutionPolicy(
   agent: AgentName,
-  overrides: Partial<Record<ActionName, ExecutionActionPolicy>> = {},
+  overrides: Partial<Record<ProviderCapabilityName, ExecutionActionPolicy>> = {},
 ): ExecutionPolicy {
   const sourceModification = new RoleContractRegistry().getSnapshot(agent)
     .mayModifySourceCode
@@ -137,10 +137,8 @@ export function syntheticExecutionPolicy(
   };
   return {
     sourceModification,
-    actions: {
-      git_push: overrides.git_push ?? denied,
+    providerCapabilities: {
       network: overrides.network ?? denied,
-      ci: overrides.ci ?? denied,
     },
   };
 }

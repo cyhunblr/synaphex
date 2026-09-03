@@ -1,10 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  access,
-  mkdtemp,
-  readdir,
-  rm,
-} from "node:fs/promises";
+import { access, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,19 +8,23 @@ import { RoleContractRegistry } from "../../src/core/role-contract-registry.js";
 import type { AgentContext } from "../../src/domain/agent-context.js";
 import type { AgentExecutionInput } from "../../src/domain/agent-invocation.js";
 import { CodexCliExecutionError } from "../../src/domain/errors.js";
+import type { ExecutionPolicy } from "../../src/domain/execution-policy.js";
 import { SpawnProcessRunner } from "../../src/infrastructure/process-runner.js";
 import { CodexCliAgentExecutor } from "../../src/providers/codex-cli-agent-executor.js";
-import type { ExecutionPolicy } from "../../src/domain/execution-policy.js";
+import {
+  CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE,
+  resolveCodexExecutionPolicy,
+} from "../../src/providers/codex-execution-policy-resolver.js";
 
-const liveEnabled = process.env.SYNAPHEX_CODEX_LIVE_TEST === "1";
+const liveEnabled = process.env.SYNAPHEX_CODEX_NETWORK_LIVE_TEST === "1";
 const liveModel = process.env.SYNAPHEX_CODEX_LIVE_MODEL?.trim() ?? "";
 const shouldRun = liveEnabled && liveModel.length > 0;
 
 test(
-  "live Codex CLI adapter returns a validated RESEARCHER result",
+  "live Codex CLI maps enabled CODER network and performs a harmless HTTPS check",
   { skip: shouldRun ? false : skipReason() },
   async () => {
-    const root = await mkdtemp(join(tmpdir(), "synaphex-codex-live-"));
+    const root = await mkdtemp(join(tmpdir(), "synaphex-codex-network-live-"));
     const sourcePath = join(root, "source");
     const processRunner = new SpawnProcessRunner();
     const temporaryDirectoriesBefore = await listAdapterTemporaryDirectories();
@@ -39,13 +38,19 @@ test(
         timeoutMs: 10_000,
         terminationGraceMs: 1_000,
       });
-      assert.equal(git.exitCode, 0, "git init failed for live smoke workspace");
+      assert.equal(git.exitCode, 0, "git init failed for network smoke workspace");
       assert.equal(git.timedOut, false, "git init timed out");
 
-      const context = researcherContext(sourcePath);
+      const executionPolicy = networkEnabledCoderPolicy();
+      assert.deepEqual(resolveCodexExecutionPolicy(executionPolicy), {
+        sandbox: "workspace-write",
+        network: "enabled",
+        mechanism: "legacy_workspace_write_override",
+        configOverrides: [CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE],
+      });
       const input: AgentExecutionInput = {
         route: {
-          agent: "researcher",
+          agent: "coder",
           host: { provider: "openai", surface: "cli" },
           provider: "openai",
           configuredSurface: "cli",
@@ -55,29 +60,32 @@ test(
           model: liveModel,
           settings: {},
         },
-        context,
-        executionPolicy: readOnlySmokePolicy(),
+        context: coderContext(sourcePath),
+        executionPolicy,
       };
 
-      stage = "Codex process execution / output parsing";
+      stage = "Codex process execution / network reachability / output parsing";
       const rawResult = await new CodexCliAgentExecutor({
         includeStderrDiagnostic: true,
       }).execute(input);
       stage = "AgentResult runtime validation";
-      const validated = validateAgentResult("researcher", rawResult);
+      const validated = validateAgentResult("coder", rawResult);
 
-      assert.equal(validated.agent, "researcher");
+      assert.equal(validated.agent, "coder");
       assert.equal(validated.outcome, "success");
-      assert.deepEqual(Object.keys(validated.researchArtifact).sort(), [
-        "findings",
+      assert.deepEqual(Object.keys(validated.workRecord).sort(), [
+        "files_changed",
+        "network_check",
       ]);
-      const findings = validated.researchArtifact.findings;
-      assert.equal(typeof findings, "string");
-      assert.ok(typeof findings === "string" && findings.trim().length > 0);
+      assert.deepEqual(validated.workRecord.files_changed, []);
+      assert.equal(
+        validated.workRecord.network_check,
+        "openai_robots_reachable",
+      );
       assert.equal(validated.requestedCalls?.length ?? 0, 0);
       assert.equal(validated.requestedActions?.length ?? 0, 0);
 
-      stage = "read-only workspace safety validation";
+      stage = "workspace and adapter temporary-file safety validation";
       const gitStatus = await processRunner.run({
         executable: "git",
         args: ["status", "--porcelain", "--untracked-files=all"],
@@ -98,11 +106,11 @@ test(
       );
 
       console.log(
-        `[codex-live] validated agent=${validated.agent} outcome=${validated.outcome} payloadFields=${Object.keys(validated.researchArtifact).join(",")} helperCalls=${validated.requestedCalls?.length ?? 0}`,
+        `[codex-network-live] validated agent=${validated.agent} outcome=${validated.outcome} networkCheck=${String(validated.workRecord.network_check)} helperCalls=${validated.requestedCalls?.length ?? 0}`,
       );
     } catch (error) {
       console.error(
-        `[codex-live] failed stage=${stage} diagnostic=${boundedDiagnostic(error)}`,
+        `[codex-network-live] failed stage=${stage} diagnostic=${boundedDiagnostic(error)}`,
       );
       throw error;
     } finally {
@@ -111,26 +119,49 @@ test(
   },
 );
 
-function researcherContext(sourcePath: string): AgentContext {
-  const projectId = "prj_codex_live" as const;
+function coderContext(sourcePath: string): AgentContext {
+  const projectId = "prj_codex_network_live" as const;
+  const taskId = "task_codex_network_live" as const;
   return {
-    agent: "researcher",
+    agent: "coder",
     project: {
       id: projectId,
-      name: "Codex Live Smoke",
+      name: "Codex Network Live Smoke",
       sourcePath,
       createdAt: "2026-01-01T00:00:00.000Z",
     },
-    task: null,
-    roleContract: new RoleContractRegistry().getSnapshot("researcher"),
-    rules: { outgoingAgentCalls: [], actions: [] },
+    task: {
+      id: taskId,
+      projectId,
+      slug: "codex-network-live-smoke",
+      description: "Verify the native Codex network capability mapping",
+      status: "active",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      completedAt: null,
+      archivedAt: null,
+    },
+    roleContract: new RoleContractRegistry().getSnapshot("coder"),
+    rules: {
+      outgoingAgentCalls: [],
+      actions: [
+        {
+          key: { kind: "action", action: "network" },
+          decision: "allow",
+          source: "global",
+        },
+      ],
+    },
     memory: {
       project: {
         scope: { kind: "project", projectId },
         hasContent: false,
         content: null,
       },
-      task: null,
+      task: {
+        scope: { kind: "task", projectId, taskId },
+        hasContent: false,
+        content: null,
+      },
       directlyLoaded: [],
     },
     plan: null,
@@ -141,22 +172,21 @@ function researcherContext(sourcePath: string): AgentContext {
       latestReviewerReport: null,
       explicitlyReferenced: [],
     },
-    behavior: { outputFields: ["findings"] },
+    behavior: { outputFields: ["files_changed", "network_check"] },
     instruction:
-      "Return a successful RESEARCHER result for this smoke test. Set the Researcher payload's only field, findings, to a short value indicating that the Codex live adapter worked. Do not request any helper agent calls or actions. Do not use the web and do not modify files.",
+      "Perform a real, read-only HTTPS reachability check by running: curl -L --fail --silent --show-error --max-time 20 https://www.openai.com/robots.txt . Verify that the response contains 'User-agent' (case-insensitive). Do not claim success unless curl succeeds and that text is present. Do not modify project files. Return a successful CODER result whose payload contains exactly files_changed=[] and network_check='openai_robots_reachable'. Do not request helper calls or actions.",
   };
 }
 
-function readOnlySmokePolicy(): ExecutionPolicy {
-  const approvalRequired = {
-    decision: "ask",
-    source: "global",
-    approvedForInvocation: false,
-  } as const;
+function networkEnabledCoderPolicy(): ExecutionPolicy {
   return {
-    sourceModification: "read_only",
+    sourceModification: "workspace_write",
     providerCapabilities: {
-      network: approvalRequired,
+      network: {
+        decision: "allow",
+        source: "global",
+        approvedForInvocation: false,
+      },
     },
   };
 }
@@ -173,7 +203,7 @@ async function listAdapterTemporaryDirectories(): Promise<string[]> {
 
 function skipReason(): string {
   if (!liveEnabled) {
-    return "set SYNAPHEX_CODEX_LIVE_TEST=1 and SYNAPHEX_CODEX_LIVE_MODEL=<model>";
+    return "set SYNAPHEX_CODEX_NETWORK_LIVE_TEST=1 and SYNAPHEX_CODEX_LIVE_MODEL=<model>";
   }
   return "set SYNAPHEX_CODEX_LIVE_MODEL=<model>";
 }

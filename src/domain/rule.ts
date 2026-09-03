@@ -1,4 +1,9 @@
 import type { AgentName } from "./agent.js";
+export {
+  ACTION_NAMES,
+  isActionName,
+  type ActionName,
+} from "./action.js";
 
 export const RULE_DECISIONS = ["allow", "ask", "deny"] as const;
 export type RuleDecision = (typeof RULE_DECISIONS)[number];
@@ -6,9 +11,6 @@ export type RuleDecision = (typeof RULE_DECISIONS)[number];
 export const RULE_SCOPES = ["global", "project", "task"] as const;
 export type RuleScope = (typeof RULE_SCOPES)[number];
 export type RuleViewScope = RuleScope | "effective";
-
-export const ACTION_NAMES = ["git_push", "network", "ci"] as const;
-export type ActionName = (typeof ACTION_NAMES)[number];
 
 export interface AgentCallRuleKey {
   readonly kind: "agent_call";
@@ -36,10 +38,6 @@ export interface EffectiveRule extends ScopedRule {
 
 export function isRuleDecision(value: unknown): value is RuleDecision {
   return value === "allow" || value === "ask" || value === "deny";
-}
-
-export function isActionName(value: unknown): value is ActionName {
-  return (ACTION_NAMES as readonly unknown[]).includes(value);
 }
 
 export function formatRuleKey(key: RuleKey): string {

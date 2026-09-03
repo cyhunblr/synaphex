@@ -22,7 +22,8 @@ test("prompt serializes only selected structured context with explicit protectio
     "CURRENT PLAN STATE",
     "RELEVANT ARTIFACTS",
     "EFFECTIVE RULES",
-    "EXECUTION POLICY",
+    "PROVIDER CAPABILITY POLICY",
+    "SYNAPHEX HOST ACTIONS",
     "OUTPUT CONTRACT",
     "USER INSTRUCTION / HANDOFF",
   ]) {
@@ -40,9 +41,46 @@ test("prompt serializes only selected structured context with explicit protectio
   assert.match(prompt, /requestedActions/);
   assert.match(prompt, /"network": \{/);
   assert.match(prompt, /"state": "denied"/);
+  assert.match(prompt, /Network capability is denied/);
+  assert.match(prompt, /git_push and ci are Synaphex host actions/);
+  assert.match(prompt, /Do not directly execute host actions/);
+  assert.match(prompt, /Local Git operations may be part of implementation/);
+  assert.match(prompt, /never push directly/);
+  assert.match(prompt, /configured project CI action/);
   assert.match(prompt, /Do not directly create, edit, delete, or otherwise mutate Synaphex internal state under ~\/\.synaphex/);
   assert.doesNotMatch(prompt, /TRANSITIVE_OR_UNRELATED_MEMORY/);
   assert.doesNotMatch(prompt, /UNRELATED_ARCHIVED_ARTIFACT/);
+});
+
+test("prompt reports enabled and approval-required network state precisely", () => {
+  const serializer = new AgentPromptSerializer();
+  const enabled = serializer.serialize(
+    syntheticAgentContext("coder", "/source"),
+    syntheticExecutionPolicy("coder", {
+      network: {
+        decision: "ask",
+        source: "global",
+        approvedForInvocation: true,
+      },
+    }),
+  );
+  const approvalRequired = serializer.serialize(
+    syntheticAgentContext("coder", "/source"),
+    syntheticExecutionPolicy("coder", {
+      network: {
+        decision: "ask",
+        source: "global",
+        approvedForInvocation: false,
+      },
+    }),
+  );
+
+  assert.match(enabled, /"state": "enabled"/);
+  assert.match(enabled, /Network capability is enabled for this invocation/);
+  assert.doesNotMatch(enabled, /return a network request/);
+  assert.match(approvalRequired, /"state": "approval_required"/);
+  assert.match(approvalRequired, /return a network request through requestedActions/);
+  assert.doesNotMatch(approvalRequired, /Network capability is enabled/);
 });
 
 test("shared serializer emits concise role-specific immutable instructions", () => {

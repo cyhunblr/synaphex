@@ -1,6 +1,8 @@
 import type { AgentName } from "../domain/agent.js";
 import type { AgentContext } from "../domain/agent-context.js";
 import type { ExecutionPolicy } from "../domain/execution-policy.js";
+import { isProviderCapabilityUsable } from "../domain/execution-policy.js";
+import { HOST_ACTION_NAMES } from "../domain/action.js";
 
 const ROLE_INSTRUCTIONS = {
   questioner: [
@@ -25,6 +27,8 @@ const ROLE_INSTRUCTIONS = {
   ],
   coder: [
     "Act as the implementation agent and modify source only as permitted by the sandbox.",
+    "Local Git operations may be part of implementation subject to native runtime restrictions.",
+    "git_push is a Synaphex host action: never push directly; request it through structured requestedActions.",
     "When an accepted plan exists, treat it as authoritative and do not silently alter it.",
     "Do not invoke REVIEWER as a workflow transition.",
     "Represent helper requests only through structured requestedCalls.",
@@ -38,6 +42,7 @@ const ROLE_INSTRUCTIONS = {
 
 export class AgentPromptSerializer {
   serialize(context: AgentContext, executionPolicy: ExecutionPolicy): string {
+    const networkPolicy = executionPolicy.providerCapabilities.network;
     const sections = [
       section(
         "SYNAPHEX AGENT",
@@ -74,32 +79,44 @@ export class AgentPromptSerializer {
       section("RELEVANT ARTIFACTS", formatJson(context.artifacts)),
       section("EFFECTIVE RULES", formatJson(context.rules)),
       section(
-        "EXECUTION POLICY",
+        "PROVIDER CAPABILITY POLICY",
         [
           formatJson({
             sourceModification: executionPolicy.sourceModification,
-            actions: Object.fromEntries(
-              Object.entries(executionPolicy.actions).map(([action, policy]) => [
-                action,
-                {
-                  state:
-                    policy.decision === "allow" ||
-                    (policy.decision === "ask" &&
-                      policy.approvedForInvocation)
+            providerCapabilities: Object.fromEntries(
+              Object.entries(executionPolicy.providerCapabilities).map(
+                ([capability, policy]) => [
+                  capability,
+                  {
+                    state: isProviderCapabilityUsable(policy)
                       ? "enabled"
                       : policy.decision === "ask"
                         ? "approval_required"
                         : "denied",
-                  decision: policy.decision,
-                  source: policy.source,
-                  approvedForInvocation: policy.approvedForInvocation,
-                },
-              ]),
+                    decision: policy.decision,
+                    source: policy.source,
+                    approvedForInvocation: policy.approvedForInvocation,
+                  },
+                ],
+              ),
             ),
           }),
-          "If an action requires approval, do not attempt to bypass the restriction; return it through requestedActions.",
-          "If an action is denied, do not attempt it.",
-          "If an action is enabled, the provider runtime may expose it only through provider-native enforcement.",
+          "network is a provider capability enforced by the provider runtime.",
+          networkInstruction(networkPolicy),
+        ].join("\n"),
+      ),
+      section(
+        "SYNAPHEX HOST ACTIONS",
+        [
+          formatJson(
+            HOST_ACTION_NAMES.map((action) => ({
+              action,
+              executionKind: "host_action",
+            })),
+          ),
+          "git_push and ci are Synaphex host actions, not provider capabilities.",
+          "Do not directly execute host actions. Request them through requestedActions; Synaphex authorizes and performs them separately.",
+          "ci means requesting Synaphex to execute the configured project CI action; no command or workflow identifier may be supplied.",
         ].join("\n"),
       ),
       section(
@@ -129,6 +146,18 @@ export class AgentPromptSerializer {
     ];
     return `${sections.join("\n\n")}\n`;
   }
+}
+
+function networkInstruction(
+  policy: ExecutionPolicy["providerCapabilities"]["network"],
+): string {
+  if (isProviderCapabilityUsable(policy)) {
+    return "Network capability is enabled for this invocation.";
+  }
+  if (policy.decision === "ask") {
+    return "Network capability is not enabled. Do not attempt to bypass the restriction; return a network request through requestedActions.";
+  }
+  return "Network capability is denied. Do not attempt network access.";
 }
 
 function section(title: string, body: string): string {

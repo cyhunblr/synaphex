@@ -1,9 +1,9 @@
 import type { RoleContractSnapshot } from "./agent-context.js";
 import type {
-  ActionName,
   EffectiveRuleSource,
   RuleDecision,
 } from "./rule.js";
+import type { ProviderCapabilityName } from "./action.js";
 
 export const SOURCE_MODIFICATION_POLICIES = [
   "read_only",
@@ -13,7 +13,7 @@ export const SOURCE_MODIFICATION_POLICIES = [
 export type SourceModificationPolicy =
   (typeof SOURCE_MODIFICATION_POLICIES)[number];
 
-export interface ExecutionActionPolicy {
+export interface ProviderCapabilityPolicy {
   readonly decision: RuleDecision;
   readonly source: EffectiveRuleSource;
   readonly approvedForInvocation: boolean;
@@ -21,8 +21,12 @@ export interface ExecutionActionPolicy {
 
 export interface ExecutionPolicy {
   readonly sourceModification: SourceModificationPolicy;
-  readonly actions: Readonly<Record<ActionName, ExecutionActionPolicy>>;
+  readonly providerCapabilities: Readonly<
+    Record<ProviderCapabilityName, ProviderCapabilityPolicy>
+  >;
 }
+
+export type ExecutionActionPolicy = ProviderCapabilityPolicy;
 
 export function sourceModificationPolicy(
   contract: RoleContractSnapshot,
@@ -30,9 +34,13 @@ export function sourceModificationPolicy(
   return contract.mayModifySourceCode ? "workspace_write" : "read_only";
 }
 
-export function isActionUsable(policy: ExecutionActionPolicy): boolean {
+export function isProviderCapabilityUsable(
+  policy: ProviderCapabilityPolicy,
+): boolean {
   return (
     policy.decision === "allow" ||
     (policy.decision === "ask" && policy.approvedForInvocation)
   );
 }
+
+export const isActionUsable = isProviderCapabilityUsable;

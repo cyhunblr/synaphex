@@ -22,6 +22,9 @@ import type { HostRuntime } from "./provider-routing.js";
 import type { EffectiveRule } from "./rule.js";
 import type { SessionId } from "./session.js";
 import type { SynaphexErrorCode } from "./errors.js";
+import type { ActionExecutionKind } from "./action.js";
+import type { ProjectId } from "./project.js";
+import type { TaskId } from "./task.js";
 
 export interface AgentExecutionInput {
   readonly route: ExecutionRoute;
@@ -48,6 +51,12 @@ export interface InvocationLineage {
   readonly parentInvocationId: InvocationId | null;
   readonly depth: number;
   readonly agent: AgentName;
+}
+
+export interface InvocationScopeReference {
+  readonly sessionId: SessionId;
+  readonly projectId: ProjectId;
+  readonly taskId: TaskId | null;
 }
 
 export const HELPER_CALL_CLASSIFICATIONS = [
@@ -122,6 +131,7 @@ export type ActionClassificationStatus =
 export interface ResolvedActionClassification {
   readonly status: "allowed" | "approval_required" | "denied";
   readonly request: RequestedAction;
+  readonly executionKind: ActionExecutionKind;
   readonly effectiveRule: EffectiveRule;
 }
 
@@ -133,6 +143,7 @@ export type ActionUnavailableErrorCode = Extract<
 export interface UnavailableActionClassification {
   readonly status: "unavailable";
   readonly request: RequestedAction;
+  readonly executionKind: ActionExecutionKind;
   readonly effectiveRule: null;
   readonly errorCode: ActionUnavailableErrorCode;
 }
@@ -144,6 +155,7 @@ export type ActionClassification =
 export interface AgentInvocationResult<TAgent extends AgentName = AgentName> {
   readonly agent: TAgent;
   readonly lineage: InvocationLineage;
+  readonly scope: InvocationScopeReference;
   readonly route: ExecutionRoute;
   readonly executionPolicy: ExecutionPolicy;
   readonly processedResult: ProcessedAgentResultFor<TAgent>;

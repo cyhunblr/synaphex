@@ -1,4 +1,9 @@
 import type { AgentName } from "./agent.js";
+import type {
+  ActionExecutionKind,
+  ActionName,
+  HostActionName,
+} from "./action.js";
 import type { AgentProvider } from "./agent-config.js";
 import type { AgentSurface } from "./agent-config.js";
 import type { HostRuntime } from "./provider-routing.js";
@@ -11,7 +16,6 @@ import type {
 } from "./artifact.js";
 import {
   formatRuleKey,
-  type ActionName,
   type EffectiveRuleSource,
   type RuleDecision,
   type RuleKey,
@@ -75,6 +79,11 @@ export const SYNAPHEX_ERROR_CODES = [
   "ACTION_DENIED",
   "ACTION_UNAVAILABLE",
   "INVALID_ACTION_CONTINUATION",
+  "INVALID_ACTION_EXECUTION_KIND",
+  "HOST_ACTION_APPROVAL_REQUIRED",
+  "HOST_ACTION_DENIED",
+  "HOST_ACTION_UNAVAILABLE",
+  "INVALID_HOST_ACTION_AUTHORIZATION",
   "AGENT_INVOCATION_DEPTH_EXCEEDED",
   "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
   "CODEX_CLI_EXECUTION_FAILED",
@@ -681,6 +690,59 @@ export class InvalidActionContinuationError extends SynaphexError<"INVALID_ACTIO
     super(
       "INVALID_ACTION_CONTINUATION",
       `Invalid action-approval continuation: ${reason}`,
+      { reason },
+    );
+  }
+}
+
+export class InvalidActionExecutionKindError extends SynaphexError<"INVALID_ACTION_EXECUTION_KIND"> {
+  constructor(
+    action: ActionName,
+    expected: ActionExecutionKind,
+    actual: ActionExecutionKind,
+  ) {
+    super(
+      "INVALID_ACTION_EXECUTION_KIND",
+      `Action ${action} cannot use the ${expected} execution path`,
+      { action, expected, actual },
+    );
+  }
+}
+
+export class HostActionApprovalRequiredError extends SynaphexError<"HOST_ACTION_APPROVAL_REQUIRED"> {
+  constructor(action: HostActionName, source: EffectiveRuleSource) {
+    super(
+      "HOST_ACTION_APPROVAL_REQUIRED",
+      `One-time approval is required for host action: ${action}`,
+      { action, source },
+    );
+  }
+}
+
+export class HostActionDeniedError extends SynaphexError<"HOST_ACTION_DENIED"> {
+  constructor(action: HostActionName, source: EffectiveRuleSource) {
+    super("HOST_ACTION_DENIED", `Host action is denied: ${action}`, {
+      action,
+      source,
+    });
+  }
+}
+
+export class HostActionUnavailableError extends SynaphexError<"HOST_ACTION_UNAVAILABLE"> {
+  constructor(action: HostActionName, classificationErrorCode: string | null) {
+    super(
+      "HOST_ACTION_UNAVAILABLE",
+      `Host-action permission is unavailable: ${action}`,
+      { action, classificationErrorCode },
+    );
+  }
+}
+
+export class InvalidHostActionAuthorizationError extends SynaphexError<"INVALID_HOST_ACTION_AUTHORIZATION"> {
+  constructor(reason: string) {
+    super(
+      "INVALID_HOST_ACTION_AUTHORIZATION",
+      `Invalid host-action authorization: ${reason}`,
       { reason },
     );
   }

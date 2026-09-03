@@ -23,6 +23,11 @@ import type { AgentProvider, AgentSurface } from "../src/domain/agent-config.js"
 import type { RequestedAgentCall } from "../src/domain/agent-result.js";
 import type { RequestedAction } from "../src/domain/agent-result.js";
 import type { TaskArtifactScope } from "../src/domain/artifact.js";
+import type {
+  HostActionExecutionInput,
+  HostActionExecutor,
+  HostActionResult,
+} from "../src/domain/host-action.js";
 import {
   AgentCallApprovalRequiredError,
   AgentCallDeniedError,
@@ -31,6 +36,9 @@ import {
   ActionApprovalRequiredError,
   ActionDeniedError,
   ActionUnavailableError,
+  HostActionApprovalRequiredError,
+  HostActionDeniedError,
+  HostActionUnavailableError,
   AgentConfigurationRemovedError,
   AgentExecutionFailedError,
   AgentInvocationDepthExceededError,
@@ -38,6 +46,8 @@ import {
   InvalidAgentModelError,
   InvalidAgentResultError,
   InvalidActionContinuationError,
+  InvalidActionExecutionKindError,
+  InvalidHostActionAuthorizationError,
   InvalidProviderRouteError,
   NoProjectBoundError,
   NoTaskBoundError,
@@ -50,6 +60,10 @@ import type { RuntimeAvailability } from "../src/domain/provider-routing.js";
 import type { Project } from "../src/domain/project.js";
 import type { Task } from "../src/domain/task.js";
 import { StateStore } from "../src/infrastructure/state-store.js";
+import {
+  CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE,
+  resolveCodexExecutionPolicy,
+} from "../src/providers/codex-execution-policy-resolver.js";
 
 class FakeAgentExecutor implements AgentExecutor {
   readonly calls: AgentExecutionInput[] = [];
@@ -80,6 +94,19 @@ class FakeRuntimeAvailability implements RuntimeAvailability {
   ): Promise<boolean> {
     this.checks.push({ provider, surface });
     return this.available;
+  }
+}
+
+class FakeHostActionExecutor implements HostActionExecutor {
+  readonly calls: HostActionExecutionInput[] = [];
+
+  async execute(input: HostActionExecutionInput): Promise<HostActionResult> {
+    this.calls.push(input);
+    return {
+      action: input.authorization.action,
+      outcome: "success",
+      summary: "Fake host action executed.",
+    };
   }
 }
 
@@ -2109,16 +2136,13 @@ test("action requests classify allow, ask, deny, and default deny in result orde
   );
   const executor = new FakeAgentExecutor(({ executionPolicy }) => {
     assert.equal(executionPolicy.sourceModification, "read_only");
-    assert.deepEqual(executionPolicy.actions.network, {
+    assert.deepEqual(executionPolicy.providerCapabilities.network, {
       decision: "allow",
       source: "task",
       approvedForInvocation: false,
     });
-    assert.deepEqual(executionPolicy.actions.git_push, {
-      decision: "ask",
-      source: "project",
-      approvedForInvocation: false,
-    });
+    assert.equal("git_push" in executionPolicy.providerCapabilities, false);
+    assert.equal("ci" in executionPolicy.providerCapabilities, false);
     return {
       agent: "researcher",
       outcome: "success",
@@ -2141,6 +2165,10 @@ test("action requests classify allow, ask, deny, and default deny in result orde
   assert.deepEqual(
     result.actionClassifications.map(({ status }) => status),
     ["allowed", "approval_required", "denied"],
+  );
+  assert.deepEqual(
+    result.actionClassifications.map(({ executionKind }) => executionKind),
+    ["provider_capability", "host_action", "host_action"],
   );
   assert.deepEqual(
     result.actionClassifications.map(({ effectiveRule }) =>
@@ -2177,6 +2205,39 @@ test("action requests classify allow, ask, deny, and default deny in result orde
     defaultResult.actionClassifications[0]?.effectiveRule?.source,
     "default_deny",
   );
+
+  await fixture.rules.removeRule(
+    "task",
+    { kind: "action", action: "network" },
+    { projectId: fixture.project.id, taskId: fixture.task.id },
+  );
+  await fixture.rules.removeRule(
+    "project",
+    { kind: "action", action: "network" },
+    { projectId: fixture.project.id },
+  );
+  await fixture.rules.removeRule(
+    "global",
+    { kind: "action", action: "network" },
+  );
+  const defaultPolicyExecutor = new FakeAgentExecutor(({ executionPolicy }) => {
+    assert.deepEqual(executionPolicy.providerCapabilities.network, {
+      decision: "deny",
+      source: "default_deny",
+      approvedForInvocation: false,
+    });
+    return {
+      agent: "researcher",
+      outcome: "success",
+      summary: "Default provider policy checked.",
+      researchArtifact: { findings: [] },
+    };
+  });
+  await service(fixture, defaultPolicyExecutor).invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
 });
 
 test("direct USER invocation applies action rules and action/helper requests coexist", async (t) => {
@@ -2190,7 +2251,7 @@ test("direct USER invocation applies action rules and action/helper requests coe
     "allow",
   );
   const executor = new FakeAgentExecutor(({ executionPolicy }) => {
-    assert.deepEqual(executionPolicy.actions.network, {
+    assert.deepEqual(executionPolicy.providerCapabilities.network, {
       decision: "ask",
       source: "global",
       approvedForInvocation: false,
@@ -2302,6 +2363,7 @@ test("corrupt action rule is unavailable while the valid main result is processe
   assert.deepEqual(result.actionClassifications[0], {
     status: "unavailable",
     request: requestedAction("network"),
+    executionKind: "provider_capability",
     effectiveRule: null,
     errorCode: "INVALID_RULE_VALUE",
   });
@@ -2336,7 +2398,7 @@ test("one-time action approval resumes with fresh context and is never persisted
   const observedMemory: Array<string | null> = [];
   const executor = new FakeAgentExecutor(({ context, executionPolicy }) => {
     observedApprovals.push(
-      executionPolicy.actions.network.approvedForInvocation,
+      executionPolicy.providerCapabilities.network.approvedForInvocation,
     );
     observedMemory.push(context.memory.project.content);
     return {
@@ -2413,6 +2475,118 @@ test("one-time action approval resumes with fresh context and is never persisted
     host: { provider: "openai", surface: "vscode" },
   });
   assert.deepEqual(observedApprovals, [false, true, false]);
+});
+
+test("CODER network allow and one-time approval resolve to the native Codex override", async (t) => {
+  const allowFixture = await createFixture(t);
+  const allowSession = "coder-network-allow";
+  await bindTask(allowFixture, allowSession);
+  await configure(allowFixture, "coder", "openai", "cli");
+  await allowFixture.rules.setRule(
+    "global",
+    { kind: "action", action: "network" },
+    "allow",
+  );
+  const allowExecutor = new FakeAgentExecutor(({ executionPolicy }) => {
+    assert.deepEqual(resolveCodexExecutionPolicy(executionPolicy), {
+      sandbox: "workspace-write",
+      network: "enabled",
+      mechanism: "legacy_workspace_write_override",
+      configOverrides: [CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE],
+    });
+    return {
+      agent: "coder",
+      outcome: "success",
+      summary: "Allowed network policy observed.",
+      workRecord: { files_changed: [] },
+    };
+  });
+  await service(allowFixture, allowExecutor).invokeUserAgent({
+    sessionId: allowSession,
+    agent: "coder",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(allowExecutor.calls.length, 1);
+
+  const askFixture = await createFixture(t);
+  const askSession = "coder-network-ask";
+  await bindTask(askFixture, askSession);
+  await configure(askFixture, "coder", "openai", "cli");
+  const observedNetworkStates: string[] = [];
+  const askExecutor = new FakeAgentExecutor(({ executionPolicy }) => {
+    const resolved = resolveCodexExecutionPolicy(executionPolicy);
+    observedNetworkStates.push(resolved.network);
+    assert.deepEqual(
+      resolved.configOverrides,
+      observedNetworkStates.length === 1
+        ? []
+        : [CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE],
+    );
+    return {
+      agent: "coder",
+      outcome: "success",
+      summary: "Ask network policy observed.",
+      workRecord: { files_changed: [] },
+      ...(observedNetworkStates.length === 1
+        ? { requestedActions: [requestedAction("network")] }
+        : {}),
+    };
+  });
+  const askInvocation = service(askFixture, askExecutor);
+  const initial = await askInvocation.invokeUserAgent({
+    sessionId: askSession,
+    agent: "coder",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.deepEqual(observedNetworkStates, ["disabled"]);
+  await askInvocation.resumeCallerWithActionApproval({
+    sessionId: askSession,
+    previousInvocation: initial,
+    actionClassification: initial.actionClassifications[0]!,
+    approvalGranted: true,
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.deepEqual(observedNetworkStates, ["disabled", "enabled"]);
+});
+
+test("CODER network deny remains disabled and cannot be approved", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "coder-network-deny";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "coder", "openai", "cli");
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "network" },
+    "deny",
+  );
+  const executor = new FakeAgentExecutor(({ executionPolicy }) => {
+    assert.equal(resolveCodexExecutionPolicy(executionPolicy).network, "disabled");
+    return {
+      agent: "coder",
+      outcome: "success",
+      summary: "Denied network remains unavailable.",
+      workRecord: { files_changed: [] },
+      requestedActions: [requestedAction("network")],
+    };
+  });
+  const invocation = service(fixture, executor);
+  const result = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "coder",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  assert.equal(result.actionClassifications[0]?.status, "denied");
+  await assert.rejects(
+    invocation.resumeCallerWithActionApproval({
+      sessionId,
+      previousInvocation: result,
+      actionClassification: result.actionClassifications[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "vscode" },
+    }),
+    InvalidActionContinuationError,
+  );
+  assert.equal(executor.calls.length, 1);
 });
 
 test("action approval re-resolves current rules and denied classifications cannot be approved", async (t) => {
@@ -2514,9 +2688,333 @@ test("action approval re-resolves current rules and denied classifications canno
     approvalGranted: false,
     host: { provider: "openai", surface: "vscode" },
   });
-  assert.deepEqual(allowedResume.executionPolicy.actions.network, {
+  assert.deepEqual(allowedResume.executionPolicy.providerCapabilities.network, {
     decision: "allow",
     source: "global",
     approvedForInvocation: false,
   });
+});
+
+test("allowed host actions produce validated ephemeral authorizations without model resumption", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "host-action-allow";
+  await bindTask(fixture, sessionId);
+  await configure(fixture, "coder");
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "git_push" },
+    "allow",
+  );
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "ci" },
+    "allow",
+  );
+  const executor = new FakeAgentExecutor(() => ({
+    agent: "coder",
+    outcome: "success",
+    summary: "Implementation requests host operations.",
+    workRecord: { files_changed: [] },
+    requestedActions: [
+      requestedAction("git_push", "Publish the implementation."),
+      requestedAction("ci", "Run configured project CI."),
+    ],
+  }));
+  const invocation = service(fixture, executor);
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "coder",
+    host: { provider: "openai", surface: "vscode" },
+  });
+
+  const gitAuthorization = await invocation.authorizeHostAction({
+    sessionId,
+    previousInvocation: parent,
+    actionClassification: parent.actionClassifications[0]!,
+    approvalGranted: false,
+  });
+  const ciAuthorization = await invocation.authorizeHostAction({
+    sessionId,
+    previousInvocation: parent,
+    actionClassification: parent.actionClassifications[1]!,
+    approvalGranted: false,
+  });
+
+  assert.equal(executor.calls.length, 1);
+  assert.equal(gitAuthorization.authorization.executionKind, "host_action");
+  assert.equal(gitAuthorization.authorization.action, "git_push");
+  assert.equal(gitAuthorization.authorization.approvedForAuthorization, false);
+  assert.equal(gitAuthorization.authorization.sessionId, sessionId);
+  assert.equal(gitAuthorization.context.projectId, fixture.project.id);
+  assert.equal(gitAuthorization.context.sourcePath, fixture.project.sourcePath);
+  assert.equal(gitAuthorization.context.taskId, fixture.task.id);
+  assert.equal("command" in gitAuthorization.context, false);
+  assert.equal("remote" in gitAuthorization.context, false);
+  assert.equal(ciAuthorization.authorization.action, "ci");
+  await invocation.validateHostActionAuthorization(gitAuthorization);
+  await invocation.validateHostActionAuthorization(ciAuthorization);
+
+  const fakeHostExecutor = new FakeHostActionExecutor();
+  assert.equal(fakeHostExecutor.calls.length, 0);
+  await fakeHostExecutor.execute(gitAuthorization);
+  assert.equal(fakeHostExecutor.calls.length, 1);
+
+  const forged = {
+    ...gitAuthorization,
+    authorization: {
+      ...gitAuthorization.authorization,
+      action: "ci" as const,
+    },
+  };
+  await assert.rejects(
+    invocation.validateHostActionAuthorization(forged),
+    InvalidHostActionAuthorizationError,
+  );
+  const reconstructed = service(fixture, new FakeAgentExecutor(() => ({})));
+  await assert.rejects(
+    reconstructed.validateHostActionAuthorization(gitAuthorization),
+    (error: unknown) =>
+      error instanceof InvalidHostActionAuthorizationError &&
+      error.code === "INVALID_HOST_ACTION_AUTHORIZATION",
+  );
+  await fixture.sessions.unbindTask(sessionId);
+  await assert.rejects(
+    invocation.validateHostActionAuthorization(gitAuthorization),
+    (error: unknown) =>
+      error instanceof InvalidHostActionAuthorizationError &&
+      error.code === "INVALID_HOST_ACTION_AUTHORIZATION",
+  );
+});
+
+test("host ask approval is explicit, does not change rules, and cannot use provider resumption", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "host-action-ask";
+  await bindProject(fixture, sessionId);
+  await configure(fixture, "researcher");
+  const executor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Host actions requested.",
+    researchArtifact: { findings: [] },
+    requestedActions: [requestedAction("git_push"), requestedAction("ci")],
+  }));
+  const invocation = service(fixture, executor);
+  const parent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  const rulesBefore = await fixture.store.readText("rules.jsonc");
+
+  for (const actionClassification of parent.actionClassifications) {
+    await assert.rejects(
+      invocation.authorizeHostAction({
+        sessionId,
+        previousInvocation: parent,
+        actionClassification,
+        approvalGranted: false,
+      }),
+      (error: unknown) =>
+        error instanceof HostActionApprovalRequiredError &&
+        error.code === "HOST_ACTION_APPROVAL_REQUIRED",
+    );
+    const authorized = await invocation.authorizeHostAction({
+      sessionId,
+      previousInvocation: parent,
+      actionClassification,
+      approvalGranted: true,
+    });
+    assert.equal(authorized.authorization.approvedForAuthorization, true);
+  }
+  for (const actionClassification of parent.actionClassifications) {
+    await assert.rejects(
+      invocation.resumeCallerWithActionApproval({
+        sessionId,
+        previousInvocation: parent,
+        actionClassification,
+        approvalGranted: true,
+        host: { provider: "openai", surface: "vscode" },
+      }),
+      (error: unknown) =>
+        error instanceof InvalidActionExecutionKindError &&
+        error.code === "INVALID_ACTION_EXECUTION_KIND",
+    );
+  }
+  assert.equal(executor.calls.length, 1);
+  assert.equal(await fixture.store.readText("rules.jsonc"), rulesBefore);
+});
+
+test("denied and unavailable host actions cannot be authorized", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "host-action-refusal";
+  await bindProject(fixture, sessionId);
+  await configure(fixture, "researcher");
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "git_push" },
+    "deny",
+  );
+  const executor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Host action requested.",
+    researchArtifact: { findings: [] },
+    requestedActions: [requestedAction("git_push")],
+  }));
+  const invocation = service(fixture, executor);
+  const deniedParent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await assert.rejects(
+    invocation.authorizeHostAction({
+      sessionId,
+      previousInvocation: deniedParent,
+      actionClassification: deniedParent.actionClassifications[0]!,
+      approvalGranted: true,
+    }),
+    (error: unknown) =>
+      error instanceof HostActionDeniedError &&
+      error.code === "HOST_ACTION_DENIED",
+  );
+
+  await fixture.store.writeJson("rules.jsonc", {
+    agent_calls: {},
+    actions: { git_push: "ask", network: "ask", ci: "ask" },
+  });
+  const askParent = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await fixture.store.writeJson("rules.jsonc", {
+    agent_calls: {},
+    actions: { git_push: "corrupt", network: "ask", ci: "ask" },
+  });
+  await assert.rejects(
+    invocation.authorizeHostAction({
+      sessionId,
+      previousInvocation: askParent,
+      actionClassification: askParent.actionClassifications[0]!,
+      approvalGranted: true,
+    }),
+    (error: unknown) =>
+      error instanceof HostActionUnavailableError &&
+      error.code === "HOST_ACTION_UNAVAILABLE",
+  );
+  assert.equal(executor.calls.length, 2);
+});
+
+test("host authorization re-resolves ask/allow/deny rule drift", async (t) => {
+  const fixture = await createFixture(t);
+  const sessionId = "host-action-rule-drift";
+  await bindProject(fixture, sessionId);
+  await configure(fixture, "researcher");
+  const executor = new FakeAgentExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Git push requested.",
+    researchArtifact: { findings: [] },
+    requestedActions: [requestedAction("git_push")],
+  }));
+  const invocation = service(fixture, executor);
+
+  const oldAskForDeny = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "git_push" },
+    "deny",
+  );
+  await assert.rejects(
+    invocation.authorizeHostAction({
+      sessionId,
+      previousInvocation: oldAskForDeny,
+      actionClassification: oldAskForDeny.actionClassifications[0]!,
+      approvalGranted: true,
+    }),
+    HostActionDeniedError,
+  );
+
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "git_push" },
+    "ask",
+  );
+  const oldAskForAllow = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "git_push" },
+    "allow",
+  );
+  const allowed = await invocation.authorizeHostAction({
+    sessionId,
+    previousInvocation: oldAskForAllow,
+    actionClassification: oldAskForAllow.actionClassifications[0]!,
+    approvalGranted: false,
+  });
+  assert.equal(allowed.authorization.effectiveRule.decision, "allow");
+  assert.equal(allowed.authorization.approvedForAuthorization, false);
+
+  const oldAllowForAsk = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "git_push" },
+    "ask",
+  );
+  await assert.rejects(
+    invocation.authorizeHostAction({
+      sessionId,
+      previousInvocation: oldAllowForAsk,
+      actionClassification: oldAllowForAsk.actionClassifications[0]!,
+      approvalGranted: false,
+    }),
+    HostActionApprovalRequiredError,
+  );
+  const approved = await invocation.authorizeHostAction({
+    sessionId,
+    previousInvocation: oldAllowForAsk,
+    actionClassification: oldAllowForAsk.actionClassifications[0]!,
+    approvalGranted: true,
+  });
+  assert.equal(approved.authorization.effectiveRule.decision, "ask");
+  assert.equal(approved.authorization.approvedForAuthorization, true);
+
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "git_push" },
+    "allow",
+  );
+  const oldAllowForDeny = await invocation.invokeUserAgent({
+    sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "vscode" },
+  });
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "git_push" },
+    "deny",
+  );
+  await assert.rejects(
+    invocation.authorizeHostAction({
+      sessionId,
+      previousInvocation: oldAllowForDeny,
+      actionClassification: oldAllowForDeny.actionClassifications[0]!,
+      approvalGranted: true,
+    }),
+    HostActionDeniedError,
+  );
+  assert.equal(executor.calls.length, 4);
 });

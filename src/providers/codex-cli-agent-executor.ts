@@ -18,11 +18,6 @@ import {
   type CodexCliExecutionFailureReason,
 } from "../domain/errors.js";
 import {
-  isActionUsable,
-  type ExecutionPolicy,
-} from "../domain/execution-policy.js";
-import { ACTION_NAMES, isRuleDecision } from "../domain/rule.js";
-import {
   SpawnProcessRunner,
   type ProcessRunner,
   type ProcessResult,
@@ -30,6 +25,10 @@ import {
 import { AgentPromptSerializer } from "./agent-prompt-serializer.js";
 import { AgentResultJsonSchemaBuilder } from "./agent-result-json-schema-builder.js";
 import { CodexAgentResultWireCodec } from "./codex-agent-result-wire-codec.js";
+import {
+  resolveCodexExecutionPolicy,
+  type ResolvedCodexExecutionPolicy,
+} from "./codex-execution-policy-resolver.js";
 
 export interface CodexCliAgentExecutorOptions {
   readonly processRunner?: ProcessRunner;
@@ -38,8 +37,6 @@ export interface CodexCliAgentExecutorOptions {
   readonly terminationGraceMs?: number;
   readonly includeStderrDiagnostic?: boolean;
 }
-
-export type CodexSandbox = "read-only" | "workspace-write";
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1_000;
 const DEFAULT_TERMINATION_GRACE_MS = 2_000;
@@ -70,7 +67,7 @@ export class CodexCliAgentExecutor implements AgentExecutor {
 
   async execute(input: AgentExecutionInput): Promise<unknown> {
     assertSupportedRoute(input);
-    assertSupportedExecutionPolicy(input);
+    const executionPolicy = resolveSupportedExecutionPolicy(input);
     await assertWorkspace(input.context.project.sourcePath);
 
     let temporaryDirectory: string | undefined;
@@ -88,12 +85,11 @@ export class CodexCliAgentExecutor implements AgentExecutor {
         flag: "wx",
       });
       const prompt = `${this.promptSerializer.serialize(input.context, input.executionPolicy)}\n${this.wireCodec.instructions(input.context)}\n`;
-      const sandbox = resolveCodexSandbox(input.executionPolicy);
       const processResult = await this.runCodex(
         input,
         schemaPath,
         resultPath,
-        sandbox,
+        executionPolicy,
         prompt,
       );
       assertSuccessfulProcess(
@@ -118,7 +114,7 @@ export class CodexCliAgentExecutor implements AgentExecutor {
     input: AgentExecutionInput,
     schemaPath: string,
     resultPath: string,
-    sandbox: CodexSandbox,
+    executionPolicy: ResolvedCodexExecutionPolicy,
     prompt: string,
   ): Promise<ProcessResult> {
     try {
@@ -132,7 +128,11 @@ export class CodexCliAgentExecutor implements AgentExecutor {
           "--cd",
           input.context.project.sourcePath,
           "--sandbox",
-          sandbox,
+          executionPolicy.sandbox,
+          ...executionPolicy.configOverrides.flatMap((override) => [
+            "-c",
+            override,
+          ]),
           "--output-schema",
           schemaPath,
           "--output-last-message",
@@ -163,15 +163,15 @@ async function cleanupTemporaryDirectory(path: string): Promise<void> {
   }
 }
 
-export function resolveCodexSandbox(
-  policy: ExecutionPolicy,
-): CodexSandbox {
-  return policy.sourceModification === "workspace_write"
-    ? "workspace-write"
-    : "read-only";
-}
+export {
+  resolveCodexExecutionPolicy,
+  resolveCodexSandbox,
+} from "./codex-execution-policy-resolver.js";
+export type { CodexSandbox } from "./codex-execution-policy-resolver.js";
 
-function assertSupportedExecutionPolicy(input: AgentExecutionInput): void {
+function resolveSupportedExecutionPolicy(
+  input: AgentExecutionInput,
+): ResolvedCodexExecutionPolicy {
   const { executionPolicy, context } = input;
   const expectedSourceModification = context.roleContract.mayModifySourceCode
     ? "workspace_write"
@@ -182,41 +182,7 @@ function assertSupportedExecutionPolicy(input: AgentExecutionInput): void {
       "source modification policy does not match the immutable role contract",
     );
   }
-  const actionKeys = Object.keys(executionPolicy.actions).sort();
-  const expectedKeys = [...ACTION_NAMES].sort();
-  if (
-    actionKeys.length !== expectedKeys.length ||
-    actionKeys.some((key, index) => key !== expectedKeys[index])
-  ) {
-    throw new ProviderExecutionPolicyUnsupportedError(
-      "openai",
-      "action policy is incomplete or contains an unknown action",
-    );
-  }
-  for (const action of ACTION_NAMES) {
-    const policy = executionPolicy.actions[action];
-    if (
-      policy === null ||
-      typeof policy !== "object" ||
-      !isRuleDecision(policy.decision) ||
-      !["global", "project", "task", "default_deny"].includes(policy.source) ||
-      typeof policy.approvedForInvocation !== "boolean" ||
-      (policy.approvedForInvocation && policy.decision !== "ask")
-    ) {
-      throw new ProviderExecutionPolicyUnsupportedError(
-        "openai",
-        "action policy is malformed",
-        action,
-      );
-    }
-    if (isActionUsable(policy)) {
-      throw new ProviderExecutionPolicyUnsupportedError(
-        "openai",
-        "this Codex CLI adapter does not yet map enabled actions to provider-native enforcement",
-        action,
-      );
-    }
-  }
+  return resolveCodexExecutionPolicy(executionPolicy);
 }
 
 function assertSupportedRoute(input: AgentExecutionInput): void {

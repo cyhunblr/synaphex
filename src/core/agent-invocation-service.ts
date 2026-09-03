@@ -35,6 +35,7 @@ import type {
   HelperExecutionResult,
   InvocationId,
   InvocationLineage,
+  ResolvedActionClassification,
   ResumeCallerRequest,
   UserAgentInvocationRequest,
 } from "../domain/agent-invocation.js";
@@ -44,6 +45,12 @@ import type {
 } from "../domain/agent-result.js";
 import type { ExecutionPolicy } from "../domain/execution-policy.js";
 import { sourceModificationPolicy } from "../domain/execution-policy.js";
+import {
+  ActionRegistry,
+  PROVIDER_CAPABILITY_NAMES,
+  type HostActionName,
+  type ProviderCapabilityName,
+} from "../domain/action.js";
 import {
   ActionApprovalRequiredError,
   ActionDeniedError,
@@ -56,6 +63,11 @@ import {
   AgentInvocationDepthExceededError,
   InvalidAgentHandoffError,
   InvalidActionContinuationError,
+  InvalidActionExecutionKindError,
+  HostActionApprovalRequiredError,
+  HostActionDeniedError,
+  HostActionUnavailableError,
+  InvalidHostActionAuthorizationError,
   NoProjectBoundError,
   NoTaskBoundError,
   PlanDraftPendingError,
@@ -64,7 +76,14 @@ import {
   TaskArchivedError,
   TaskCompletedError,
 } from "../domain/errors.js";
-import { ACTION_NAMES, type ActionName } from "../domain/rule.js";
+import type {
+  HostActionAuthorization,
+  HostActionAuthorizationId,
+  HostActionAuthorizationRequest,
+  HostActionAuthorizationResult,
+  HostActionExecutionContext,
+  HostActionExecutionInput,
+} from "../domain/host-action.js";
 import type { RuntimeAvailability } from "../domain/provider-routing.js";
 import type { Project } from "../domain/project.js";
 import type { SessionId } from "../domain/session.js";
@@ -91,7 +110,7 @@ interface PreparedInvocation<TAgent extends AgentName> {
   readonly lineage: InvocationLineage;
   readonly instruction?: string;
   readonly handoff?: AgentHandoff;
-  readonly approvedActions?: ReadonlySet<ActionName>;
+  readonly approvedActions?: ReadonlySet<ProviderCapabilityName>;
 }
 
 const MAX_INVOCATION_DEPTH = 8;
@@ -109,6 +128,11 @@ export class AgentInvocationService {
   private readonly resultProcessor: ResultProcessor;
   private readonly roleContracts: RoleContractRegistry;
   private readonly rules: RuleResolver;
+  private readonly actionRegistry = new ActionRegistry();
+  private readonly hostAuthorizations = new Map<
+    HostActionAuthorizationId,
+    HostActionAuthorizationResult
+  >();
 
   constructor(options: AgentInvocationServiceOptions) {
     this.executor = options.executor;
@@ -253,6 +277,18 @@ export class AgentInvocationService {
       request.previousInvocation,
       request.actionClassification,
     );
+    if (
+      previousClassification.executionKind !== "provider_capability" ||
+      !this.actionRegistry.isProviderCapability(
+        previousClassification.request.action,
+      )
+    ) {
+      throw new InvalidActionExecutionKindError(
+        previousClassification.request.action,
+        "provider_capability",
+        previousClassification.executionKind,
+      );
+    }
     if (previousClassification.status !== "approval_required") {
       throw new InvalidActionContinuationError(
         "only an approval_required action can be continued",
@@ -262,6 +298,11 @@ export class AgentInvocationService {
     const scope = await this.resolveAndValidatePreflight(
       request.sessionId,
       request.previousInvocation.agent,
+    );
+    assertInvocationScope(
+      request.previousInvocation,
+      request.sessionId,
+      scope,
     );
     const effectiveClassification = await this.classifySingleAction(
       previousClassification.request,
@@ -274,8 +315,10 @@ export class AgentInvocationService {
     const approvedActions =
       effectiveClassification.status === "approval_required" &&
       request.approvalGranted
-        ? new Set<ActionName>([effectiveClassification.request.action])
-        : new Set<ActionName>();
+        ? new Set<ProviderCapabilityName>([
+            effectiveClassification.request.action as ProviderCapabilityName,
+          ])
+        : new Set<ProviderCapabilityName>();
 
     return this.invokePrepared({
       sessionId: request.sessionId,
@@ -291,6 +334,115 @@ export class AgentInvocationService {
         ? {}
         : { instruction: request.instruction }),
     });
+  }
+
+  async authorizeHostAction(
+    request: HostActionAuthorizationRequest,
+  ): Promise<HostActionAuthorizationResult> {
+    const previousClassification = findActionClassification(
+      request.previousInvocation,
+      request.actionClassification,
+    );
+    if (
+      previousClassification.executionKind !== "host_action" ||
+      !this.actionRegistry.isHostAction(previousClassification.request.action)
+    ) {
+      throw new InvalidActionExecutionKindError(
+        previousClassification.request.action,
+        "host_action",
+        previousClassification.executionKind,
+      );
+    }
+
+    const scope = await this.resolveCurrentScope(request.sessionId);
+    assertInvocationScope(
+      request.previousInvocation,
+      request.sessionId,
+      scope,
+    );
+    const current = await this.classifySingleAction(
+      previousClassification.request,
+      scope,
+    );
+    const action = previousClassification.request.action;
+    assertHostActionAuthorizable(current, action, request.approvalGranted);
+
+    const invocationLineage = Object.freeze({
+      ...request.previousInvocation.lineage,
+    });
+    const effectiveRule = Object.freeze({
+      ...current.effectiveRule,
+      key: Object.freeze({ ...current.effectiveRule.key }),
+    });
+    const authorization: HostActionAuthorization = Object.freeze({
+      id: createHostActionAuthorizationId(),
+      executionKind: "host_action",
+      action,
+      sessionId: request.sessionId,
+      projectId: scope.project.id,
+      taskId: scope.task?.id ?? null,
+      invocationLineage,
+      effectiveRule,
+      approvedForAuthorization:
+        current.status === "approval_required" && request.approvalGranted,
+    });
+    const context: HostActionExecutionContext = Object.freeze({
+      projectId: scope.project.id,
+      sourcePath: scope.project.sourcePath,
+      taskId: scope.task?.id ?? null,
+      action,
+      invocationLineage,
+    });
+    const result = Object.freeze({ authorization, context });
+    this.hostAuthorizations.set(authorization.id, result);
+    return result;
+  }
+
+  async validateHostActionAuthorization(
+    input: HostActionExecutionInput,
+  ): Promise<void> {
+    const authorization = input?.authorization as unknown;
+    const context = input?.context as unknown;
+    if (
+      !isRecord(authorization) ||
+      typeof authorization.id !== "string" ||
+      !authorization.id.startsWith("host_action_auth_")
+    ) {
+      throw new InvalidHostActionAuthorizationError(
+        "authorization identity is malformed",
+      );
+    }
+    const stored = this.hostAuthorizations.get(
+      authorization.id as HostActionAuthorizationId,
+    );
+    if (
+      stored === undefined ||
+      JSON.stringify(authorization) !==
+        JSON.stringify(stored.authorization) ||
+      JSON.stringify(context) !== JSON.stringify(stored.context) ||
+      stored.authorization.executionKind !== "host_action" ||
+      !this.actionRegistry.isHostAction(stored.authorization.action) ||
+      stored.authorization.action !== stored.context.action ||
+      stored.authorization.projectId !== stored.context.projectId ||
+      stored.authorization.taskId !== stored.context.taskId ||
+      JSON.stringify(stored.authorization.invocationLineage) !==
+        JSON.stringify(stored.context.invocationLineage)
+    ) {
+      throw new InvalidHostActionAuthorizationError(
+        "authorization is unknown or does not match its execution context",
+      );
+    }
+    const currentBinding = await this.sessions.getCurrentBinding(
+      stored.authorization.sessionId,
+    );
+    if (
+      currentBinding.projectId !== stored.authorization.projectId ||
+      currentBinding.taskId !== stored.authorization.taskId
+    ) {
+      throw new InvalidHostActionAuthorizationError(
+        "current session scope no longer matches the authorization",
+      );
+    }
   }
 
   private async invokePrepared<TAgent extends AgentName>(
@@ -310,7 +462,7 @@ export class AgentInvocationService {
     const executionPolicy = await this.buildExecutionPolicy(
       context.roleContract,
       invocation.scope,
-      invocation.approvedActions ?? new Set<ActionName>(),
+      invocation.approvedActions ?? new Set<ProviderCapabilityName>(),
     );
     const route = await this.router.resolve({
       host: invocation.host,
@@ -352,6 +504,11 @@ export class AgentInvocationService {
     return {
       agent: invocation.agent,
       lineage: invocation.lineage,
+      scope: {
+        sessionId: invocation.sessionId,
+        projectId: invocation.scope.project.id,
+        taskId: invocation.scope.task?.id ?? null,
+      },
       route,
       executionPolicy,
       processedResult,
@@ -363,10 +520,10 @@ export class AgentInvocationService {
   private async buildExecutionPolicy(
     roleContract: RoleContractSnapshot,
     scope: InvocationScope,
-    approvedActions: ReadonlySet<ActionName>,
+    approvedActions: ReadonlySet<ProviderCapabilityName>,
   ): Promise<ExecutionPolicy> {
     const effectiveRules = await Promise.all(
-      ACTION_NAMES.map((action) =>
+      PROVIDER_CAPABILITY_NAMES.map((action) =>
         this.rules.resolveRuleReadOnly(
           { kind: "action", action },
           {
@@ -378,8 +535,8 @@ export class AgentInvocationService {
     );
     return {
       sourceModification: sourceModificationPolicy(roleContract),
-      actions: Object.fromEntries(
-        ACTION_NAMES.map((action, index) => [
+      providerCapabilities: Object.fromEntries(
+        PROVIDER_CAPABILITY_NAMES.map((action, index) => [
           action,
           {
             decision: effectiveRules[index]!.decision,
@@ -389,7 +546,7 @@ export class AgentInvocationService {
               approvedActions.has(action),
           },
         ]),
-      ) as ExecutionPolicy["actions"],
+      ) as ExecutionPolicy["providerCapabilities"],
     };
   }
 
@@ -397,15 +554,8 @@ export class AgentInvocationService {
     sessionId: SessionId,
     agent: AgentName,
   ): Promise<InvocationScope> {
-    const binding = await this.sessions.getCurrentBinding(sessionId);
-    if (binding.projectId === null) {
-      throw new NoProjectBoundError(sessionId);
-    }
-    const project = await this.projects.get(binding.projectId);
-    const task =
-      binding.taskId === null
-        ? null
-        : await this.tasks.get(binding.projectId, binding.taskId);
+    const scope = await this.resolveCurrentScope(sessionId);
+    const { task } = scope;
     const contract = this.roleContracts.getInvocationLifecycleContract(agent);
     if (task === null && contract.taskBinding === "required") {
       throw new NoTaskBoundError(sessionId);
@@ -432,12 +582,27 @@ export class AgentInvocationService {
       task !== null &&
       (await this.artifacts.listCoderWorkRecords({
         kind: "task",
-        projectId: project.id,
+        projectId: scope.project.id,
         taskId: task.id,
       })).length === 0
     ) {
       throw new ReviewTargetNotAvailableError(task.id);
     }
+    return scope;
+  }
+
+  private async resolveCurrentScope(
+    sessionId: SessionId,
+  ): Promise<InvocationScope> {
+    const binding = await this.sessions.getCurrentBinding(sessionId);
+    if (binding.projectId === null) {
+      throw new NoProjectBoundError(sessionId);
+    }
+    const project = await this.projects.get(binding.projectId);
+    const task =
+      binding.taskId === null
+        ? null
+        : await this.tasks.get(binding.projectId, binding.taskId);
     return { project, task };
   }
 
@@ -488,6 +653,7 @@ export class AgentInvocationService {
                 ? "approval_required"
                 : "denied",
           request,
+          executionKind: this.actionRegistry.get(request.action).executionKind,
           effectiveRule,
         });
       } catch (error) {
@@ -498,6 +664,7 @@ export class AgentInvocationService {
         classifications.push({
           status: "unavailable",
           request,
+          executionKind: this.actionRegistry.get(request.action).executionKind,
           effectiveRule: null,
           errorCode,
         });
@@ -650,6 +817,10 @@ function createInvocationId(): InvocationId {
   return `invocation_${randomUUID().replaceAll("-", "")}`;
 }
 
+function createHostActionAuthorizationId(): HostActionAuthorizationId {
+  return `host_action_auth_${randomUUID().replaceAll("-", "")}`;
+}
+
 function createRootLineage(agent: AgentName): InvocationLineage {
   const id = createInvocationId();
   return {
@@ -734,6 +905,23 @@ function findActionClassification(
   return matches[0]!;
 }
 
+function assertInvocationScope(
+  invocation: AnyAgentInvocationResult,
+  sessionId: SessionId,
+  scope: InvocationScope,
+): void {
+  if (
+    !isRecord(invocation.scope) ||
+    invocation.scope.sessionId !== sessionId ||
+    invocation.scope.projectId !== scope.project.id ||
+    invocation.scope.taskId !== (scope.task?.id ?? null)
+  ) {
+    throw new InvalidActionContinuationError(
+      "current session scope does not match the originating invocation",
+    );
+  }
+}
+
 function assertActionContinuationAllowed(
   current: ActionClassification,
   approvalGranted: boolean,
@@ -753,6 +941,34 @@ function assertActionContinuationAllowed(
   if (current.status === "approval_required" && !approvalGranted) {
     throw new ActionApprovalRequiredError(
       current.request.action,
+      current.effectiveRule.source,
+    );
+  }
+}
+
+function assertHostActionAuthorizable(
+  current: ActionClassification,
+  action: HostActionName,
+  approvalGranted: boolean,
+): asserts current is ResolvedActionClassification & {
+  readonly status: "allowed" | "approval_required";
+} {
+  if (current.executionKind !== "host_action") {
+    throw new InvalidActionExecutionKindError(
+      action,
+      "host_action",
+      current.executionKind,
+    );
+  }
+  if (current.status === "unavailable") {
+    throw new HostActionUnavailableError(action, current.errorCode);
+  }
+  if (current.status === "denied") {
+    throw new HostActionDeniedError(action, current.effectiveRule.source);
+  }
+  if (current.status === "approval_required" && !approvalGranted) {
+    throw new HostActionApprovalRequiredError(
+      action,
       current.effectiveRule.source,
     );
   }
@@ -947,4 +1163,8 @@ function actionUnavailableErrorCode(
   return error.code === "INVALID_RULE" || error.code === "INVALID_RULE_VALUE"
     ? error.code
     : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ACTION_NAMES } from "../src/domain/action.js";
 import { AGENT_NAMES } from "../src/domain/agent.js";
 import { AgentResultJsonSchemaBuilder } from "../src/providers/agent-result-json-schema-builder.js";
 import { syntheticAgentContext } from "./fixtures/synthetic-agent-context.js";
@@ -44,7 +45,7 @@ test("optional Core fields are required nullable fields on the Codex wire", () =
   const requestedAction = researcherProperties.requestedActions
     ?.items as Schema;
   const actionProperties = requestedAction.properties as Record<string, Schema>;
-  assert.deepEqual(actionProperties.action?.enum, ["git_push", "network", "ci"]);
+  assert.deepEqual(actionProperties.action?.enum, ACTION_NAMES);
 
   const requestedCall = researcherProperties.requestedCalls?.items as Schema;
   const callProperties = requestedCall.properties as Record<string, Schema>;

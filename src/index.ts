@@ -7,6 +7,9 @@ export {
   ActionApprovalRequiredError,
   ActionDeniedError,
   ActionUnavailableError,
+  HostActionApprovalRequiredError,
+  HostActionDeniedError,
+  HostActionUnavailableError,
   AgentExecutionFailedError,
   AgentInvocationDepthExceededError,
   AgentUnconfiguredError,
@@ -23,6 +26,8 @@ export {
   InvalidAgentModelError,
   InvalidAgentResultError,
   InvalidActionContinuationError,
+  InvalidActionExecutionKindError,
+  InvalidHostActionAuthorizationError,
   InvalidAgentSettingError,
   InvalidPlanContentError,
   InvalidProviderRouteError,
@@ -87,6 +92,7 @@ export {
   type HelperExecutionResult,
   type InvocationId,
   type InvocationLineage,
+  type InvocationScopeReference,
   type ResumeCallerRequest,
   type UnavailableHelperCallClassification,
   type UnavailableActionClassification,
@@ -136,11 +142,36 @@ export {
 export {
   SOURCE_MODIFICATION_POLICIES,
   isActionUsable,
+  isProviderCapabilityUsable,
   sourceModificationPolicy,
   type ExecutionActionPolicy,
   type ExecutionPolicy,
+  type ProviderCapabilityPolicy,
   type SourceModificationPolicy,
 } from "./domain/execution-policy.js";
+export {
+  ACTION_EXECUTION_KINDS,
+  ACTION_NAMES,
+  HOST_ACTION_NAMES,
+  PROVIDER_CAPABILITY_NAMES,
+  ActionRegistry,
+  isActionName,
+  type ActionContract,
+  type ActionExecutionKind,
+  type ActionName,
+  type HostActionName,
+  type ProviderCapabilityName,
+} from "./domain/action.js";
+export type {
+  HostActionAuthorization,
+  HostActionAuthorizationId,
+  HostActionAuthorizationRequest,
+  HostActionAuthorizationResult,
+  HostActionExecutionContext,
+  HostActionExecutionInput,
+  HostActionExecutor,
+  HostActionResult,
+} from "./domain/host-action.js";
 export type {
   AgentStateEffect,
   PersistedArtifactReference,
@@ -158,8 +189,16 @@ export { parseAgentHandoff } from "./core/agent-handoff-validator.js";
 export {
   CodexCliAgentExecutor,
   type CodexCliAgentExecutorOptions,
-  type CodexSandbox,
 } from "./providers/codex-cli-agent-executor.js";
+export {
+  CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE,
+  resolveCodexExecutionPolicy,
+  resolveCodexSandbox,
+  type CodexNetworkState,
+  type CodexPolicyMechanism,
+  type CodexSandbox,
+  type ResolvedCodexExecutionPolicy,
+} from "./providers/codex-execution-policy-resolver.js";
 export {
   CodexCliRuntimeAvailability,
   type CodexCliRuntimeAvailabilityOptions,
@@ -241,12 +280,10 @@ export type {
   PlanStatus,
 } from "./domain/plan.js";
 export {
-  ACTION_NAMES,
   RULE_DECISIONS,
   RULE_SCOPES,
   formatRuleKey,
   type ActionRuleKey,
-  type ActionName,
   type AgentCallRuleKey,
   type EffectiveRule,
   type EffectiveRuleSource,
