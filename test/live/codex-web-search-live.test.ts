@@ -18,12 +18,10 @@ import {
 import { CodexCliAgentExecutor } from "../../src/providers/codex-cli-agent-executor.js";
 import {
   CODEX_WEB_SEARCH_LIVE_OVERRIDE,
-  CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
   resolveCodexExecutionPolicy,
 } from "../../src/providers/codex-execution-policy-resolver.js";
 
-const liveEnabled =
-  process.env.SYNAPHEX_CODEX_CODER_WEB_SEARCH_LIVE_TEST === "1";
+const liveEnabled = process.env.SYNAPHEX_CODEX_WEB_SEARCH_LIVE_TEST === "1";
 const liveModel = process.env.SYNAPHEX_CODEX_LIVE_MODEL?.trim() ?? "";
 const shouldRun = liveEnabled && liveModel.length > 0;
 
@@ -64,10 +62,10 @@ class JsonEventObservingRunner implements ProcessRunner {
 }
 
 test(
-  "live Codex CLI gives workspace-write CODER hosted web search without process network",
+  "live Codex CLI gives read-only RESEARCHER native hosted web search",
   { skip: shouldRun ? false : skipReason() },
   async () => {
-    const root = await mkdtemp(join(tmpdir(), "synaphex-codex-network-live-"));
+    const root = await mkdtemp(join(tmpdir(), "synaphex-codex-search-live-"));
     const sourcePath = join(root, "source");
     const processRunner = new JsonEventObservingRunner();
     const temporaryDirectoriesBefore = await listAdapterTemporaryDirectories();
@@ -81,24 +79,18 @@ test(
         timeoutMs: 10_000,
         terminationGraceMs: 1_000,
       });
-      assert.equal(git.exitCode, 0, "git init failed for network smoke workspace");
+      assert.equal(git.exitCode, 0, "git init failed for hosted-search smoke");
       assert.equal(git.timedOut, false, "git init timed out");
 
-      const executionPolicy = networkEnabledCoderPolicy();
+      const executionPolicy = hostedSearchPolicy();
       assert.deepEqual(resolveCodexExecutionPolicy(executionPolicy), {
-        sandbox: "workspace-write",
-        network: {
-          enabled: true,
-          mechanism: "hosted_web_search",
-        },
-        configOverrides: [
-          CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
-          CODEX_WEB_SEARCH_LIVE_OVERRIDE,
-        ],
+        sandbox: "read-only",
+        network: { enabled: true, mechanism: "hosted_web_search" },
+        configOverrides: [CODEX_WEB_SEARCH_LIVE_OVERRIDE],
       });
       const input: AgentExecutionInput = {
         route: {
-          agent: "coder",
+          agent: "researcher",
           host: { provider: "openai", surface: "cli" },
           provider: "openai",
           configuredSurface: "cli",
@@ -108,7 +100,7 @@ test(
           model: liveModel,
           settings: {},
         },
-        context: coderContext(sourcePath),
+        context: researcherContext(sourcePath),
         executionPolicy,
       };
 
@@ -118,31 +110,21 @@ test(
         includeStderrDiagnostic: true,
       }).execute(input);
       stage = "AgentResult runtime validation";
-      const validated = validateAgentResult("coder", rawResult);
+      const validated = validateAgentResult("researcher", rawResult);
 
-      assert.equal(validated.agent, "coder");
+      assert.equal(validated.agent, "researcher");
       assert.equal(validated.outcome, "success");
-      assert.deepEqual(Object.keys(validated.workRecord).sort(), [
-        "files_changed",
-        "web_search_result",
-      ]);
-      assert.deepEqual(validated.workRecord.files_changed, []);
-      const webSearchResult = validated.workRecord.web_search_result;
-      assert.equal(typeof webSearchResult, "string");
+      assert.deepEqual(Object.keys(validated.researchArtifact), ["findings"]);
+      const findings = validated.researchArtifact.findings;
+      assert.equal(typeof findings, "string");
       for (const expected of ["disabled", "cached", "indexed", "live"]) {
-        assert.match(
-          String(webSearchResult),
-          new RegExp(`\\b${expected}\\b`, "i"),
-        );
+        assert.match(String(findings), new RegExp(`\\b${expected}\\b`, "i"));
       }
-      assert.match(
-        String(webSearchResult),
-        /developers\.openai\.com|learn\.chatgpt\.com/i,
-      );
+      assert.match(String(findings), /developers\.openai\.com|learn\.chatgpt\.com/i);
       assert.equal(validated.requestedCalls?.length ?? 0, 0);
       assert.equal(validated.requestedActions?.length ?? 0, 0);
 
-      stage = "hosted web-search event and policy validation";
+      stage = "hosted web-search event validation";
       assert.equal(
         processRunner.observedWebSearch(),
         true,
@@ -151,20 +133,19 @@ test(
       assert.ok(processRunner.codexInput);
       assert.equal(
         optionValue(processRunner.codexInput.args, "--sandbox"),
-        "workspace-write",
+        "read-only",
       );
       assert.deepEqual(configOverrides(processRunner.codexInput.args), [
-        CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
         CODEX_WEB_SEARCH_LIVE_OVERRIDE,
       ]);
       assert.equal(
-        configOverrides(processRunner.codexInput.args).includes(
-          "sandbox_workspace_write.network_access=true",
+        processRunner.codexInput.args.some((argument) =>
+          argument.startsWith("sandbox_workspace_write.network_access="),
         ),
         false,
       );
 
-      stage = "workspace and adapter temporary-file safety validation";
+      stage = "read-only workspace and temporary-file safety validation";
       const gitStatus = await processRunner.run({
         executable: "git",
         args: ["status", "--porcelain", "--untracked-files=all"],
@@ -185,11 +166,11 @@ test(
       );
 
       console.log(
-        `[codex-coder-web-search-live] validated agent=${validated.agent} outcome=${validated.outcome} webSearchEvent=true processNetwork=false helperCalls=${validated.requestedCalls?.length ?? 0}`,
+        `[codex-web-search-live] validated agent=${validated.agent} outcome=${validated.outcome} webSearchEvent=true helperCalls=${validated.requestedCalls?.length ?? 0}`,
       );
     } catch (error) {
       console.error(
-        `[codex-coder-web-search-live] failed stage=${stage} eventTypes=${processRunner.eventTypes().join(",")} diagnostic=${boundedDiagnostic(error)}`,
+        `[codex-web-search-live] failed stage=${stage} eventTypes=${processRunner.eventTypes().join(",")} diagnostic=${boundedDiagnostic(error)}`,
       );
       throw error;
     } finally {
@@ -198,28 +179,18 @@ test(
   },
 );
 
-function coderContext(sourcePath: string): AgentContext {
-  const projectId = "prj_codex_network_live" as const;
-  const taskId = "task_codex_network_live" as const;
+function researcherContext(sourcePath: string): AgentContext {
+  const projectId = "prj_codex_search_live" as const;
   return {
-    agent: "coder",
+    agent: "researcher",
     project: {
       id: projectId,
-      name: "Codex Network Live Smoke",
+      name: "Codex Hosted Search Live Smoke",
       sourcePath,
       createdAt: "2026-01-01T00:00:00.000Z",
     },
-    task: {
-      id: taskId,
-      projectId,
-      slug: "codex-network-live-smoke",
-      description: "Verify the native Codex network capability mapping",
-      status: "active",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      completedAt: null,
-      archivedAt: null,
-    },
-    roleContract: new RoleContractRegistry().getSnapshot("coder"),
+    task: null,
+    roleContract: new RoleContractRegistry().getSnapshot("researcher"),
     rules: {
       outgoingAgentCalls: [],
       actions: [
@@ -236,11 +207,7 @@ function coderContext(sourcePath: string): AgentContext {
         hasContent: false,
         content: null,
       },
-      task: {
-        scope: { kind: "task", projectId, taskId },
-        hasContent: false,
-        content: null,
-      },
+      task: null,
       directlyLoaded: [],
     },
     plan: null,
@@ -251,15 +218,15 @@ function coderContext(sourcePath: string): AgentContext {
       latestReviewerReport: null,
       explicitlyReferenced: [],
     },
-    behavior: { outputFields: ["files_changed", "web_search_result"] },
+    behavior: { outputFields: ["findings"] },
     instruction:
-      "Use Codex's native hosted web-search tool to retrieve the current official OpenAI Codex Configuration Reference page at https://developers.openai.com/codex/config-reference . Do not use shell commands, curl, wget, Node, Python, or local process network access. Find the documented allowed values for the top-level web_search setting. Do not modify project files. Return a successful CODER result whose payload contains exactly files_changed=[] and a web_search_result string containing all four values and the official page URL. Do not request helper calls or actions, including git_push or ci.",
+      "Use Codex's native hosted web-search tool to retrieve the current official OpenAI Codex Configuration Reference page at https://developers.openai.com/codex/config-reference . Do not use shell commands, curl, wget, Node, Python, or local process network access. Find the documented allowed values for the top-level web_search setting. Return a successful RESEARCHER result whose findings string includes all four values and the official page URL. Do not modify files or request helper calls or actions.",
   };
 }
 
-function networkEnabledCoderPolicy(): ExecutionPolicy {
+function hostedSearchPolicy(): ExecutionPolicy {
   return {
-    sourceModification: "workspace_write",
+    sourceModification: "read_only",
     providerCapabilities: {
       network: {
         decision: "allow",
@@ -268,23 +235,6 @@ function networkEnabledCoderPolicy(): ExecutionPolicy {
       },
     },
   };
-}
-
-async function listAdapterTemporaryDirectories(): Promise<string[]> {
-  return (await readdir(tmpdir(), { withFileTypes: true }))
-    .filter(
-      (entry) =>
-        entry.isDirectory() && entry.name.startsWith("synaphex-codex-exec-"),
-    )
-    .map(({ name }) => name)
-    .sort();
-}
-
-function skipReason(): string {
-  if (!liveEnabled) {
-    return "set SYNAPHEX_CODEX_CODER_WEB_SEARCH_LIVE_TEST=1 and SYNAPHEX_CODEX_LIVE_MODEL=<model>";
-  }
-  return "set SYNAPHEX_CODEX_LIVE_MODEL=<model>";
 }
 
 function parseJsonLines(output: string): unknown[] {
@@ -314,6 +264,23 @@ function configOverrides(args: readonly string[]): string[] {
       ? [args[index + 1]!]
       : [],
   );
+}
+
+async function listAdapterTemporaryDirectories(): Promise<string[]> {
+  return (await readdir(tmpdir(), { withFileTypes: true }))
+    .filter(
+      (entry) =>
+        entry.isDirectory() && entry.name.startsWith("synaphex-codex-exec-"),
+    )
+    .map(({ name }) => name)
+    .sort();
+}
+
+function skipReason(): string {
+  if (!liveEnabled) {
+    return "set SYNAPHEX_CODEX_WEB_SEARCH_LIVE_TEST=1 and SYNAPHEX_CODEX_LIVE_MODEL=<model>";
+  }
+  return "set SYNAPHEX_CODEX_LIVE_MODEL=<model>";
 }
 
 function boundedDiagnostic(error: unknown): string {

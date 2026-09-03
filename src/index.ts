@@ -191,13 +191,17 @@ export {
   type CodexCliAgentExecutorOptions,
 } from "./providers/codex-cli-agent-executor.js";
 export {
-  CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE,
+  CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+  CODEX_WEB_SEARCH_LIVE_OVERRIDE,
+  CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
   resolveCodexExecutionPolicy,
   resolveCodexSandbox,
+  type CodexNetworkMechanism,
   type CodexNetworkState,
   type CodexPolicyMechanism,
   type CodexSandbox,
   type ResolvedCodexExecutionPolicy,
+  type ResolvedCodexNetworkPolicy,
 } from "./providers/codex-execution-policy-resolver.js";
 export {
   CodexCliRuntimeAvailability,

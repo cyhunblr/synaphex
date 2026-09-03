@@ -41,7 +41,7 @@ test("prompt serializes only selected structured context with explicit protectio
   assert.match(prompt, /requestedActions/);
   assert.match(prompt, /"network": \{/);
   assert.match(prompt, /"state": "denied"/);
-  assert.match(prompt, /Network capability is denied/);
+  assert.match(prompt, /External network\/web-search capability is disabled/);
   assert.match(prompt, /git_push and ci are Synaphex host actions/);
   assert.match(prompt, /Do not directly execute host actions/);
   assert.match(prompt, /Local Git operations may be part of implementation/);
@@ -52,15 +52,25 @@ test("prompt serializes only selected structured context with explicit protectio
   assert.doesNotMatch(prompt, /UNRELATED_ARCHIVED_ARTIFACT/);
 });
 
-test("prompt reports enabled and approval-required network state precisely", () => {
+test("prompt reports the mapped network mechanism precisely", () => {
   const serializer = new AgentPromptSerializer();
-  const enabled = serializer.serialize(
+  const coderHostedSearch = serializer.serialize(
     syntheticAgentContext("coder", "/source"),
     syntheticExecutionPolicy("coder", {
       network: {
         decision: "ask",
         source: "global",
         approvedForInvocation: true,
+      },
+    }),
+  );
+  const hostedSearch = serializer.serialize(
+    syntheticAgentContext("researcher", "/source"),
+    syntheticExecutionPolicy("researcher", {
+      network: {
+        decision: "allow",
+        source: "global",
+        approvedForInvocation: false,
       },
     }),
   );
@@ -75,12 +85,19 @@ test("prompt reports enabled and approval-required network state precisely", () 
     }),
   );
 
-  assert.match(enabled, /"state": "enabled"/);
-  assert.match(enabled, /Network capability is enabled for this invocation/);
-  assert.doesNotMatch(enabled, /return a network request/);
+  assert.match(coderHostedSearch, /"state": "enabled"/);
+  assert.match(coderHostedSearch, /hosted web-search capability/);
+  assert.match(
+    coderHostedSearch,
+    /Local shell\/process network access is not granted/,
+  );
+  assert.doesNotMatch(coderHostedSearch, /return a requestedAction/);
+  assert.match(hostedSearch, /"state": "enabled"/);
+  assert.match(hostedSearch, /hosted web-search capability/);
+  assert.match(hostedSearch, /Local shell\/process network access is not granted/);
   assert.match(approvalRequired, /"state": "approval_required"/);
-  assert.match(approvalRequired, /return a network request through requestedActions/);
-  assert.doesNotMatch(approvalRequired, /Network capability is enabled/);
+  assert.match(approvalRequired, /request `network`/);
+  assert.doesNotMatch(approvalRequired, /network access is enabled/);
 });
 
 test("shared serializer emits concise role-specific immutable instructions", () => {

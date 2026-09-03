@@ -84,7 +84,7 @@ export class CodexCliAgentExecutor implements AgentExecutor {
         mode: 0o600,
         flag: "wx",
       });
-      const prompt = `${this.promptSerializer.serialize(input.context, input.executionPolicy)}\n${this.wireCodec.instructions(input.context)}\n`;
+      const prompt = `${this.promptSerializer.serialize(input.context, input.executionPolicy, executionPolicy)}\n${this.wireCodec.instructions(input.context)}\n`;
       const processResult = await this.runCodex(
         input,
         schemaPath,

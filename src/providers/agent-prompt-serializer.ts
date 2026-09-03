@@ -1,8 +1,11 @@
 import type { AgentName } from "../domain/agent.js";
 import type { AgentContext } from "../domain/agent-context.js";
 import type { ExecutionPolicy } from "../domain/execution-policy.js";
-import { isProviderCapabilityUsable } from "../domain/execution-policy.js";
 import { HOST_ACTION_NAMES } from "../domain/action.js";
+import {
+  resolveCodexExecutionPolicy,
+  type ResolvedCodexExecutionPolicy,
+} from "./codex-execution-policy-resolver.js";
 
 const ROLE_INSTRUCTIONS = {
   questioner: [
@@ -41,8 +44,12 @@ const ROLE_INSTRUCTIONS = {
 } as const satisfies Readonly<Record<AgentName, readonly string[]>>;
 
 export class AgentPromptSerializer {
-  serialize(context: AgentContext, executionPolicy: ExecutionPolicy): string {
-    const networkPolicy = executionPolicy.providerCapabilities.network;
+  serialize(
+    context: AgentContext,
+    executionPolicy: ExecutionPolicy,
+    codexExecutionPolicy: ResolvedCodexExecutionPolicy =
+      resolveCodexExecutionPolicy(executionPolicy),
+  ): string {
     const sections = [
       section(
         "SYNAPHEX AGENT",
@@ -88,7 +95,7 @@ export class AgentPromptSerializer {
                 ([capability, policy]) => [
                   capability,
                   {
-                    state: isProviderCapabilityUsable(policy)
+                    state: codexExecutionPolicy.network.enabled
                       ? "enabled"
                       : policy.decision === "ask"
                         ? "approval_required"
@@ -102,7 +109,7 @@ export class AgentPromptSerializer {
             ),
           }),
           "network is a provider capability enforced by the provider runtime.",
-          networkInstruction(networkPolicy),
+          networkInstruction(codexExecutionPolicy),
         ].join("\n"),
       ),
       section(
@@ -149,15 +156,12 @@ export class AgentPromptSerializer {
 }
 
 function networkInstruction(
-  policy: ExecutionPolicy["providerCapabilities"]["network"],
+  policy: ResolvedCodexExecutionPolicy,
 ): string {
-  if (isProviderCapabilityUsable(policy)) {
-    return "Network capability is enabled for this invocation.";
+  if (policy.network.mechanism === "hosted_web_search") {
+    return "External research is enabled through the provider's hosted web-search capability. Local shell/process network access is not granted.";
   }
-  if (policy.decision === "ask") {
-    return "Network capability is not enabled. Do not attempt to bypass the restriction; return a network request through requestedActions.";
-  }
-  return "Network capability is denied. Do not attempt network access.";
+  return "External network/web-search capability is disabled. If external research is required, request `network`.";
 }
 
 function section(title: string, body: string): string {

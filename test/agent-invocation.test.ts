@@ -61,7 +61,9 @@ import type { Project } from "../src/domain/project.js";
 import type { Task } from "../src/domain/task.js";
 import { StateStore } from "../src/infrastructure/state-store.js";
 import {
-  CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE,
+  CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+  CODEX_WEB_SEARCH_LIVE_OVERRIDE,
+  CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
   resolveCodexExecutionPolicy,
 } from "../src/providers/codex-execution-policy-resolver.js";
 
@@ -2395,10 +2397,14 @@ test("one-time action approval resumes with fresh context and is never persisted
   await bindProject(fixture, sessionId);
   await configure(fixture, "researcher");
   const observedApprovals: boolean[] = [];
+  const observedNetworkMechanisms: string[] = [];
   const observedMemory: Array<string | null> = [];
   const executor = new FakeAgentExecutor(({ context, executionPolicy }) => {
     observedApprovals.push(
       executionPolicy.providerCapabilities.network.approvedForInvocation,
+    );
+    observedNetworkMechanisms.push(
+      resolveCodexExecutionPolicy(executionPolicy).network.mechanism,
     );
     observedMemory.push(context.memory.project.content);
     return {
@@ -2466,6 +2472,18 @@ test("one-time action approval resumes with fresh context and is never persisted
     parent.lineage.currentInvocationId,
   );
   assert.deepEqual(observedApprovals, [false, true]);
+  assert.deepEqual(observedNetworkMechanisms, [
+    "disabled",
+    "hosted_web_search",
+  ]);
+  assert.deepEqual(
+    resolveCodexExecutionPolicy(parent.executionPolicy).configOverrides,
+    [CODEX_WEB_SEARCH_DISABLED_OVERRIDE],
+  );
+  assert.deepEqual(
+    resolveCodexExecutionPolicy(resumed.executionPolicy).configOverrides,
+    [CODEX_WEB_SEARCH_LIVE_OVERRIDE],
+  );
   assert.deepEqual(observedMemory, [null, "fresh continuation memory"]);
   assert.equal(await fixture.store.readText("rules.jsonc"), rulesBefore);
 
@@ -2475,9 +2493,14 @@ test("one-time action approval resumes with fresh context and is never persisted
     host: { provider: "openai", surface: "vscode" },
   });
   assert.deepEqual(observedApprovals, [false, true, false]);
+  assert.deepEqual(observedNetworkMechanisms, [
+    "disabled",
+    "hosted_web_search",
+    "disabled",
+  ]);
 });
 
-test("CODER network allow and one-time approval resolve to the native Codex override", async (t) => {
+test("CODER network allow and one-time approval grant only hosted web search", async (t) => {
   const allowFixture = await createFixture(t);
   const allowSession = "coder-network-allow";
   await bindTask(allowFixture, allowSession);
@@ -2490,9 +2513,14 @@ test("CODER network allow and one-time approval resolve to the native Codex over
   const allowExecutor = new FakeAgentExecutor(({ executionPolicy }) => {
     assert.deepEqual(resolveCodexExecutionPolicy(executionPolicy), {
       sandbox: "workspace-write",
-      network: "enabled",
-      mechanism: "legacy_workspace_write_override",
-      configOverrides: [CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE],
+      network: {
+        enabled: true,
+        mechanism: "hosted_web_search",
+      },
+      configOverrides: [
+        CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
+        CODEX_WEB_SEARCH_LIVE_OVERRIDE,
+      ],
     });
     return {
       agent: "coder",
@@ -2515,12 +2543,18 @@ test("CODER network allow and one-time approval resolve to the native Codex over
   const observedNetworkStates: string[] = [];
   const askExecutor = new FakeAgentExecutor(({ executionPolicy }) => {
     const resolved = resolveCodexExecutionPolicy(executionPolicy);
-    observedNetworkStates.push(resolved.network);
+    observedNetworkStates.push(resolved.network.mechanism);
     assert.deepEqual(
       resolved.configOverrides,
       observedNetworkStates.length === 1
-        ? []
-        : [CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE],
+        ? [
+            CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
+            CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+          ]
+        : [
+            CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
+            CODEX_WEB_SEARCH_LIVE_OVERRIDE,
+          ],
     );
     return {
       agent: "coder",
@@ -2546,7 +2580,10 @@ test("CODER network allow and one-time approval resolve to the native Codex over
     approvalGranted: true,
     host: { provider: "openai", surface: "vscode" },
   });
-  assert.deepEqual(observedNetworkStates, ["disabled", "enabled"]);
+  assert.deepEqual(observedNetworkStates, [
+    "disabled",
+    "hosted_web_search",
+  ]);
 });
 
 test("CODER network deny remains disabled and cannot be approved", async (t) => {
@@ -2560,7 +2597,14 @@ test("CODER network deny remains disabled and cannot be approved", async (t) => 
     "deny",
   );
   const executor = new FakeAgentExecutor(({ executionPolicy }) => {
-    assert.equal(resolveCodexExecutionPolicy(executionPolicy).network, "disabled");
+    assert.deepEqual(resolveCodexExecutionPolicy(executionPolicy), {
+      sandbox: "workspace-write",
+      network: { enabled: false, mechanism: "disabled" },
+      configOverrides: [
+        CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
+        CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+      ],
+    });
     return {
       agent: "coder",
       outcome: "success",

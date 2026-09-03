@@ -24,10 +24,11 @@ import {
   CodexCliAgentExecutor,
 } from "../src/providers/codex-cli-agent-executor.js";
 import {
-  CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE,
+  CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+  CODEX_WEB_SEARCH_LIVE_OVERRIDE,
+  CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
   resolveCodexExecutionPolicy,
 } from "../src/providers/codex-execution-policy-resolver.js";
-import { ProviderExecutionPolicyUnsupportedError } from "../src/domain/errors.js";
 import {
   syntheticAgentContext,
   syntheticExecutionPolicy,
@@ -62,8 +63,10 @@ const FORBIDDEN_CODEX_ARGS = [
   "--full-auto",
   "--ignore-user-config",
   "--ignore-rules",
+  "--permissions-profile",
   "--skip-git-repo-check",
   "danger-full-access",
+  "sandbox_workspace_write.network_access=true",
 ] as const;
 
 async function workspace(t: TestContext): Promise<string> {
@@ -100,6 +103,14 @@ function optionValue(args: readonly string[], option: string): string {
   const value = args[index + 1];
   assert.ok(value !== undefined, `missing value for ${option}`);
   return value;
+}
+
+function configOverrides(args: readonly string[]): string[] {
+  return args.flatMap((argument, index) =>
+    argument === "-c" && args[index + 1] !== undefined
+      ? [args[index + 1]!]
+      : [],
+  );
 }
 
 test("Codex adapter constructs secure non-interactive command and parses the result file", async (t) => {
@@ -150,11 +161,10 @@ test("Codex adapter constructs secure non-interactive command and parses the res
   assert.equal(optionValue(call.args, "--model"), "explicit-codex-model");
   assert.equal(optionValue(call.args, "--cd"), sourcePath);
   assert.equal(optionValue(call.args, "--sandbox"), "workspace-write");
-  assert.equal(call.args.includes("-c"), false);
-  assert.equal(
-    call.args.includes(CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE),
-    false,
-  );
+  assert.deepEqual(configOverrides(call.args), [
+    CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
+    CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+  ]);
   assert.equal(optionValue(call.args, "--color"), "never");
   assert.equal(call.args.at(-1), "-");
   assert.match(call.stdin, /Logical agent: CODER/);
@@ -205,7 +215,7 @@ test("sandbox mapping is capability-based for all six current roles", () => {
   );
 });
 
-test("workspace-write enabled network emits the fixed override as separate arguments", async (t) => {
+test("workspace-write enabled network grants hosted search while denying local process network", async (t) => {
   const sourcePath = await workspace(t);
   const policies = [
     {
@@ -246,15 +256,21 @@ test("workspace-write enabled network emits the fixed override as separate argum
     assert.notEqual(configIndex, -1);
     assert.equal(
       args[configIndex + 1],
-      CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE,
+      CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
     );
     assert.equal(optionValue(args, "--sandbox"), "workspace-write");
     assert.equal(
       args.filter((argument) => argument === "-c").length,
-      1,
+      2,
     );
+    assert.deepEqual(configOverrides(args), [
+      CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
+      CODEX_WEB_SEARCH_LIVE_OVERRIDE,
+    ]);
     assert.equal(
-      args.includes(`-c ${CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE}`),
+      configOverrides(args).includes(
+        "sandbox_workspace_write.network_access=true",
+      ),
       false,
     );
     for (const forbidden of FORBIDDEN_CODEX_ARGS) {
@@ -288,10 +304,8 @@ test("unsupported routes, settings, and workspaces fail before process execution
   assert.equal(runner.calls.length, 0);
 });
 
-test("read-only enabled network fails closed before Codex spawn", async (t) => {
+test("read-only enabled network uses only hosted web search", async (t) => {
   const sourcePath = await workspace(t);
-  const runner = new FakeProcessRunner(() => success());
-  const executor = new CodexCliAgentExecutor({ processRunner: runner });
   const input = executionInput("researcher", sourcePath);
   assert.deepEqual(Object.keys(input.executionPolicy.providerCapabilities), [
     "network",
@@ -299,37 +313,87 @@ test("read-only enabled network fails closed before Codex spawn", async (t) => {
   assert.equal("git_push" in input.executionPolicy.providerCapabilities, false);
   assert.equal("ci" in input.executionPolicy.providerCapabilities, false);
 
-  await assert.rejects(
-    executor.execute({
+  for (const network of [
+    {
+      decision: "allow",
+      source: "global",
+      approvedForInvocation: false,
+    },
+    {
+      decision: "ask",
+      source: "task",
+      approvedForInvocation: true,
+    },
+  ] as const) {
+    const runner = new FakeProcessRunner(async (call) => {
+      await writeFile(
+        optionValue(call.args, "--output-last-message"),
+        JSON.stringify({
+          agent: "researcher",
+          outcome: "success",
+          summary: "Hosted search mapped.",
+          warnings: null,
+          requestedCalls: null,
+          requestedActions: null,
+          payloadJson: JSON.stringify({ custom_field: "current fact" }),
+        }),
+      );
+      return success();
+    });
+    await new CodexCliAgentExecutor({ processRunner: runner }).execute({
       ...input,
-      executionPolicy: syntheticExecutionPolicy("researcher", {
-        network: {
-          decision: "allow",
-          source: "global",
-          approvedForInvocation: false,
-        },
-      }),
-    }),
-    (error: unknown) =>
-      error instanceof ProviderExecutionPolicyUnsupportedError &&
-      error.code === "PROVIDER_EXECUTION_POLICY_UNSUPPORTED" &&
-      error.details?.reason === "read_only_network_not_supported" &&
-      error.details?.action === "network",
-  );
-  await assert.rejects(
-    executor.execute({
-      ...input,
-      executionPolicy: syntheticExecutionPolicy("researcher", {
-        network: {
-          decision: "ask",
-          source: "global",
-          approvedForInvocation: true,
-        },
-      }),
-    }),
-    ProviderExecutionPolicyUnsupportedError,
-  );
-  assert.equal(runner.calls.length, 0);
+      executionPolicy: syntheticExecutionPolicy("researcher", { network }),
+    });
+
+    const args = runner.calls[0]!.args;
+    assert.equal(optionValue(args, "--sandbox"), "read-only");
+    assert.deepEqual(configOverrides(args), [CODEX_WEB_SEARCH_LIVE_OVERRIDE]);
+    assert.equal(
+      args.some((argument) =>
+        argument.startsWith("sandbox_workspace_write.network_access="),
+      ),
+      false,
+    );
+  }
+});
+
+test("read-only disabled network explicitly removes hosted web search", async (t) => {
+  const sourcePath = await workspace(t);
+  for (const network of [
+    {
+      decision: "deny",
+      source: "global",
+      approvedForInvocation: false,
+    },
+    {
+      decision: "ask",
+      source: "task",
+      approvedForInvocation: false,
+    },
+  ] as const) {
+    const runner = new FakeProcessRunner(async (call) => {
+      await writeFile(
+        optionValue(call.args, "--output-last-message"),
+        JSON.stringify({
+          agent: "researcher",
+          outcome: "success",
+          summary: "Network remains disabled.",
+          warnings: null,
+          requestedCalls: null,
+          requestedActions: null,
+          payloadJson: JSON.stringify({ custom_field: "local" }),
+        }),
+      );
+      return success();
+    });
+    await new CodexCliAgentExecutor({ processRunner: runner }).execute({
+      ...executionInput("researcher", sourcePath),
+      executionPolicy: syntheticExecutionPolicy("researcher", { network }),
+    });
+    assert.deepEqual(configOverrides(runner.calls[0]!.args), [
+      CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+    ]);
+  }
 });
 
 test("non-zero exit and spawn failure produce typed failures and clean temporary files", async (t) => {

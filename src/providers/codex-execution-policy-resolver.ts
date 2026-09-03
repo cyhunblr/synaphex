@@ -6,17 +6,24 @@ import { isRuleDecision } from "../domain/rule.js";
 
 export type CodexSandbox = "read-only" | "workspace-write";
 export type CodexNetworkState = "disabled" | "enabled";
-export type CodexPolicyMechanism =
-  | "legacy_sandbox"
-  | "legacy_workspace_write_override";
+export type CodexNetworkMechanism =
+  | "disabled"
+  | "hosted_web_search";
+export type CodexPolicyMechanism = CodexNetworkMechanism;
 
-export const CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE =
-  "sandbox_workspace_write.network_access=true";
+export const CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE =
+  "sandbox_workspace_write.network_access=false";
+export const CODEX_WEB_SEARCH_LIVE_OVERRIDE = 'web_search="live"';
+export const CODEX_WEB_SEARCH_DISABLED_OVERRIDE = 'web_search="disabled"';
+
+export interface ResolvedCodexNetworkPolicy {
+  readonly enabled: boolean;
+  readonly mechanism: CodexNetworkMechanism;
+}
 
 export interface ResolvedCodexExecutionPolicy {
   readonly sandbox: CodexSandbox;
-  readonly network: CodexNetworkState;
-  readonly mechanism: CodexPolicyMechanism;
+  readonly network: ResolvedCodexNetworkPolicy;
   readonly configOverrides: readonly string[];
 }
 
@@ -30,37 +37,34 @@ export function resolveCodexExecutionPolicy(
 
   if (policy.sourceModification === "read_only") {
     if (networkEnabled) {
-      throw new ProviderExecutionPolicyUnsupportedError(
-        "openai",
-        "read_only_network_not_supported",
-        "network",
+      return resolvedPolicy(
+        "read-only",
+        true,
+        "hosted_web_search",
+        [CODEX_WEB_SEARCH_LIVE_OVERRIDE],
       );
     }
-    return Object.freeze({
-      sandbox: "read-only",
-      network: "disabled",
-      mechanism: "legacy_sandbox",
-      configOverrides: Object.freeze([]),
-    });
+    return resolvedPolicy("read-only", false, "disabled", [
+      CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+    ]);
   }
 
   if (policy.sourceModification === "workspace_write") {
     if (networkEnabled) {
-      return Object.freeze({
-        sandbox: "workspace-write",
-        network: "enabled",
-        mechanism: "legacy_workspace_write_override",
-        configOverrides: Object.freeze([
-          CODEX_WORKSPACE_WRITE_NETWORK_OVERRIDE,
-        ]),
-      });
+      return resolvedPolicy(
+        "workspace-write",
+        true,
+        "hosted_web_search",
+        [
+          CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
+          CODEX_WEB_SEARCH_LIVE_OVERRIDE,
+        ],
+      );
     }
-    return Object.freeze({
-      sandbox: "workspace-write",
-      network: "disabled",
-      mechanism: "legacy_sandbox",
-      configOverrides: Object.freeze([]),
-    });
+    return resolvedPolicy("workspace-write", false, "disabled", [
+      CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
+      CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+    ]);
   }
 
   throw new ProviderExecutionPolicyUnsupportedError(
@@ -71,6 +75,19 @@ export function resolveCodexExecutionPolicy(
 
 export function resolveCodexSandbox(policy: ExecutionPolicy): CodexSandbox {
   return resolveCodexExecutionPolicy(policy).sandbox;
+}
+
+function resolvedPolicy(
+  sandbox: CodexSandbox,
+  enabled: boolean,
+  mechanism: CodexNetworkMechanism,
+  configOverrides: readonly string[],
+): ResolvedCodexExecutionPolicy {
+  return Object.freeze({
+    sandbox,
+    network: Object.freeze({ enabled, mechanism }),
+    configOverrides: Object.freeze([...configOverrides]),
+  });
 }
 
 function assertProviderCapabilityShape(policy: ExecutionPolicy): void {
