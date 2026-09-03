@@ -88,11 +88,19 @@ function optionValue(args: readonly string[], option: string): string {
 test("Codex adapter constructs secure non-interactive command and parses the result file", async (t) => {
   const sourcePath = await workspace(t);
   let temporaryDirectory = "";
-  const providerResult = {
+  const coreResult = {
     agent: "coder",
     outcome: "success",
     summary: "Implementation complete.",
     workRecord: { custom_field: "done" },
+  };
+  const wireResult = {
+    agent: "coder",
+    outcome: "success",
+    summary: "Implementation complete.",
+    warnings: null,
+    requestedCalls: null,
+    payloadJson: JSON.stringify({ custom_field: "done" }),
   };
   const runner = new FakeProcessRunner(async (call) => {
     const schemaPath = optionValue(call.args, "--output-schema");
@@ -103,10 +111,10 @@ test("Codex adapter constructs secure non-interactive command and parses the res
     assert.equal((await stat(temporaryDirectory)).mode & 0o777, 0o700);
     assert.equal((await stat(schemaPath)).mode & 0o777, 0o600);
     const schema = JSON.parse(await readFile(schemaPath, "utf8")) as {
-      properties: { agent: { const: string } };
+      properties: { agent: { enum: string[] } };
     };
-    assert.equal(schema.properties.agent.const, "coder");
-    await writeFile(resultPath, JSON.stringify(providerResult));
+    assert.deepEqual(schema.properties.agent.enum, ["coder"]);
+    await writeFile(resultPath, JSON.stringify(wireResult));
     return success("normal progress on stderr");
   });
   const executor = new CodexCliAgentExecutor({ processRunner: runner });
@@ -115,7 +123,7 @@ test("Codex adapter constructs secure non-interactive command and parses the res
     executionInput("coder", sourcePath, {}),
   );
 
-  assert.deepEqual(validateAgentResult("coder", result), providerResult);
+  assert.deepEqual(validateAgentResult("coder", result), coreResult);
   assert.equal(runner.calls.length, 1);
   const call = runner.calls[0]!;
   assert.equal(call.executable, "codex");
@@ -127,6 +135,8 @@ test("Codex adapter constructs secure non-interactive command and parses the res
   assert.equal(optionValue(call.args, "--color"), "never");
   assert.equal(call.args.at(-1), "-");
   assert.match(call.stdin, /Logical agent: CODER/);
+  assert.match(call.stdin, /CODEX WIRE TRANSPORT/);
+  assert.match(call.stdin, /payloadJson/);
   assert.equal(call.args.includes(call.stdin), false);
   assert.equal(call.env, undefined);
   assert.equal(call.timeoutMs, 30 * 60 * 1_000);
@@ -226,9 +236,49 @@ test("non-zero exit and spawn failure produce typed failures and clean temporary
     (error: unknown) =>
       failureReason("non_zero_exit")(error) &&
       error.details?.exitCode === 17 &&
+      error.details.diagnosticCategory === "process_execution" &&
       !("stderr" in error.details),
   );
   await assert.rejects(access(nonZeroDirectory), { code: "ENOENT" });
+
+  const schemaRunner = new FakeProcessRunner(() => ({
+    exitCode: 1,
+    signal: null,
+    stdout: "",
+    stderr:
+      "ERROR: Invalid schema for response_format 'agent': missing required. Bearer secret-value OPENAI_API_KEY=secret-value",
+    timedOut: false,
+  }));
+  await assert.rejects(
+    new CodexCliAgentExecutor({
+      processRunner: schemaRunner,
+      includeStderrDiagnostic: true,
+    }).execute(executionInput("coder", sourcePath)),
+    (error: unknown) =>
+      failureReason("non_zero_exit")(error) &&
+      error.details?.diagnosticCategory ===
+        "output_schema_incompatibility" &&
+      typeof error.details.stderrDiagnostic === "string" &&
+      error.details.stderrDiagnostic.includes("[REDACTED]") &&
+      !error.details.stderrDiagnostic.includes("secret-value"),
+  );
+
+  const modelRunner = new FakeProcessRunner(() => ({
+    exitCode: 1,
+    signal: null,
+    stdout: "",
+    stderr: "The 'model-x' model is not supported with this account.",
+    timedOut: false,
+  }));
+  await assert.rejects(
+    new CodexCliAgentExecutor({ processRunner: modelRunner }).execute(
+      executionInput("coder", sourcePath),
+    ),
+    (error: unknown) =>
+      failureReason("non_zero_exit")(error) &&
+      error.details?.diagnosticCategory === "model_unavailable" &&
+      !("stderrDiagnostic" in (error.details ?? {})),
+  );
 
   let spawnDirectory = "";
   const spawnRunner = new FakeProcessRunner((call) => {

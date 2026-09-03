@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { AGENT_NAMES } from "../src/domain/agent.js";
 import { AgentResultJsonSchemaBuilder } from "../src/providers/agent-result-json-schema-builder.js";
 import { syntheticAgentContext } from "./fixtures/synthetic-agent-context.js";
 
@@ -7,58 +8,94 @@ type Schema = Record<string, unknown>;
 
 const builder = new AgentResultJsonSchemaBuilder();
 
-test("Coder schema fixes the discriminator and restricts configured work fields", () => {
+test("every Codex wire object is closed and requires every declared property", () => {
+  for (const agent of AGENT_NAMES) {
+    const schema = builder.build(
+      syntheticAgentContext(agent, "/source"),
+    ) as Schema;
+    assertStrictObjects(schema, agent);
+    const serialized = JSON.stringify(schema);
+    assert.doesNotMatch(serialized, /"oneOf"|"anyOf"/);
+    assert.doesNotMatch(serialized, /"additionalProperties":true/);
+  }
+});
+
+test("optional Core fields are required nullable fields on the Codex wire", () => {
+  const researcher = builder.build(
+    syntheticAgentContext("researcher", "/source", {
+      outputFields: ["findings"],
+    }),
+  ) as Schema;
+  const researcherProperties = researcher.properties as Record<string, Schema>;
+
+  assert.deepEqual(researcherProperties.warnings?.type, ["array", "null"]);
+  assert.deepEqual(researcherProperties.requestedCalls?.type, [
+    "array",
+    "null",
+  ]);
+  assert.ok((researcher.required as string[]).includes("warnings"));
+  assert.ok((researcher.required as string[]).includes("requestedCalls"));
+
+  const requestedCall = researcherProperties.requestedCalls?.items as Schema;
+  const callProperties = requestedCall.properties as Record<string, Schema>;
+  const handoff = callProperties.handoff!;
+  const handoffProperties = handoff.properties as Record<string, Schema>;
+  assert.deepEqual(handoffProperties.question?.type, ["string", "null"]);
+  assert.deepEqual(handoffProperties.artifactRefs?.type, ["array", "null"]);
+
+  const planner = builder.build(
+    syntheticAgentContext("planner", "/source"),
+  ) as Schema;
+  const plannerProperties = planner.properties as Record<string, Schema>;
+  assert.deepEqual(plannerProperties.draftPlanMarkdown?.type, [
+    "string",
+    "null",
+  ]);
+  assert.deepEqual(plannerProperties.consultation?.type, ["object", "null"]);
+});
+
+test("opaque configured payloads use JSON text instead of dynamic object schemas", () => {
   const schema = builder.build(
-    syntheticAgentContext("coder", "/source", {
-      outputFields: ["custom_record", "optional_detail"],
+    syntheticAgentContext("researcher", "/source", {
+      outputFields: ["findings", "evidence_matrix"],
     }),
   ) as Schema;
   const properties = schema.properties as Record<string, Schema>;
-  const workRecord = properties.workRecord!;
 
-  assert.equal((properties.agent as Schema).const, "coder");
-  assert.equal(schema.additionalProperties, false);
-  assert.deepEqual(Object.keys(workRecord.properties as object), [
-    "custom_record",
-    "optional_detail",
-  ]);
-  assert.deepEqual(workRecord.required, []);
-  assert.equal(workRecord.additionalProperties, false);
-  assert.equal("report" in properties, false);
-  assert.equal("reviewStatus" in properties, false);
+  assert.equal("researchArtifact" in properties, false);
+  assert.equal(properties.payloadJson?.type, "string");
+  assert.match(
+    String(properties.payloadJson?.description),
+    /findings, evidence_matrix/,
+  );
+  assert.equal("properties" in properties.payloadJson!, false);
 });
 
-test("Reviewer schema keeps lifecycle metadata outside configured report payload", () => {
+test("Reviewer lifecycle fields remain typed outside its opaque report payload", () => {
   const schema = builder.build(
     syntheticAgentContext("reviewer", "/source", {
       outputFields: ["custom_report"],
     }),
   ) as Schema;
-  const variants = schema.oneOf as Schema[];
+  const properties = schema.properties as Record<string, Schema>;
 
-  assert.deepEqual(
-    variants.map((variant) =>
-      ((variant.properties as Record<string, Schema>).reviewStatus as Schema)
-        .const,
-    ),
-    ["PASS", "PASS_WITH_WARNINGS", "FAIL"],
-  );
-  const warningsVariant = variants[1]!;
-  const warningProperties = warningsVariant.properties as Record<string, Schema>;
-  assert.equal((warningProperties.warnings as Schema).minItems, 1);
-  assert.ok((warningsVariant.required as string[]).includes("warnings"));
-  const report = warningProperties.report as Schema;
-  assert.deepEqual(Object.keys(report.properties as object), ["custom_report"]);
-  assert.equal("warnings" in (report.properties as object), false);
-  const failureProperties = variants[2]!.properties as Record<string, Schema>;
-  assert.deepEqual((failureProperties.failureOrigin as Schema).enum, [
+  assert.deepEqual(properties.reviewStatus?.enum, [
+    "PASS",
+    "PASS_WITH_WARNINGS",
+    "FAIL",
+  ]);
+  assert.deepEqual(properties.failureOrigin?.type, ["string", "null"]);
+  assert.deepEqual(properties.failureOrigin?.enum, [
     "implementation",
     "plan",
     "mixed",
+    null,
   ]);
+  assert.equal(properties.payloadJson?.type, "string");
+  assert.equal("reviewStatus" in properties.payloadJson!, false);
 });
 
-test("Planner and Examiner schemas preserve their immutable authority boundaries", () => {
+test("Planner and Examiner wire schemas preserve immutable authority boundaries", () => {
   const planner = builder.build(
     syntheticAgentContext("planner", "/source"),
   ) as Schema;
@@ -83,19 +120,29 @@ test("Planner and Examiner schemas preserve their immutable authority boundaries
   assert.doesNotMatch(examinerText, /filesystemPath|sourcePath|filePath/);
 });
 
-test("Researcher custom behavior fields constrain its artifact payload", () => {
-  const schema = builder.build(
-    syntheticAgentContext("researcher", "/source", {
-      outputFields: ["evidence_matrix"],
-    }),
-  ) as Schema;
-  const properties = schema.properties as Record<string, Schema>;
-  const payload = properties.researchArtifact!;
+function assertStrictObjects(schema: Schema, path: string): void {
+  const type = schema.type;
+  const isObject =
+    type === "object" ||
+    (Array.isArray(type) && type.includes("object"));
+  if (isObject) {
+    assert.equal(schema.additionalProperties, false, path);
+    const properties = schema.properties as Record<string, Schema>;
+    assert.ok(properties !== undefined, path);
+    assert.deepEqual(
+      [...(schema.required as string[])].sort(),
+      Object.keys(properties).sort(),
+      path,
+    );
+    for (const [key, child] of Object.entries(properties)) {
+      assertStrictObjects(child, `${path}.${key}`);
+    }
+  }
+  if (isSchema(schema.items)) {
+    assertStrictObjects(schema.items, `${path}[]`);
+  }
+}
 
-  assert.equal((properties.agent as Schema).const, "researcher");
-  assert.deepEqual(Object.keys(payload.properties as object), [
-    "evidence_matrix",
-  ]);
-  assert.equal(payload.additionalProperties, false);
-  assert.equal("workRecord" in properties, false);
-});
+function isSchema(value: unknown): value is Schema {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}

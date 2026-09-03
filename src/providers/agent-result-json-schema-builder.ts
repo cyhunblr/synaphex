@@ -1,261 +1,185 @@
 import { AGENT_NAMES, type AgentName } from "../domain/agent.js";
 import { AGENT_CALL_PURPOSES } from "../domain/agent-context.js";
-import { AGENT_RESULT_OUTCOMES } from "../domain/agent-result.js";
+import {
+  AGENT_RESULT_OUTCOMES,
+  PLANNER_CONSULTATION_DISPOSITIONS,
+  REVIEWER_FAILURE_ORIGINS,
+  REVIEWER_STATUSES,
+} from "../domain/agent-result.js";
 import type { AgentContext } from "../domain/agent-context.js";
 
 export type AgentResultJsonSchema = Readonly<Record<string, unknown>>;
 
 type JsonSchema = Record<string, unknown>;
 
+/** Builds the strict Codex wire schema, not the provider-independent Core shape. */
 export class AgentResultJsonSchemaBuilder {
   build(context: AgentContext): AgentResultJsonSchema {
-    const agent = context.agent;
-    const payload = configuredPayloadSchema(
-      context.behavior?.outputFields ?? [],
-    );
-    switch (agent) {
+    switch (context.agent) {
       case "questioner":
-        return {
-          oneOf: [questionerPendingSchema(), questionerCompleteSchema()],
-        };
-      case "researcher":
-        return resultObject(agent, {
-          researchArtifact: payload,
-        }, ["researchArtifact"]);
-      case "examiner":
-        return resultObject(agent, {
-          memoryIntent: memoryIntentSchema(),
-          memoryConflict: objectSchema(
-            { summary: nonEmptyStringSchema() },
-            ["summary"],
+        return resultObject("questioner", {
+          state: stringEnumSchema(["pending_question", "context_complete"]),
+          question: nullable(nonEmptyStringSchema()),
+          workingContextJson: nullable(
+            jsonTextSchema(
+              "JSON text encoding the optional Questioner working-context object.",
+            ),
           ),
-        }, ["memoryIntent"]);
+        });
+      case "researcher":
+        return resultObject("researcher", {
+          payloadJson: configuredPayloadJsonSchema(
+            "Researcher artifact",
+            context.behavior?.outputFields ?? [],
+          ),
+        });
+      case "examiner":
+        return resultObject("examiner", {
+          memoryIntent: memoryIntentSchema(),
+          memoryConflict: nullableObjectSchema({
+            summary: nonEmptyStringSchema(),
+          }),
+        });
       case "planner":
-        return plannerSchema();
+        return resultObject("planner", {
+          draftPlanMarkdown: nullable(nonEmptyStringSchema()),
+          consultation: nullableObjectSchema({
+            disposition: stringEnumSchema(
+              PLANNER_CONSULTATION_DISPOSITIONS,
+            ),
+            message: nonEmptyStringSchema(),
+          }),
+        });
       case "coder":
-        return resultObject(agent, { workRecord: payload }, ["workRecord"]);
+        return resultObject("coder", {
+          payloadJson: configuredPayloadJsonSchema(
+            "Coder work record",
+            context.behavior?.outputFields ?? [],
+          ),
+        });
       case "reviewer":
-        return reviewerSchema(payload);
+        return resultObject("reviewer", {
+          reviewStatus: stringEnumSchema(REVIEWER_STATUSES),
+          failureOrigin: nullableEnumSchema(REVIEWER_FAILURE_ORIGINS),
+          payloadJson: configuredPayloadJsonSchema(
+            "Reviewer report",
+            context.behavior?.outputFields ?? [],
+          ),
+        });
     }
   }
-}
-
-function questionerPendingSchema(): JsonSchema {
-  return resultObject(
-    "questioner",
-    {
-      outcome: { const: "needs_user" },
-      state: { const: "pending_question" },
-      question: nonEmptyStringSchema(),
-      workingContext: opaqueObjectSchema(),
-    },
-    ["state", "question"],
-  );
-}
-
-function questionerCompleteSchema(): JsonSchema {
-  return resultObject(
-    "questioner",
-    {
-      outcome: { enum: ["success", "blocked", "error"] },
-      state: { const: "context_complete" },
-      workingContext: opaqueObjectSchema(),
-    },
-    ["state"],
-  );
-}
-
-function plannerSchema(): JsonSchema {
-  return {
-    oneOf: [
-      resultObject(
-        "planner",
-        { draftPlanMarkdown: nonEmptyStringSchema() },
-        [],
-      ),
-      resultObject(
-        "planner",
-        {
-          consultation: objectSchema(
-            {
-              disposition: { const: "plan_still_valid" },
-              message: nonEmptyStringSchema(),
-            },
-            ["disposition", "message"],
-          ),
-        },
-        ["consultation"],
-      ),
-      resultObject(
-        "planner",
-        {
-          consultation: objectSchema(
-            {
-              disposition: { const: "revision_required" },
-              message: nonEmptyStringSchema(),
-            },
-            ["disposition", "message"],
-          ),
-          draftPlanMarkdown: nonEmptyStringSchema(),
-        },
-        ["consultation", "draftPlanMarkdown"],
-      ),
-    ],
-  };
-}
-
-function reviewerSchema(report: JsonSchema): JsonSchema {
-  return {
-    oneOf: [
-      resultObject(
-        "reviewer",
-        { reviewStatus: { const: "PASS" }, report },
-        ["reviewStatus", "report"],
-      ),
-      resultObject(
-        "reviewer",
-        {
-          reviewStatus: { const: "PASS_WITH_WARNINGS" },
-          warnings: {
-            type: "array",
-            minItems: 1,
-            items: nonEmptyStringSchema(),
-          },
-          report,
-        },
-        ["reviewStatus", "warnings", "report"],
-      ),
-      resultObject(
-        "reviewer",
-        {
-          reviewStatus: { const: "FAIL" },
-          failureOrigin: {
-            enum: ["implementation", "plan", "mixed"],
-          },
-          report,
-        },
-        ["reviewStatus", "failureOrigin", "report"],
-      ),
-    ],
-  };
 }
 
 function resultObject(
   agent: AgentName,
   roleProperties: Readonly<Record<string, JsonSchema>>,
-  roleRequired: readonly string[],
 ): JsonSchema {
-  return objectSchema(
-    {
-      agent: { const: agent },
-      outcome: { enum: [...AGENT_RESULT_OUTCOMES] },
-      summary: nonEmptyStringSchema(),
-      warnings: {
-        type: "array",
-        items: nonEmptyStringSchema(),
-      },
-      requestedCalls: {
-        type: "array",
-        items: requestedCallSchema(agent),
-      },
-      ...roleProperties,
-    },
-    ["agent", "outcome", "summary", ...roleRequired],
-  );
+  return strictObjectSchema({
+    agent: { type: "string", enum: [agent] },
+    outcome: stringEnumSchema(AGENT_RESULT_OUTCOMES),
+    summary: nonEmptyStringSchema(),
+    warnings: nullable({
+      type: "array",
+      items: nonEmptyStringSchema(),
+    }),
+    requestedCalls: nullable({
+      type: "array",
+      items: requestedCallSchema(agent),
+    }),
+    ...roleProperties,
+  });
 }
 
 function requestedCallSchema(caller: AgentName): JsonSchema {
-  return objectSchema(
-    {
-      target: { enum: [...AGENT_NAMES] },
-      purpose: { enum: [...AGENT_CALL_PURPOSES] },
-      handoff: objectSchema(
-        {
-          caller: { const: caller },
-          target: { enum: [...AGENT_NAMES] },
-          purpose: { enum: [...AGENT_CALL_PURPOSES] },
-          summary: nonEmptyStringSchema(),
-          question: nonEmptyStringSchema(),
-          artifactRefs: {
-            type: "array",
-            items: { type: "string", pattern: "^artifact_[A-Za-z0-9_-]+$" },
-          },
-        },
-        ["caller", "target", "purpose", "summary"],
-      ),
-    },
-    ["target", "purpose", "handoff"],
-  );
+  return strictObjectSchema({
+    target: stringEnumSchema(AGENT_NAMES),
+    purpose: stringEnumSchema(AGENT_CALL_PURPOSES),
+    handoff: strictObjectSchema({
+      caller: { type: "string", enum: [caller] },
+      target: stringEnumSchema(AGENT_NAMES),
+      purpose: stringEnumSchema(AGENT_CALL_PURPOSES),
+      summary: nonEmptyStringSchema(),
+      question: nullable(nonEmptyStringSchema()),
+      artifactRefs: nullable({
+        type: "array",
+        items: { type: "string" },
+      }),
+    }),
+  });
 }
 
 function memoryIntentSchema(): JsonSchema {
-  return {
-    oneOf: [
-      objectSchema({ kind: { const: "none" } }, ["kind"]),
-      objectSchema(
-        {
-          kind: { const: "replace_project" },
-          projectId: projectIdSchema(),
-          content: { type: "string" },
-        },
-        ["kind", "projectId", "content"],
-      ),
-      objectSchema(
-        {
-          kind: { const: "replace_task" },
-          projectId: projectIdSchema(),
-          taskId: taskIdSchema(),
-          content: { type: "string" },
-        },
-        ["kind", "projectId", "taskId", "content"],
-      ),
-      objectSchema(
-        { kind: { const: "clear_project" }, projectId: projectIdSchema() },
-        ["kind", "projectId"],
-      ),
-      objectSchema(
-        {
-          kind: { const: "clear_task" },
-          projectId: projectIdSchema(),
-          taskId: taskIdSchema(),
-        },
-        ["kind", "projectId", "taskId"],
-      ),
-    ],
-  };
+  return strictObjectSchema({
+    kind: stringEnumSchema([
+      "none",
+      "replace_project",
+      "replace_task",
+      "clear_project",
+      "clear_task",
+    ]),
+    projectId: nullable(projectIdSchema()),
+    taskId: nullable(taskIdSchema()),
+    content: nullable({ type: "string" }),
+  });
 }
 
-function configuredPayloadSchema(outputFields: readonly string[]): JsonSchema {
-  return objectSchema(
-    Object.fromEntries(outputFields.map((field) => [field, {}])),
-    [],
+function configuredPayloadJsonSchema(
+  label: string,
+  outputFields: readonly string[],
+): JsonSchema {
+  const allowed = outputFields.length === 0 ? "none" : outputFields.join(", ");
+  return jsonTextSchema(
+    `${label} as JSON text encoding an object. Allowed top-level keys: ${allowed}. Configured fields may be omitted; do not add unconfigured fields.`,
   );
 }
 
-function opaqueObjectSchema(): JsonSchema {
-  return { type: "object", additionalProperties: true };
+function jsonTextSchema(description: string): JsonSchema {
+  return { type: "string", description };
 }
 
-function objectSchema(
+function strictObjectSchema(
   properties: Readonly<Record<string, JsonSchema>>,
-  required: readonly string[],
 ): JsonSchema {
   return {
     type: "object",
     additionalProperties: false,
     properties,
-    required: [...required],
+    required: Object.keys(properties),
   };
 }
 
+function nullableObjectSchema(
+  properties: Readonly<Record<string, JsonSchema>>,
+): JsonSchema {
+  return {
+    ...strictObjectSchema(properties),
+    type: ["object", "null"],
+  };
+}
+
+function nullable(schema: JsonSchema): JsonSchema {
+  if (typeof schema.type !== "string") {
+    throw new TypeError("Nullable Codex schema must have one concrete type");
+  }
+  return { ...schema, type: [schema.type, "null"] };
+}
+
+function stringEnumSchema(values: readonly string[]): JsonSchema {
+  return { type: "string", enum: [...values] };
+}
+
+function nullableEnumSchema(values: readonly string[]): JsonSchema {
+  return { type: ["string", "null"], enum: [...values, null] };
+}
+
 function nonEmptyStringSchema(): JsonSchema {
-  return { type: "string", minLength: 1 };
+  return { type: "string" };
 }
 
 function projectIdSchema(): JsonSchema {
-  return { type: "string", pattern: "^prj_[A-Za-z0-9_-]+$" };
+  return { type: "string" };
 }
 
 function taskIdSchema(): JsonSchema {
-  return { type: "string", pattern: "^task_[A-Za-z0-9_-]+$" };
+  return { type: "string" };
 }
