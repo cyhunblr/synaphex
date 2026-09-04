@@ -46,6 +46,12 @@ export const SYNAPHEX_ERROR_CODES = [
   "IMMUTABLE_CONTRACT_VIOLATION",
   "NO_TASK_BOUND",
   "INVALID_PLAN_CONTENT",
+  "CODER_STAGING_REQUIRES_GIT",
+  "CODER_STAGING_WORKTREE_DIRTY",
+  "CODER_STAGING_UNSUPPORTED_REPOSITORY",
+  "CODER_STAGING_FAILED",
+  "CHANGE_SET_NOT_FOUND",
+  "CHANGE_SET_CORRUPT",
   "NO_PLAN_DRAFT",
   "PLAN_ALREADY_ACCEPTED",
   "PLAN_DRAFT_REVISION_MISMATCH",
@@ -323,6 +329,81 @@ export class NoTaskBoundError extends SynaphexError<"NO_TASK_BOUND"> {
     super("NO_TASK_BOUND", `Session has no task bound: ${sessionId}`, {
       sessionId,
     });
+  }
+}
+
+/** Reasons a registered source workspace cannot be staged in Phase 5A. */
+export type CoderStagingUnsupportedReason =
+  | "submodule_gitlink"
+  | "unsafe_symlink"
+  | "detached_or_unborn_head"
+  | "bare_repository";
+
+export class CoderStagingRequiresGitError extends SynaphexError<"CODER_STAGING_REQUIRES_GIT"> {
+  constructor(projectId: ProjectId) {
+    super(
+      "CODER_STAGING_REQUIRES_GIT",
+      "CODER staging requires the registered source workspace to be a Git worktree",
+      { projectId },
+    );
+  }
+}
+
+/**
+ * The source worktree has staged, unstaged or untracked changes.
+ *
+ * Synaphex never stashes, resets, cleans or commits the user's work to make
+ * staging possible -- it fails closed instead.
+ */
+export class CoderStagingWorktreeDirtyError extends SynaphexError<"CODER_STAGING_WORKTREE_DIRTY"> {
+  constructor(projectId: ProjectId, entryCount: number) {
+    super(
+      "CODER_STAGING_WORKTREE_DIRTY",
+      "CODER staging requires a clean source worktree; commit or set aside local changes first",
+      { projectId, entryCount },
+    );
+  }
+}
+
+export class CoderStagingUnsupportedRepositoryError extends SynaphexError<"CODER_STAGING_UNSUPPORTED_REPOSITORY"> {
+  constructor(projectId: ProjectId, reason: CoderStagingUnsupportedReason) {
+    super(
+      "CODER_STAGING_UNSUPPORTED_REPOSITORY",
+      `CODER staging does not support this repository: ${reason.replaceAll("_", " ")}`,
+      { projectId, reason },
+    );
+  }
+}
+
+/** Infrastructure failure in Synaphex's own Git operations -- never a provider error. */
+export class CoderStagingFailedError extends SynaphexError<"CODER_STAGING_FAILED"> {
+  constructor(operation: string, options?: ErrorOptions) {
+    super(
+      "CODER_STAGING_FAILED",
+      `CODER staging failed during ${operation}`,
+      { operation },
+      options,
+    );
+  }
+}
+
+export class ChangeSetNotFoundError extends SynaphexError<"CHANGE_SET_NOT_FOUND"> {
+  constructor(taskId: TaskId, changeSetId: string) {
+    super(
+      "CHANGE_SET_NOT_FOUND",
+      `Change set was not found for task ${taskId}`,
+      { taskId, changeSetId },
+    );
+  }
+}
+
+export class ChangeSetCorruptError extends SynaphexError<"CHANGE_SET_CORRUPT"> {
+  constructor(changeSetId: string, reason: string) {
+    super(
+      "CHANGE_SET_CORRUPT",
+      `Change set state is corrupt: ${reason}`,
+      { changeSetId, reason },
+    );
   }
 }
 

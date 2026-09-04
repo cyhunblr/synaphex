@@ -321,6 +321,30 @@ export {
   type RunArtifactCategory,
   type TaskArtifactScope,
 } from "./domain/artifact.js";
+export {
+  CoderWorkspaceStager,
+  assertSafeRelativePath,
+  isInternalSymlink,
+  parseNameStatus,
+  type ChangedFile,
+  type CoderChangeSetCandidate,
+  type CoderWorkspaceStagerOptions,
+  type PrepareCoderWorkspaceInput,
+  type PreparedCoderWorkspace,
+} from "./core/coder-workspace-stager.js";
+export {
+  CoderChangeSetManager,
+  type ChangeSetId,
+  type ChangeSetMetadata,
+  type PublishedChangeSet,
+} from "./core/coder-change-set-manager.js";
+export {
+  SpawnIsolatedGitRunner,
+  ISOLATED_GIT_CONFIG_OVERRIDES,
+  type IsolatedGitRunInput,
+  type IsolatedGitResult,
+  type IsolatedGitRunner,
+} from "./infrastructure/isolated-git-runner.js";
 export type { Project, ProjectId } from "./domain/project.js";
 export type {
   CanonicalMemoryRead,
