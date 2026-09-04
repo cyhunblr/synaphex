@@ -15,6 +15,7 @@ export {
   AgentUnconfiguredError,
   ClaudeCliExecutionError,
   CodexCliExecutionError,
+  GeminiCliExecutionError,
   ArtifactNotFoundError,
   ImmutableContractViolationError,
   InvalidArtifactError,
@@ -68,6 +69,7 @@ export {
   type SynaphexErrorCode,
   type ClaudeCliExecutionFailureReason,
   type CodexCliExecutionFailureReason,
+  type GeminiCliExecutionFailureReason,
 } from "./domain/errors.js";
 export { AGENT_NAMES, isAgentName, type AgentName } from "./domain/agent.js";
 export {
@@ -236,6 +238,39 @@ export {
   type ClaudeCliRuntimeAvailabilityResult,
   type ClaudeCliRuntimeUnavailableReason,
 } from "./providers/claude-cli-runtime-availability.js";
+export {
+  GEMINI_FIXED_HEADLESS_INSTRUCTION,
+  GeminiCliAgentExecutor,
+  geminiInvocationProjectSettings,
+  type GeminiCliAgentExecutorOptions,
+  type GeminiInvocationProjectSettings,
+} from "./providers/gemini-cli-agent-executor.js";
+export {
+  GeminiAgentResultContractSerializer,
+} from "./providers/gemini-agent-result-contract-serializer.js";
+export {
+  GeminiAgentResultEnvelopeDecoder,
+} from "./providers/gemini-agent-result-envelope-decoder.js";
+export {
+  GEMINI_BROAD_DENY_PRIORITY,
+  GEMINI_MCP_DENY_PRIORITY,
+  GEMINI_NETWORK_TOOL,
+  GEMINI_READ_ONLY_TOOLS,
+  GEMINI_SELECTED_ALLOW_PRIORITY,
+  GEMINI_WRITE_TOOLS,
+  resolveGeminiExecutionPolicy,
+  serializeGeminiPolicy,
+  type GeminiBuiltInTool,
+  type GeminiNetworkMechanism,
+  type ResolvedGeminiExecutionPolicy,
+} from "./providers/gemini-execution-policy-resolver.js";
+export {
+  GEMINI_CALLABLE_CAPABILITY_PROBE_ARGS,
+  GeminiCliRuntimeAvailability,
+  type GeminiCliRuntimeAvailabilityOptions,
+  type GeminiCliRuntimeAvailabilityResult,
+  type GeminiCliRuntimeUnavailableReason,
+} from "./providers/gemini-cli-runtime-availability.js";
 export {
   SpawnProcessRunner,
   type ProcessRunInput,

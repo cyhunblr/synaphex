@@ -24,7 +24,10 @@
     "test:codex-web-search-live": "npm run test:compile && node .test-dist/test/live/codex-web-search-live.test.js",
     "test:claude-live": "npm run test:compile && node .test-dist/test/live/claude-live.test.js",
     "test:claude-web-search-live": "npm run test:compile && node .test-dist/test/live/claude-web-search-live.test.js",
-    "test:claude-coder-live": "npm run test:compile && node .test-dist/test/live/claude-coder-live.test.js"
+    "test:claude-coder-live": "npm run test:compile && node .test-dist/test/live/claude-coder-live.test.js",
+    "test:gemini-live": "npm run test:compile && node .test-dist/test/live/gemini-live.test.js",
+    "test:gemini-web-search-live": "npm run test:compile && node .test-dist/test/live/gemini-web-search-live.test.js",
+    "test:gemini-coder-live": "npm run test:compile && node .test-dist/test/live/gemini-coder-live.test.js"
   },
   "dependencies": {
     "jsonc-parser": "^3.3.1"

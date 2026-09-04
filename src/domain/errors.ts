@@ -88,6 +88,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
   "CODEX_CLI_EXECUTION_FAILED",
   "CLAUDE_CLI_EXECUTION_FAILED",
+  "GEMINI_CLI_EXECUTION_FAILED",
 ] as const;
 
 export type SynaphexErrorCode = (typeof SYNAPHEX_ERROR_CODES)[number];
@@ -819,6 +820,37 @@ export class ClaudeCliExecutionError extends SynaphexError<"CLAUDE_CLI_EXECUTION
     super(
       "CLAUDE_CLI_EXECUTION_FAILED",
       `Anthropic Claude CLI execution failed: ${reason.replaceAll("_", " ")}`,
+      { reason, ...details },
+      options,
+    );
+  }
+}
+
+export type GeminiCliExecutionFailureReason =
+  | "unsupported_route"
+  | "unsupported_settings"
+  | "invalid_workspace"
+  | "invalid_execution_policy"
+  | "unsupported_cli_capability"
+  | "temporary_io"
+  | "spawn_failed"
+  | "timeout"
+  | "stdout_overflow"
+  | "non_zero_exit"
+  | "malformed_envelope"
+  | "provider_error"
+  | "missing_response"
+  | "malformed_agent_json";
+
+export class GeminiCliExecutionError extends SynaphexError<"GEMINI_CLI_EXECUTION_FAILED"> {
+  constructor(
+    reason: GeminiCliExecutionFailureReason,
+    details: Readonly<Record<string, unknown>> = {},
+    options?: ErrorOptions,
+  ) {
+    super(
+      "GEMINI_CLI_EXECUTION_FAILED",
+      `Google Gemini CLI execution failed: ${reason.replaceAll("_", " ")}`,
       { reason, ...details },
       options,
     );
