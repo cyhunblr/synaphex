@@ -13,6 +13,7 @@ export {
   AgentExecutionFailedError,
   AgentInvocationDepthExceededError,
   AgentUnconfiguredError,
+  ClaudeCliExecutionError,
   CodexCliExecutionError,
   ArtifactNotFoundError,
   ImmutableContractViolationError,
@@ -65,6 +66,7 @@ export {
   TaskNotFoundError,
   UnsupportedAgentBehaviorError,
   type SynaphexErrorCode,
+  type ClaudeCliExecutionFailureReason,
   type CodexCliExecutionFailureReason,
 } from "./domain/errors.js";
 export { AGENT_NAMES, isAgentName, type AgentName } from "./domain/agent.js";
@@ -207,6 +209,33 @@ export {
   CodexCliRuntimeAvailability,
   type CodexCliRuntimeAvailabilityOptions,
 } from "./providers/codex-cli-runtime-availability.js";
+export {
+  ClaudeCliAgentExecutor,
+  CLAUDE_FIXED_PRINT_INSTRUCTION,
+  type ClaudeCliAgentExecutorOptions,
+} from "./providers/claude-cli-agent-executor.js";
+export {
+  ClaudeAgentResultEnvelopeDecoder,
+} from "./providers/claude-agent-result-envelope-decoder.js";
+export {
+  ClaudeAgentResultJsonSchemaBuilder,
+  type ClaudeAgentResultJsonSchema,
+} from "./providers/claude-agent-result-json-schema-builder.js";
+export {
+  resolveClaudeExecutionPolicy,
+  type ClaudeBuiltInTool,
+  type ClaudeNetworkMechanism,
+  type ClaudeSandboxSettings,
+  type ResolvedClaudeExecutionPolicy,
+} from "./providers/claude-execution-policy-resolver.js";
+export {
+  CLAUDE_ISOLATION_CAPABILITY_PROBE_ARGS,
+  CLAUDE_MINIMUM_CLI_VERSION,
+  ClaudeCliRuntimeAvailability,
+  type ClaudeCliRuntimeAvailabilityOptions,
+  type ClaudeCliRuntimeAvailabilityResult,
+  type ClaudeCliRuntimeUnavailableReason,
+} from "./providers/claude-cli-runtime-availability.js";
 export {
   SpawnProcessRunner,
   type ProcessRunInput,

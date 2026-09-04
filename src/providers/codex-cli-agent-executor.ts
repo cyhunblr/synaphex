@@ -22,7 +22,10 @@ import {
   type ProcessRunner,
   type ProcessResult,
 } from "../infrastructure/process-runner.js";
-import { AgentPromptSerializer } from "./agent-prompt-serializer.js";
+import {
+  AgentPromptSerializer,
+  hostedExternalResearchPrompt,
+} from "./agent-prompt-serializer.js";
 import { AgentResultJsonSchemaBuilder } from "./agent-result-json-schema-builder.js";
 import { CodexAgentResultWireCodec } from "./codex-agent-result-wire-codec.js";
 import {
@@ -84,7 +87,11 @@ export class CodexCliAgentExecutor implements AgentExecutor {
         mode: 0o600,
         flag: "wx",
       });
-      const prompt = `${this.promptSerializer.serialize(input.context, input.executionPolicy, executionPolicy)}\n${this.wireCodec.instructions(input.context)}\n`;
+      const prompt = `${this.promptSerializer.serialize(
+        input.context,
+        input.executionPolicy,
+        hostedExternalResearchPrompt(executionPolicy.network.enabled),
+      )}\n${this.wireCodec.instructions(input.context)}\n`;
       const processResult = await this.runCodex(
         input,
         schemaPath,

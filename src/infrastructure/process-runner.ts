@@ -8,6 +8,9 @@ export interface ProcessRunInput {
   readonly env?: NodeJS.ProcessEnv;
   readonly timeoutMs: number;
   readonly terminationGraceMs: number;
+  readonly stdoutCaptureMode?: "tail" | "full";
+  readonly stdoutLimitBytes?: number;
+  readonly stderrTailLimitBytes?: number;
 }
 
 export interface ProcessResult {
@@ -16,6 +19,8 @@ export interface ProcessResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly timedOut: boolean;
+  readonly stdoutOverflowed?: boolean;
+  readonly stderrOverflowed?: boolean;
 }
 
 export interface ProcessRunner {
@@ -30,6 +35,15 @@ export class SpawnProcessRunner implements ProcessRunner {
   ) {}
 
   async run(input: ProcessRunInput): Promise<ProcessResult> {
+    const stdoutCaptureMode = input.stdoutCaptureMode ?? "tail";
+    const stdoutLimitBytes = captureLimit(
+      input.stdoutLimitBytes ?? this.maxCaptureBytes,
+      "stdoutLimitBytes",
+    );
+    const stderrLimitBytes = captureLimit(
+      input.stderrTailLimitBytes ?? this.maxCaptureBytes,
+      "stderrTailLimitBytes",
+    );
     return new Promise<ProcessResult>((resolve, reject) => {
       const child = spawn(input.executable, [...input.args], {
         ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
@@ -37,8 +51,11 @@ export class SpawnProcessRunner implements ProcessRunner {
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
       });
-      let stdout = "";
-      let stderr = "";
+      const stdout = new BoundedCapture(
+        stdoutLimitBytes,
+        stdoutCaptureMode,
+      );
+      const stderr = new BoundedCapture(stderrLimitBytes, "tail");
       let timedOut = false;
       let settled = false;
       let terminationTimer: NodeJS.Timeout | undefined;
@@ -54,10 +71,10 @@ export class SpawnProcessRunner implements ProcessRunner {
       timeoutTimer.unref();
 
       child.stdout.on("data", (chunk: Buffer | string) => {
-        stdout = appendBounded(stdout, chunk, this.maxCaptureBytes);
+        stdout.append(chunk);
       });
       child.stderr.on("data", (chunk: Buffer | string) => {
-        stderr = appendBounded(stderr, chunk, this.maxCaptureBytes);
+        stderr.append(chunk);
       });
       child.once("error", (error) => {
         if (settled) {
@@ -79,7 +96,15 @@ export class SpawnProcessRunner implements ProcessRunner {
         if (terminationTimer !== undefined) {
           clearTimeout(terminationTimer);
         }
-        resolve({ exitCode, signal, stdout, stderr, timedOut });
+        resolve({
+          exitCode,
+          signal,
+          stdout: stdout.value(),
+          stderr: stderr.value(),
+          timedOut,
+          stdoutOverflowed: stdout.overflowed,
+          stderrOverflowed: stderr.overflowed,
+        });
       });
 
       child.stdin.on("error", () => {
@@ -91,14 +116,37 @@ export class SpawnProcessRunner implements ProcessRunner {
   }
 }
 
-function appendBounded(
-  current: string,
-  chunk: Buffer | string,
-  maximumBytes: number,
-): string {
-  const combined = Buffer.from(current + chunk.toString());
-  if (combined.byteLength <= maximumBytes) {
-    return combined.toString();
+class BoundedCapture {
+  private captured = Buffer.alloc(0);
+  overflowed = false;
+
+  constructor(
+    private readonly limitBytes: number,
+    private readonly mode: "tail" | "full",
+  ) {}
+
+  append(chunk: Buffer | string): void {
+    const incoming = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const combined = Buffer.concat([this.captured, incoming]);
+    if (combined.byteLength <= this.limitBytes) {
+      this.captured = combined;
+      return;
+    }
+    this.overflowed = true;
+    this.captured =
+      this.mode === "full"
+        ? combined.subarray(0, this.limitBytes)
+        : combined.subarray(combined.byteLength - this.limitBytes);
   }
-  return combined.subarray(combined.byteLength - maximumBytes).toString();
+
+  value(): string {
+    return this.captured.toString();
+  }
+}
+
+function captureLimit(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive safe integer`);
+  }
+  return value;
 }

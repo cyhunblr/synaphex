@@ -1,11 +1,24 @@
 import type { AgentName } from "../domain/agent.js";
 import type { AgentContext } from "../domain/agent-context.js";
 import type { ExecutionPolicy } from "../domain/execution-policy.js";
+import { isProviderCapabilityUsable } from "../domain/execution-policy.js";
 import { HOST_ACTION_NAMES } from "../domain/action.js";
-import {
-  resolveCodexExecutionPolicy,
-  type ResolvedCodexExecutionPolicy,
-} from "./codex-execution-policy-resolver.js";
+
+export interface ProviderCapabilityPrompt {
+  readonly networkEnabled: boolean;
+  readonly networkInstruction: string;
+}
+
+export function hostedExternalResearchPrompt(
+  networkEnabled: boolean,
+): ProviderCapabilityPrompt {
+  return Object.freeze({
+    networkEnabled,
+    networkInstruction: networkEnabled
+      ? "External research is enabled through the provider's hosted web-search capability. Local shell/process network access is not granted."
+      : "External network/web-search capability is disabled. If external research is required, request `network`.",
+  });
+}
 
 const ROLE_INSTRUCTIONS = {
   questioner: [
@@ -47,8 +60,11 @@ export class AgentPromptSerializer {
   serialize(
     context: AgentContext,
     executionPolicy: ExecutionPolicy,
-    codexExecutionPolicy: ResolvedCodexExecutionPolicy =
-      resolveCodexExecutionPolicy(executionPolicy),
+    capabilityPrompt: ProviderCapabilityPrompt = hostedExternalResearchPrompt(
+      isProviderCapabilityUsable(
+        executionPolicy.providerCapabilities.network,
+      ),
+    ),
   ): string {
     const sections = [
       section(
@@ -95,7 +111,7 @@ export class AgentPromptSerializer {
                 ([capability, policy]) => [
                   capability,
                   {
-                    state: codexExecutionPolicy.network.enabled
+                    state: capabilityPrompt.networkEnabled
                       ? "enabled"
                       : policy.decision === "ask"
                         ? "approval_required"
@@ -109,7 +125,7 @@ export class AgentPromptSerializer {
             ),
           }),
           "network is a provider capability enforced by the provider runtime.",
-          networkInstruction(codexExecutionPolicy),
+          capabilityPrompt.networkInstruction,
         ].join("\n"),
       ),
       section(
@@ -153,15 +169,6 @@ export class AgentPromptSerializer {
     ];
     return `${sections.join("\n\n")}\n`;
   }
-}
-
-function networkInstruction(
-  policy: ResolvedCodexExecutionPolicy,
-): string {
-  if (policy.network.mechanism === "hosted_web_search") {
-    return "External research is enabled through the provider's hosted web-search capability. Local shell/process network access is not granted.";
-  }
-  return "External network/web-search capability is disabled. If external research is required, request `network`.";
 }
 
 function section(title: string, body: string): string {

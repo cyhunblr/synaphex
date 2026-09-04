@@ -87,6 +87,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "AGENT_INVOCATION_DEPTH_EXCEEDED",
   "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
   "CODEX_CLI_EXECUTION_FAILED",
+  "CLAUDE_CLI_EXECUTION_FAILED",
 ] as const;
 
 export type SynaphexErrorCode = (typeof SYNAPHEX_ERROR_CODES)[number];
@@ -789,6 +790,35 @@ export class CodexCliExecutionError extends SynaphexError<"CODEX_CLI_EXECUTION_F
     super(
       "CODEX_CLI_EXECUTION_FAILED",
       `OpenAI Codex CLI execution failed: ${reason.replaceAll("_", " ")}`,
+      { reason, ...details },
+      options,
+    );
+  }
+}
+
+export type ClaudeCliExecutionFailureReason =
+  | "unsupported_route"
+  | "unsupported_settings"
+  | "invalid_workspace"
+  | "unsupported_cli_capability"
+  | "spawn_failed"
+  | "timeout"
+  | "stdout_overflow"
+  | "non_zero_exit"
+  | "malformed_output"
+  | "missing_structured_output"
+  | "structured_output_error"
+  | "invalid_execution_policy";
+
+export class ClaudeCliExecutionError extends SynaphexError<"CLAUDE_CLI_EXECUTION_FAILED"> {
+  constructor(
+    reason: ClaudeCliExecutionFailureReason,
+    details: Readonly<Record<string, unknown>> = {},
+    options?: ErrorOptions,
+  ) {
+    super(
+      "CLAUDE_CLI_EXECUTION_FAILED",
+      `Anthropic Claude CLI execution failed: ${reason.replaceAll("_", " ")}`,
       { reason, ...details },
       options,
     );
