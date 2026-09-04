@@ -167,7 +167,7 @@ test("every successful claim persists a unique opaque ownership token", async (t
     assert.match(token as string, /^[0-9a-f]{32}$/);
     assert.equal(tokens.has(token as string), false, "tokens must be unique");
     tokens.add(token as string);
-    await fixture.commands.closeTaskSession(opened.sessionId);
+    await fixture.commands.closeSession(opened.sessionId);
   }
   assert.equal(tokens.size, 5);
 });
@@ -307,7 +307,7 @@ test("force release invalidates an existing fence", async (t) => {
 test("normal close invalidates an existing fence", async (t) => {
   const fixture = await createFixture(t);
   const fence = await openAndCapture(fixture);
-  await fixture.commands.closeTaskSession(fence.sessionId);
+  await fixture.commands.closeSession(fence.sessionId);
   assert.equal(await fixture.sessions.isTaskOwnershipCurrent(fence), false);
 });
 
@@ -462,7 +462,7 @@ test("a stale invocation cannot commit after an explicit close", async (t) => {
       "researcher",
       successResult("researcher", { researchArtifact: { findings: ["stale"] } }),
       async (sessionId) => {
-        await fixture.commands.closeTaskSession(sessionId);
+        await fixture.commands.closeSession(sessionId);
       },
     ),
     (error: unknown) => error instanceof TaskSessionOwnershipLostError,
@@ -720,7 +720,7 @@ test("the recovery ports expose no ownership token", async (t) => {
     fixture.task.id,
   );
   assert.equal(JSON.stringify(owner).includes(token), false);
-  const closed = await fixture.commands.closeTaskSession(opened.sessionId);
+  const closed = await fixture.commands.closeSession(opened.sessionId);
   assert.equal(JSON.stringify(closed).includes(token), false);
 });
 

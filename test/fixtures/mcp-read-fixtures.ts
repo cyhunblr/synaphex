@@ -17,6 +17,11 @@ import type {
 } from "../../src/operations/direct-agent-invocation.js";
 import type { InvocationContinuationPort } from "../../src/operations/invocation-continuation-commands.js";
 import type {
+  ProjectCommandPort,
+  ProjectSessionCommandPort,
+  TaskCommandPort,
+} from "../../src/operations/project-task-commands.js";
+import type {
   SessionCommandPort,
   SessionRecoveryPort,
 } from "../../src/operations/session-commands.js";
@@ -122,6 +127,37 @@ export class FakeReads {
   forceReleaseError: Error | null = null;
   invokeError: Error | null = null;
   continuationId: string | null = null;
+  projectTaskError: Error | null = null;
+
+  /** Narrow bootstrap fake; owns no business logic. */
+  get projectTaskCommands(): ProjectCommandPort &
+    TaskCommandPort &
+    ProjectSessionCommandPort {
+    const guard = (port: string, args: readonly unknown[]) => {
+      this.calls.push({ port, args });
+      if (this.projectTaskError !== null) {
+        throw this.projectTaskError;
+      }
+    };
+    return {
+      registerProject: async (name, sourcePath) => {
+        guard("projectTaskCommands.registerProject", [name, sourcePath]);
+        return { ...FAKE_PROJECT, name, sourcePath };
+      },
+      createTask: async (projectId, description) => {
+        guard("projectTaskCommands.createTask", [projectId, description]);
+        return { ...FAKE_TASK, projectId, description };
+      },
+      openProjectSession: async (projectId) => {
+        guard("projectTaskCommands.openProjectSession", [projectId]);
+        return {
+          sessionId: "ses_00000000000000000000000000000002",
+          projectId,
+          taskId: null,
+        };
+      },
+    };
+  }
   continuationError: Error | null = null;
   continuationOutcome: unknown = null;
 
@@ -162,6 +198,8 @@ export class FakeReads {
       resumeCaller: (id) => step("agentContinuation.resumeCaller", [id]),
       approveNetworkAction: (id, index) =>
         step("agentContinuation.approveNetworkAction", [id, index]),
+      continueAllowedNetwork: (id, index) =>
+        step("agentContinuation.continueAllowedNetwork", [id, index]),
     };
   }
 
@@ -232,9 +270,9 @@ export class FakeReads {
         }
         return this.openResult;
       },
-      closeTaskSession: async (sessionId) => {
+      closeSession: async (sessionId) => {
         this.calls.push({
-          port: "sessionCommands.closeTaskSession",
+          port: "sessionCommands.closeSession",
           args: [sessionId],
         });
         if (this.closeError !== null) {
@@ -319,6 +357,7 @@ export async function connectedClient(
     sessionRecovery: reads.sessionRecovery,
     agentInvocation: reads.agentInvocation,
     agentContinuation: reads.agentContinuation,
+    projectTaskCommands: reads.projectTaskCommands,
     version: "0.0.0-test",
     onDiagnostic: (message) => {
       reads.diagnostics.push(message);

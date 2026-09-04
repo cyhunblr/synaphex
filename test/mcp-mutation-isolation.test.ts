@@ -3,6 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
   SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_INVOCATION_TOOLS,
   SYNAPHEX_MCP_PHASE1_TOOLS,
@@ -56,7 +57,8 @@ test("MCP handler modules never import a broad mutation, invocation or provider 
         assert.ok(
           specifier.endsWith("session-commands.js") ||
             specifier.endsWith("direct-agent-invocation.js") ||
-            specifier.endsWith("invocation-continuation-commands.js"),
+            specifier.endsWith("invocation-continuation-commands.js") ||
+            specifier.endsWith("project-task-commands.js"),
           `${name} may only import narrow operations ports (${specifier})`,
         );
       }
@@ -147,7 +149,7 @@ test("the read ports expose read-only methods only", async () => {
 test("only the two session-lifecycle commands are injected as mutations", async () => {
   const reads = fakeReadDependencies();
   assert.deepEqual(Object.keys(reads.sessionCommands).sort(), [
-    "closeTaskSession",
+    "closeSession",
     "openTaskSession",
   ]);
 });
@@ -186,7 +188,8 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
         SYNAPHEX_MCP_SESSION_TOOLS.length +
         SYNAPHEX_MCP_RECOVERY_TOOLS.length +
         SYNAPHEX_MCP_INVOCATION_TOOLS.length +
-        SYNAPHEX_MCP_CONTINUATION_TOOLS.length,
+        SYNAPHEX_MCP_CONTINUATION_TOOLS.length +
+        SYNAPHEX_MCP_BOOTSTRAP_TOOLS.length,
     );
     const mutating = tools
       .filter((tool) => tool.annotations?.readOnlyHint !== true)
@@ -197,11 +200,15 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
     assert.deepEqual(mutating, [
       "synaphex_approve_and_execute_helper",
       "synaphex_approve_network_action",
-      "synaphex_close_task_session",
+      "synaphex_close_session",
+      "synaphex_continue_allowed_network",
+      "synaphex_create_task",
       "synaphex_execute_helper",
       "synaphex_force_release_task_session",
       "synaphex_invoke_agent",
+      "synaphex_open_project_session",
       "synaphex_open_task_session",
+      "synaphex_register_project",
       "synaphex_resume_caller",
     ]);
     // Host actions, cancellation, status and plan acceptance stay absent:
@@ -270,4 +277,118 @@ test("Synaphex implements no lease, heartbeat or PID-based session expiry", asyn
       `session-commands must not implement ${forbidden.source}`,
     );
   }
+});
+
+test("bootstrap commands import no provider and perform no execution", async () => {
+  const source = stripComments(
+    await readFile(
+      join(process.cwd(), "src", "operations", "project-task-commands.ts"),
+      "utf8",
+    ),
+  );
+  for (const forbidden of [
+    "providers/",
+    "CodexCliAgentExecutor",
+    "ClaudeCliAgentExecutor",
+    "AntigravityCliAgentExecutor",
+    "ProviderDispatchingAgentExecutor",
+    "AgentInvocationService",
+    "invokeUserAgent",
+    "ProviderRouter",
+    "child_process",
+    "spawn(",
+    "fetch(",
+    // No plan / lifecycle / host-action mutation from bootstrap.
+    "acceptDraft",
+    "saveDraft",
+    "markCompleted",
+    ".archive(",
+    "executeHostAction",
+    'action: "git_push"',
+  ]) {
+    assert.equal(
+      source.includes(forbidden),
+      false,
+      `project-task-commands must not reference ${forbidden}`,
+    );
+  }
+  // It only reaches the narrow Core operations it genuinely needs.
+  assert.ok(source.includes("projects.create"));
+  assert.ok(source.includes("tasks.create"));
+  assert.ok(source.includes("sessions.bindProject"));
+  // A project session must never acquire a task claim.
+  assert.equal(source.includes("bindTask"), false);
+  assert.equal(source.includes("captureTaskOwnership"), false);
+  assert.equal(source.includes("ownershipToken"), false);
+});
+
+test("no MCP tool name still implies a task-only session close", async () => {
+  // Assembled so this audit does not match its own source text.
+  const staleName = ["synaphex_close", "task_session"].join("_");
+  const { client, close } = await connectedClient();
+  try {
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    assert.equal(
+      names.includes(staleName),
+      false,
+      "the misleading task-only close name must be gone",
+    );
+    assert.ok(names.includes("synaphex_close_session"));
+  } finally {
+    await close();
+  }
+  // And no stale name survives in source, docs or tests.
+  const { readdir: readDir } = await import("node:fs/promises");
+  for (const directory of ["src", "test", "docs"]) {
+    const roots = [join(process.cwd(), directory)];
+    while (roots.length > 0) {
+      const current = roots.pop()!;
+      for (const entry of await readDir(current, { withFileTypes: true })) {
+        const full = join(current, entry.name);
+        if (entry.isDirectory()) {
+          roots.push(full);
+          continue;
+        }
+        if (!/\.(ts|md)$/.test(entry.name)) {
+          continue;
+        }
+        const contents = await readFile(full, "utf8");
+        assert.equal(
+          contents.includes(staleName),
+          false,
+          `${full} still references the stale close name`,
+        );
+      }
+    }
+  }
+});
+
+test("creating a project, task or session invokes no agent", async () => {
+  const reads = fakeReadDependencies();
+  const { client, close } = await connectedClient(reads);
+  try {
+    await client.callTool({
+      name: "synaphex_register_project",
+      arguments: { name: "N", sourcePath: "/tmp/x" },
+    });
+    await client.callTool({
+      name: "synaphex_create_task",
+      arguments: { projectId: "prj_fixture01", description: "d" },
+    });
+    await client.callTool({
+      name: "synaphex_open_project_session",
+      arguments: { projectId: "prj_fixture01" },
+    });
+  } finally {
+    await close();
+  }
+  // Only bootstrap commands ran; no invocation or continuation port was touched.
+  assert.deepEqual(
+    reads.calls.map((call) => call.port),
+    [
+      "projectTaskCommands.registerProject",
+      "projectTaskCommands.createTask",
+      "projectTaskCommands.openProjectSession",
+    ],
+  );
 });

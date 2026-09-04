@@ -402,11 +402,20 @@ export {
   type ProviderDispatchingAgentExecutorDelegates,
 } from "./providers/provider-dispatching-agent-executor.js";
 export {
+  ProjectTaskCommands,
+  type ProjectCommandPort,
+  type ProjectSessionCommandPort,
+  type ProjectTaskCommandsDependencies,
+  type TaskCommandPort,
+} from "./operations/project-task-commands.js";
+export {
   CONTINUATION_ID_PREFIX,
   ContinuationCapacityError,
   ContinuationNotFoundError,
   ContinuationStateError,
   InvocationContinuationStore,
+  isActionableNetworkApproval,
+  isContinuableAllowedNetwork,
   type ContinuationId,
   type ContinuationRecord,
   type ContinuationState,
@@ -435,6 +444,7 @@ export {
   parseHostContextArguments,
 } from "./mcp/mcp-host-context.js";
 export {
+  SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
   SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_INVOCATION_TOOLS,
   SYNAPHEX_MCP_PHASE1_TOOLS,

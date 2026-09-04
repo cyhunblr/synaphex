@@ -20,6 +20,11 @@ import type {
   InvocationContinuationPort,
 } from "../operations/invocation-continuation-commands.js";
 import type {
+  ProjectCommandPort,
+  ProjectSessionCommandPort,
+  TaskCommandPort,
+} from "../operations/project-task-commands.js";
+import type {
   SessionCommandPort,
   SessionRecoveryPort,
 } from "../operations/session-commands.js";
@@ -62,7 +67,20 @@ export const SYNAPHEX_MCP_PHASE1_TOOLS = Object.freeze([
  */
 export const SYNAPHEX_MCP_SESSION_TOOLS = Object.freeze([
   "synaphex_open_task_session",
-  "synaphex_close_task_session",
+  "synaphex_open_project_session",
+  "synaphex_close_session",
+] as const);
+
+/**
+ * Project/task bootstrap (Phase 4A).
+ *
+ * These make normal work self-service through local stdio MCP:
+ * register an existing workspace, create a task, then open a session.
+ * Creating any of them never invokes an agent.
+ */
+export const SYNAPHEX_MCP_BOOTSTRAP_TOOLS = Object.freeze([
+  "synaphex_register_project",
+  "synaphex_create_task",
 ] as const);
 
 /**
@@ -100,11 +118,13 @@ export const SYNAPHEX_MCP_CONTINUATION_TOOLS = Object.freeze([
   "synaphex_approve_and_execute_helper",
   "synaphex_resume_caller",
   "synaphex_approve_network_action",
+  "synaphex_continue_allowed_network",
 ] as const);
 
 /** Every tool this server registers. */
 export const SYNAPHEX_MCP_TOOLS = Object.freeze([
   ...SYNAPHEX_MCP_PHASE1_TOOLS,
+  ...SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
   ...SYNAPHEX_MCP_SESSION_TOOLS,
   ...SYNAPHEX_MCP_RECOVERY_TOOLS,
   ...SYNAPHEX_MCP_INVOCATION_TOOLS,
@@ -135,6 +155,13 @@ export interface CreateSynaphexMcpServerOptions
    * itself, so tool handlers own no continuation business logic.
    */
   readonly agentContinuation: InvocationContinuationPort;
+  /**
+   * Narrow project/task bootstrap boundary. MCP never receives a
+   * mutation-capable ProjectManager, TaskManager or SessionManager.
+   */
+  readonly projectTaskCommands: ProjectCommandPort &
+    TaskCommandPort &
+    ProjectSessionCommandPort;
   /** Server version; callers pass the package.json version (never duplicated here). */
   readonly version: string;
   /** Diagnostics sink. Defaults to stderr so MCP stdout stays protocol-only. */
@@ -178,7 +205,7 @@ const openTaskSessionOutputSchema = z.object({
   bound: z.literal(true),
 });
 
-const closeTaskSessionOutputSchema = z.object({
+const closeSessionOutputSchema = z.object({
   sessionId: z.string(),
   /** True only when a task claim was actually released. */
   released: z.boolean(),
@@ -340,6 +367,38 @@ const continuationOutputSchema = z.object({
   continuationId: z.string().nullable(),
 });
 
+const registerProjectInputSchema = z.object({
+  name: z.string().min(1).max(200).describe("Human-readable project name."),
+  sourcePath: z
+    .string()
+    .min(1)
+    .max(4_096)
+    .describe(
+      "Path to an EXISTING source workspace directory. Synaphex registers it; it never creates, clones or git-initializes it.",
+    ),
+});
+
+const createTaskInputSchema = z.object({
+  projectId: projectIdSchema,
+  description: z
+    .string()
+    .min(1)
+    .max(4_000)
+    .describe("What the task is about; Core derives the task slug from it."),
+});
+
+const openProjectSessionInputSchema = z.object({
+  projectId: projectIdSchema,
+});
+
+const projectSessionOutputSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  /** Always null: a project-only session holds no task claim. */
+  taskId: z.null(),
+  bound: z.literal(true),
+});
+
 const agentConfigOutputSchema = z.object({
   agent: z.enum(AGENT_NAMES),
   status: z.enum(["configured", "unconfigured", "removed"]),
@@ -379,6 +438,7 @@ export function createSynaphexMcpServer(
     sessionRecovery,
     agentInvocation,
     agentContinuation,
+    projectTaskCommands,
     version,
     onDiagnostic = defaultDiagnostic,
   } = options;
@@ -550,6 +610,109 @@ export function createSynaphexMcpServer(
       }),
   );
 
+  // --- Phase 4A: project / task bootstrap ---------------------------------
+  //
+  // Local-state mutation only: no provider, model, shell or network is
+  // involved, so openWorldHint is false. None of these invokes an agent.
+  server.registerTool(
+    "synaphex_register_project",
+    {
+      title: "Register Synaphex project",
+      description:
+        "Register an EXISTING local source workspace as a Synaphex project. Synaphex stores only its own state; the source tree is never created, cloned or modified. Registering an already-registered path fails rather than returning the existing project.",
+      inputSchema: registerProjectInputSchema,
+      outputSchema: projectOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        // NOT idempotent: Core refuses a duplicate canonical source path
+        // rather than returning the existing project, so a repeat call errors.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ name, sourcePath }) =>
+      run(onDiagnostic, "synaphex_register_project", async () => {
+        const project = await projectTaskCommands.registerProject(
+          name,
+          sourcePath,
+        );
+        return {
+          id: project.id,
+          name: project.name,
+          sourcePath: project.sourcePath,
+          createdAt: project.createdAt,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_create_task",
+    {
+      title: "Create Synaphex task",
+      description:
+        "Create a new active task in a registered project. The task is created unbound: no session is opened and no task ownership claim is acquired. No plan is created or accepted.",
+      inputSchema: createTaskInputSchema,
+      outputSchema: taskOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ projectId, description }) =>
+      run(onDiagnostic, "synaphex_create_task", async () => {
+        const task = await projectTaskCommands.createTask(
+          parseProjectId(projectId),
+          description,
+        );
+        return {
+          id: task.id,
+          projectId: task.projectId,
+          slug: task.slug,
+          description: task.description,
+          status: task.status,
+          createdAt: task.createdAt,
+          completedAt: task.completedAt,
+          archivedAt: task.archivedAt,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_open_project_session",
+    {
+      title: "Open Synaphex project session",
+      description:
+        "Open a logical Synaphex session bound only to a project, with no task. Use its sessionId for project-scoped invocation (researcher, examiner). It acquires no task ownership claim and selects no task.",
+      inputSchema: openProjectSessionInputSchema,
+      outputSchema: projectSessionOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ projectId }) =>
+      run(onDiagnostic, "synaphex_open_project_session", async () => {
+        const binding = await projectTaskCommands.openProjectSession(
+          parseProjectId(projectId),
+        );
+        if (binding.projectId === null || binding.taskId !== null) {
+          // Core guarantees a project-only binding; refuse to misreport one.
+          throw new Error("openProjectSession returned an unexpected binding");
+        }
+        return {
+          sessionId: binding.sessionId,
+          projectId: binding.projectId,
+          taskId: null,
+          bound: true as const,
+        };
+      }),
+  );
+
   // --- Session-lifecycle mutation -----------------------------------------
   //
   // All mutating tools set `readOnlyHint: false` and `openWorldHint: false`.
@@ -564,7 +727,7 @@ export function createSynaphexMcpServer(
     openWorldHint: false,
   } as const;
 
-  // `closeTaskSession` IS idempotent: repeating it on an already-closed
+  // `closeSession` IS idempotent: repeating it on an already-closed
   // session is a deterministic no-op reporting `released: false`. It removes
   // only the caller's own session state, so it is not destructive.
   const closingAnnotations = {
@@ -621,7 +784,7 @@ export function createSynaphexMcpServer(
   );
 
   server.registerTool(
-    "synaphex_close_task_session",
+    "synaphex_close_session",
     {
       title: "Close Synaphex task session",
       description:
@@ -629,13 +792,13 @@ export function createSynaphexMcpServer(
       inputSchema: z.object({
         sessionId: z.string().describe("Synaphex session id."),
       }),
-      outputSchema: closeTaskSessionOutputSchema,
+      outputSchema: closeSessionOutputSchema,
       annotations: closingAnnotations,
     },
     async ({ sessionId }) =>
-      run(onDiagnostic, "synaphex_close_task_session", async () => {
+      run(onDiagnostic, "synaphex_close_session", async () => {
         const parsedSessionId = parseSessionId(sessionId);
-        const result = await sessionCommands.closeTaskSession(parsedSessionId);
+        const result = await sessionCommands.closeSession(parsedSessionId);
         return {
           sessionId: result.sessionId,
           // Never claims success where nothing changed.
@@ -849,6 +1012,32 @@ export function createSynaphexMcpServer(
       run(onDiagnostic, "synaphex_approve_network_action", async () =>
         presentContinuation(
           await agentContinuation.approveNetworkAction(
+            continuationId,
+            requestIndex,
+          ),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "synaphex_continue_allowed_network",
+    {
+      title: "Continue with allowed network capability",
+      description:
+        "Explicitly continue a caller whose requested 'network' provider capability was ALREADY classified 'allowed' by rule. No approval is granted or needed; an approval_required action must use synaphex_approve_network_action instead. Host actions (git_push, ci) cannot be continued here.",
+      inputSchema: continuationRefSchema,
+      outputSchema: continuationOutputSchema,
+      // Not destructive: unlike the approval tools this grants nothing that was
+      // previously denied or asked -- the capability was already permitted by
+      // rule. Per the MCP definition, destructiveHint means destructive/
+      // irreversible updates, not merely "calls an external provider", so
+      // calling a provider alone does not warrant it.
+      annotations: continuationAnnotations,
+    },
+    async ({ continuationId, requestIndex }) =>
+      run(onDiagnostic, "synaphex_continue_allowed_network", async () =>
+        presentContinuation(
+          await agentContinuation.continueAllowedNetwork(
             continuationId,
             requestIndex,
           ),

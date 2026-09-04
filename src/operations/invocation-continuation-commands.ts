@@ -12,6 +12,7 @@ import {
   ContinuationStateError,
   InvocationContinuationStore,
   isActionableNetworkApproval,
+  isContinuableAllowedNetwork,
   type ContinuationId,
   type ContinuationRecord,
 } from "./invocation-continuation-store.js";
@@ -61,6 +62,10 @@ export interface InvocationContinuationPort {
     continuationId: string,
     requestIndex: number,
   ): Promise<ContinuationOutcome>;
+  continueAllowedNetwork(
+    continuationId: string,
+    requestIndex: number,
+  ): Promise<ContinuationOutcome>;
 }
 
 export interface InvocationContinuationDependencies {
@@ -68,7 +73,10 @@ export interface InvocationContinuationDependencies {
   readonly host: HostRuntime;
   readonly invocations: Pick<
     AgentInvocationService,
-    "executeHelper" | "resumeCaller" | "resumeCallerWithActionApproval"
+    | "executeHelper"
+    | "resumeCaller"
+    | "resumeCallerWithActionApproval"
+    | "resumeCallerWithAllowedAction"
   >;
   readonly store: InvocationContinuationStore;
   readonly roleContracts: {
@@ -264,6 +272,53 @@ export class InvocationContinuationCommands
         previousInvocation: record.invocation,
         actionClassification: classification,
         approvalGranted: true,
+        host: this.dependencies.host,
+      })) as AnyAgentInvocationResult;
+
+    this.dependencies.store.consume(record.id);
+    return this.issueNext(record, invocation);
+  }
+
+  /**
+   * Continues a caller whose requested `network` capability was ALREADY
+   * classified `allowed` by rule.
+   *
+   * No approval is granted or implied -- the capability was already permitted.
+   * The continuation is nonetheless explicit: an allowed capability never
+   * auto-resumes the caller.
+   */
+  async continueAllowedNetwork(
+    continuationId: string,
+    requestIndex: number,
+  ): Promise<ContinuationOutcome> {
+    const record = this.dependencies.store.require(
+      continuationId,
+      this.dependencies.host,
+    );
+    if (record.state !== "origin_pending") {
+      throw new ContinuationStateError(
+        "this continuation has already progressed past its origin invocation",
+      );
+    }
+    const classification = requireIndexed(
+      record.actionRequests,
+      requestIndex,
+      "action request",
+    );
+    // Only network, only provider_capability, only `allowed`. An
+    // approval_required action must use the approval tool, and host actions
+    // (git_push, ci) are never continuable here.
+    if (!isContinuableAllowedNetwork(classification)) {
+      throw new ContinuationStateError(
+        "only an allowed provider-capability network action can be continued through this path",
+      );
+    }
+
+    const invocation =
+      (await this.dependencies.invocations.resumeCallerWithAllowedAction({
+        sessionId: record.sessionId,
+        previousInvocation: record.invocation,
+        actionClassification: classification,
         host: this.dependencies.host,
       })) as AnyAgentInvocationResult;
 

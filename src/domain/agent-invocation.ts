@@ -238,6 +238,35 @@ export interface ResumeCallerRequest {
   readonly instruction?: string;
 }
 
+/**
+ * Continuation for a provider capability already classified `allowed` by rule.
+ *
+ * No `approvalGranted` field exists: there is no approval event to grant, and
+ * inventing one would misrepresent the authority source.
+ */
+export interface AllowedActionContinuationRequest {
+  readonly sessionId: SessionId;
+  readonly previousInvocation: AnyAgentInvocationResult;
+  readonly actionClassification: ActionClassification;
+  readonly host: HostRuntime;
+  readonly instruction?: string;
+}
+
+/** Where a provider-capability continuation's authority comes from. */
+export type ProviderCapabilityAuthorizationSource =
+  | "rule_allow"
+  | "explicit_approval";
+
+export interface ProviderCapabilityContinuationRequest {
+  readonly sessionId: SessionId;
+  readonly previousInvocation: AnyAgentInvocationResult;
+  readonly actionClassification: ActionClassification;
+  readonly approvalGranted: boolean;
+  readonly host: HostRuntime;
+  readonly instruction?: string;
+  readonly authorizationSource: ProviderCapabilityAuthorizationSource;
+}
+
 export interface ActionApprovalContinuationRequest {
   readonly sessionId: SessionId;
   readonly previousInvocation: AnyAgentInvocationResult;

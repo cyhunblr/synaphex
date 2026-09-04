@@ -29,6 +29,7 @@ import {
   TaskSessionOwnershipLostError,
   UnsupportedAgentInvocationError,
 } from "../src/domain/errors.js";
+import { isProviderCapabilityUsable } from "../src/domain/execution-policy.js";
 import type { Project } from "../src/domain/project.js";
 import type {
   HostRuntime,
@@ -383,7 +384,7 @@ test("a closed session cannot be invoked", async (t) => {
     fixture.project.id,
     fixture.task.id,
   );
-  await fixture.commands.closeTaskSession(opened.sessionId);
+  await fixture.commands.closeSession(opened.sessionId);
   const executor = new RecordingExecutor(() => researcherResult());
   await assert.rejects(
     invocationPort(
@@ -840,4 +841,231 @@ test("the real Antigravity adapter still fails closed through the dispatcher", a
       );
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3D: allowed-network continuation through the real pipeline
+// ---------------------------------------------------------------------------
+
+async function networkFixture(
+  t: TestContext,
+  decision: "allow" | "ask",
+): Promise<{
+  readonly fixture: Fixture;
+  readonly sessionId: string;
+  readonly executor: RecordingExecutor;
+  readonly service: AgentInvocationService;
+}> {
+  const fixture = await createFixture(t);
+  await configure(fixture, "researcher", "openai", "cli");
+  await fixture.rules.setRule(
+    "global",
+    { kind: "action", action: "network" },
+    decision,
+  );
+  const opened = await fixture.commands.openTaskSession(
+    fixture.project.id,
+    fixture.task.id,
+  );
+  const executor = new RecordingExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Research needs the network.",
+    researchArtifact: { findings: ["needs network"] },
+    requestedActions: [
+      { action: "network", reason: "External research is required." },
+    ],
+  }));
+  return {
+    fixture,
+    sessionId: opened.sessionId,
+    executor,
+    service: new AgentInvocationService({
+      executor,
+      runtimeAvailability: availableEverywhere,
+      synaphexRoot: fixture.stateRoot,
+      homeDirectory: fixture.homeDirectory,
+    }),
+  };
+}
+
+test("an allowed network action does NOT auto-resume the caller", async (t) => {
+  const h = await networkFixture(t, "allow");
+  const first = await new DirectAgentInvocation({
+    host: { provider: "openai", surface: "cli" },
+    invocations: h.service,
+    sessions: h.fixture.sessions,
+    roleContracts: new RoleContractRegistry(),
+  }).invoke({
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: h.sessionId },
+    instruction: "Research it.",
+  });
+
+  assert.equal(first.actionClassifications[0]?.status, "allowed");
+  // The provider ran exactly once; nothing continued automatically.
+  assert.equal(h.executor.calls.length, 1);
+
+  // Explicit continuation performs the second execution.
+  await h.service.resumeCallerWithAllowedAction({
+    sessionId: h.sessionId,
+    previousInvocation: first as never,
+    actionClassification: first.actionClassifications[0]!,
+    host: { provider: "openai", surface: "cli" },
+  });
+  assert.equal(h.executor.calls.length, 2);
+});
+
+test("the resumed execution is actually authorized to use the network", async (t) => {
+  const h = await networkFixture(t, "allow");
+  const first = await new DirectAgentInvocation({
+    host: { provider: "openai", surface: "cli" },
+    invocations: h.service,
+    sessions: h.fixture.sessions,
+    roleContracts: new RoleContractRegistry(),
+  }).invoke({
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: h.sessionId },
+    instruction: "Research it.",
+  });
+
+  await h.service.resumeCallerWithAllowedAction({
+    sessionId: h.sessionId,
+    previousInvocation: first as never,
+    actionClassification: first.actionClassifications[0]!,
+    host: { provider: "openai", surface: "cli" },
+  });
+
+  // Inspect the ACTUAL ExecutionPolicy the provider received, not just that it
+  // was called: a rule-allowed capability is usable with no approval token.
+  const resumedPolicy = h.executor.calls[1]!.executionPolicy;
+  const network = resumedPolicy.providerCapabilities.network;
+  assert.equal(network.decision, "allow");
+  assert.equal(isProviderCapabilityUsable(network), true);
+  // No approval was fabricated: authority comes from the rule itself.
+  assert.equal(network.approvedForInvocation, false);
+});
+
+test("an approval-required network resume is authorized via the approval token", async (t) => {
+  const h = await networkFixture(t, "ask");
+  const first = await new DirectAgentInvocation({
+    host: { provider: "openai", surface: "cli" },
+    invocations: h.service,
+    sessions: h.fixture.sessions,
+    roleContracts: new RoleContractRegistry(),
+  }).invoke({
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: h.sessionId },
+    instruction: "Research it.",
+  });
+  assert.equal(first.actionClassifications[0]?.status, "approval_required");
+
+  await h.service.resumeCallerWithActionApproval({
+    sessionId: h.sessionId,
+    previousInvocation: first as never,
+    actionClassification: first.actionClassifications[0]!,
+    approvalGranted: true,
+    host: { provider: "openai", surface: "cli" },
+  });
+
+  // Visibly distinct authority source: the rule is still `ask`, and usability
+  // comes from the one-time invocation-scoped approval.
+  const network = h.executor.calls[1]!.executionPolicy.providerCapabilities.network;
+  assert.equal(network.decision, "ask");
+  assert.equal(network.approvedForInvocation, true);
+  assert.equal(isProviderCapabilityUsable(network), true);
+});
+
+test("the two Core continuation paths reject each other's classification", async (t) => {
+  const allowed = await networkFixture(t, "allow");
+  const allowedFirst = await allowed.service.invokeUserAgent({
+    sessionId: allowed.sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "cli" },
+    instruction: "Research it.",
+  });
+  await assert.rejects(
+    allowed.service.resumeCallerWithActionApproval({
+      sessionId: allowed.sessionId,
+      previousInvocation: allowedFirst as never,
+      actionClassification: allowedFirst.actionClassifications[0]!,
+      approvalGranted: true,
+      host: { provider: "openai", surface: "cli" },
+    }),
+    (error: unknown) =>
+      error instanceof Error && /approval_required/.test(error.message),
+  );
+
+  const asked = await networkFixture(t, "ask");
+  const askedFirst = await asked.service.invokeUserAgent({
+    sessionId: asked.sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "cli" },
+    instruction: "Research it.",
+  });
+  await assert.rejects(
+    asked.service.resumeCallerWithAllowedAction({
+      sessionId: asked.sessionId,
+      previousInvocation: askedFirst as never,
+      actionClassification: askedFirst.actionClassifications[0]!,
+      host: { provider: "openai", surface: "cli" },
+    }),
+    (error: unknown) =>
+      error instanceof Error && /allowed/.test(error.message),
+  );
+});
+
+test("neither Core continuation path accepts a host action", async (t) => {
+  const h = await createFixture(t);
+  await configure(h, "researcher", "openai", "cli");
+  await h.rules.setRule(
+    "global",
+    { kind: "action", action: "git_push" },
+    "allow",
+  );
+  const opened = await h.commands.openTaskSession(h.project.id, h.task.id);
+  const executor = new RecordingExecutor(() => ({
+    agent: "researcher",
+    outcome: "success",
+    summary: "Wants a push.",
+    researchArtifact: { findings: ["push"] },
+    requestedActions: [{ action: "git_push", reason: "Publish the branch." }],
+  }));
+  const service = new AgentInvocationService({
+    executor,
+    runtimeAvailability: availableEverywhere,
+    synaphexRoot: h.stateRoot,
+    homeDirectory: h.homeDirectory,
+  });
+  const first = await service.invokeUserAgent({
+    sessionId: opened.sessionId,
+    agent: "researcher",
+    host: { provider: "openai", surface: "cli" },
+    instruction: "Research it.",
+  });
+  const classification = first.actionClassifications[0]!;
+  assert.equal(classification.request.action, "git_push");
+  // git_push is a HOST ACTION, not a provider capability.
+  assert.notEqual(classification.executionKind, "provider_capability");
+
+  for (const attempt of [
+    () =>
+      service.resumeCallerWithAllowedAction({
+        sessionId: opened.sessionId,
+        previousInvocation: first as never,
+        actionClassification: classification,
+        host: { provider: "openai", surface: "cli" },
+      }),
+    () =>
+      service.resumeCallerWithActionApproval({
+        sessionId: opened.sessionId,
+        previousInvocation: first as never,
+        actionClassification: classification,
+        approvalGranted: true,
+        host: { provider: "openai", surface: "cli" },
+      }),
+  ]) {
+    await assert.rejects(attempt);
+  }
+  assert.equal(executor.calls.length, 1, "no continuation executed");
 });

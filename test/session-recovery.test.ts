@@ -332,7 +332,7 @@ test("case D: normal close racing force release stays consistent and idempotent"
     );
 
     const [closeOutcome, forceOutcome] = await Promise.allSettled([
-      fixture.commands.closeTaskSession(opened.sessionId),
+      fixture.commands.closeSession(opened.sessionId),
       fixture.commands.forceReleaseTaskSession(
         fixture.project.id,
         fixture.task.id,

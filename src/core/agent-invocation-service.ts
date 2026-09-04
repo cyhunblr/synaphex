@@ -37,6 +37,8 @@ import type {
   InvocationLineage,
   ResolvedActionClassification,
   ResumeCallerRequest,
+  AllowedActionContinuationRequest,
+  ProviderCapabilityContinuationRequest,
   UserAgentInvocationRequest,
 } from "../domain/agent-invocation.js";
 import type {
@@ -272,8 +274,56 @@ export class AgentInvocationService {
     });
   }
 
+  /**
+   * Continues a caller whose requested provider capability was classified
+   * `approval_required`, using an explicit one-time approval.
+   *
+   * Authority source: `explicit_approval`. The effective rule stays `ask`; the
+   * approval is invocation-scoped and never persisted.
+   */
   async resumeCallerWithActionApproval(
     request: ActionApprovalContinuationRequest,
+  ): Promise<AgentInvocationResult> {
+    return this.resumeCallerWithProviderCapability({
+      ...request,
+      authorizationSource: "explicit_approval",
+    });
+  }
+
+  /**
+   * Continues a caller whose requested provider capability was ALREADY
+   * classified `allowed` by rule.
+   *
+   * Authority source: `rule_allow`. No approval event exists or is invented --
+   * the capability was already permitted, so no approval token is carried. The
+   * continuation is still explicit user orchestration: the caller is never
+   * auto-resumed just because a capability is allowed.
+   */
+  async resumeCallerWithAllowedAction(
+    request: AllowedActionContinuationRequest,
+  ): Promise<AgentInvocationResult> {
+    return this.resumeCallerWithProviderCapability({
+      ...request,
+      approvalGranted: false,
+      authorizationSource: "rule_allow",
+    });
+  }
+
+  /**
+   * Shared primitive for provider-capability continuation.
+   *
+   * The two public entrypoints differ only in their authority source, and that
+   * distinction is preserved rather than erased: `rule_allow` requires the
+   * trusted classification to be `allowed` and carries NO approval, while
+   * `explicit_approval` requires `approval_required` and carries a one-time
+   * invocation-scoped approval.
+   *
+   * Both are fresh executions with a continuation handoff -- no provider
+   * thread or session reuse -- so a task-bound caller re-runs binding
+   * preflight and captures/revalidates a fresh ownership fence.
+   */
+  private async resumeCallerWithProviderCapability(
+    request: ProviderCapabilityContinuationRequest,
   ): Promise<AgentInvocationResult> {
     const previousClassification = findActionClassification(
       request.previousInvocation,
@@ -285,15 +335,20 @@ export class AgentInvocationService {
         previousClassification.request.action,
       )
     ) {
+      // Host actions (git_push, ci) can never be continued here.
       throw new InvalidActionExecutionKindError(
         previousClassification.request.action,
         "provider_capability",
         previousClassification.executionKind,
       );
     }
-    if (previousClassification.status !== "approval_required") {
+    const requiredStatus =
+      request.authorizationSource === "rule_allow"
+        ? "allowed"
+        : "approval_required";
+    if (previousClassification.status !== requiredStatus) {
       throw new InvalidActionContinuationError(
-        "only an approval_required action can be continued",
+        `only a ${requiredStatus} action can be continued through this path`,
       );
     }
 
@@ -314,6 +369,8 @@ export class AgentInvocationService {
       effectiveClassification,
       request.approvalGranted,
     );
+    // An approval token is only meaningful for an `ask` decision. A
+    // rule-allowed capability is already usable, so nothing is approved.
     const approvedActions =
       effectiveClassification.status === "approval_required" &&
       request.approvalGranted

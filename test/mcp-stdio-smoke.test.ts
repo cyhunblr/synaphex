@@ -119,7 +119,9 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
     assert.deepEqual(tools, [
       "synaphex_approve_and_execute_helper",
       "synaphex_approve_network_action",
-      "synaphex_close_task_session",
+      "synaphex_close_session",
+      "synaphex_continue_allowed_network",
+      "synaphex_create_task",
       "synaphex_execute_helper",
       "synaphex_force_release_task_session",
       "synaphex_get_agent_config",
@@ -129,7 +131,9 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_get_task",
       "synaphex_get_task_session_owner",
       "synaphex_invoke_agent",
+      "synaphex_open_project_session",
       "synaphex_open_task_session",
+      "synaphex_register_project",
       "synaphex_resume_caller",
     ].sort());
 
@@ -207,7 +211,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
 
     // 4: close normally -- a real release is reported.
     const closed = await client.callTool({
-      name: "synaphex_close_task_session",
+      name: "synaphex_close_session",
       arguments: { sessionId },
     });
     assert.notEqual(closed.isError, true);
@@ -244,7 +248,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
 
     // Closing again is a deterministic no-op that claims nothing.
     const closedAgain = await client.callTool({
-      name: "synaphex_close_task_session",
+      name: "synaphex_close_session",
       arguments: { sessionId },
     });
     assert.deepEqual(closedAgain.structuredContent, {
@@ -372,7 +376,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
     assert.match(recoveredId, /^ses_[0-9a-f]{32}$/);
     assert.notEqual(recoveredId, abandonedSessionId);
     await recoveryClient.callTool({
-      name: "synaphex_close_task_session",
+      name: "synaphex_close_session",
       arguments: { sessionId: recoveredId },
     });
 
@@ -578,7 +582,7 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
       (candidate) => candidate.name === "synaphex_invoke_agent",
     );
     assert.notEqual(invokeTool, undefined);
-    assert.equal(tools.length, 14);
+    assert.equal(tools.length, 18);
 
     // 5: CODER is absent from the observable enum.
     const agentEnum =
@@ -1103,5 +1107,438 @@ test("a continuation handle does not survive an MCP process restart", async (t) 
     });
   } finally {
     await second.close();
+  }
+});
+
+test("allowed network: no auto-resume, explicit continue, rule stays allow", async (t) => {
+  const h = await continuationHarness(t, {
+    wantNetwork: true,
+    networkRule: "allow" as "ask",
+  });
+  try {
+    const invoked = await h.client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId: h.sessionId },
+        instruction: "Research it.",
+      },
+    });
+    const result = invoked.structuredContent as Record<string, unknown>;
+    const actions = result.requestedActions as {
+      action: string;
+      status: string;
+      ruleDecision: string;
+    }[];
+    assert.equal(actions[0]?.action, "network");
+    // Already permitted by rule -- no approval is required.
+    assert.equal(actions[0]?.status, "allowed");
+    assert.equal(actions[0]?.ruleDecision, "allow");
+    // Still actionable, so a handle exists: the caller did NOT auto-resume.
+    const continuationId = result.continuationId as string;
+    assert.match(continuationId, /^cont_[0-9a-f]{32}$/);
+
+    // The approval tool must refuse an already-allowed action.
+    const wrongTool = await h.client.callTool({
+      name: "synaphex_approve_network_action",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.equal(wrongTool.isError, true);
+    assert.equal(
+      (wrongTool.structuredContent as { code: string }).code,
+      "INVALID_CONTINUATION_STATE",
+    );
+
+    // Explicit continuation runs a fresh caller invocation.
+    const continued = await h.client.callTool({
+      name: "synaphex_continue_allowed_network",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.notEqual(continued.isError, true, JSON.stringify(continued.content));
+    const continuedOut = continued.structuredContent as {
+      invocation: {
+        agent: string;
+        executionPolicy: { sourceModification: string };
+      };
+    };
+    assert.equal(continuedOut.invocation.agent, "researcher");
+    assert.equal(
+      continuedOut.invocation.executionPolicy.sourceModification,
+      "read_only",
+    );
+
+    // The old handle was consumed.
+    const twice = await h.client.callTool({
+      name: "synaphex_continue_allowed_network",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.equal(twice.isError, true);
+    assert.equal(
+      (twice.structuredContent as { code: string }).code,
+      "CONTINUATION_NOT_FOUND",
+    );
+
+    // No rule mutation: network is still `allow`.
+    const rules = await h.client.callTool({
+      name: "synaphex_get_effective_rules",
+      arguments: {},
+    });
+    const effective = (
+      rules.structuredContent as {
+        rules: { key: string; decision: string }[];
+      }
+    ).rules;
+    assert.equal(
+      effective.find((rule) => rule.key === "action.network")?.decision,
+      "allow",
+    );
+  } finally {
+    await h.close();
+  }
+});
+
+test("an approval_required network action cannot use the allowed-network tool", async (t) => {
+  const h = await continuationHarness(t, {
+    wantNetwork: true,
+    networkRule: "ask",
+  });
+  try {
+    const invoked = await h.client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId: h.sessionId },
+        instruction: "Research it.",
+      },
+    });
+    const result = invoked.structuredContent as Record<string, unknown>;
+    assert.equal(
+      (result.requestedActions as { status: string }[])[0]?.status,
+      "approval_required",
+    );
+    const continuationId = result.continuationId as string;
+
+    // The allowed-network tool refuses; the approval tool is required.
+    const refused = await h.client.callTool({
+      name: "synaphex_continue_allowed_network",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.equal(refused.isError, true);
+    assert.equal(
+      (refused.structuredContent as { code: string }).code,
+      "INVALID_CONTINUATION_STATE",
+    );
+
+    const approved = await h.client.callTool({
+      name: "synaphex_approve_network_action",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.notEqual(approved.isError, true, JSON.stringify(approved.content));
+  } finally {
+    await h.close();
+  }
+});
+
+// --- Phase 4A: project/task bootstrap over real stdio ---------------------
+
+/** Launches the fake-provider MCP server with an empty temporary state root. */
+async function bootstrapClient(
+  t: TestContext,
+  configureAgents = false,
+): Promise<{ client: Client; home: string; sourcePath: string }> {
+  const home = await temporaryStateRoot(t);
+  const sourcePath = join(home, "workspace");
+  await mkdir(sourcePath, { recursive: true });
+  if (configureAgents) {
+    const store = new StateStore(join(home, ".synaphex"));
+    const configs = new AgentConfigManager(store);
+    for (const agent of ["researcher", "examiner", "planner"] as const) {
+      await configs.setConfigured(agent, {
+        provider: "openai",
+        surface: "cli",
+        model: `${agent}-model`,
+      });
+    }
+  }
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [FAKE_PROVIDER_ENTRYPOINT, ...HOST_ARGS],
+    env: { ...process.env, HOME: home },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "bootstrap-smoke", version: "0.0.0" });
+  await client.connect(transport);
+  return { client, home, sourcePath };
+}
+
+test("A: a project can be bootstrapped end to end through MCP alone", async (t) => {
+  const { client, sourcePath } = await bootstrapClient(t);
+  try {
+    // register
+    const registered = await client.callTool({
+      name: "synaphex_register_project",
+      arguments: { name: "Bootstrap Demo", sourcePath },
+    });
+    assert.notEqual(registered.isError, true, JSON.stringify(registered.content));
+    const project = registered.structuredContent as {
+      id: string;
+      name: string;
+      sourcePath: string;
+    };
+    assert.match(project.id, /^prj_[0-9a-f]{32}$/);
+    assert.equal(project.name, "Bootstrap Demo");
+
+    // read back
+    const fetched = await client.callTool({
+      name: "synaphex_get_project",
+      arguments: { projectId: project.id },
+    });
+    assert.deepEqual(fetched.structuredContent, project);
+
+    // create task
+    const created = await client.callTool({
+      name: "synaphex_create_task",
+      arguments: { projectId: project.id, description: "Add JWT auth" },
+    });
+    assert.notEqual(created.isError, true, JSON.stringify(created.content));
+    const task = created.structuredContent as { id: string; status: string };
+    assert.match(task.id, /^task_[0-9a-f]{32}$/);
+    assert.equal(task.status, "active");
+
+    // creating a task did NOT open a session or claim ownership
+    const ownerAfterCreate = await client.callTool({
+      name: "synaphex_get_task_session_owner",
+      arguments: { projectId: project.id, taskId: task.id },
+    });
+    assert.deepEqual(ownerAfterCreate.structuredContent, {
+      projectId: project.id,
+      taskId: task.id,
+      claimed: false,
+      sessionId: null,
+    });
+
+    // open a task session
+    const opened = await client.callTool({
+      name: "synaphex_open_task_session",
+      arguments: { projectId: project.id, taskId: task.id },
+    });
+    const sessionId = (opened.structuredContent as { sessionId: string })
+      .sessionId;
+    const session = await client.callTool({
+      name: "synaphex_get_session",
+      arguments: { sessionId },
+    });
+    assert.deepEqual(session.structuredContent, {
+      sessionId,
+      bound: true,
+      projectId: project.id,
+      taskId: task.id,
+    });
+
+    // close it
+    const closed = await client.callTool({
+      name: "synaphex_close_session",
+      arguments: { sessionId },
+    });
+    assert.deepEqual(closed.structuredContent, {
+      sessionId,
+      released: true,
+      releasedTaskId: task.id,
+      bound: false,
+    });
+
+    // registering the same path again is refused, not deduplicated
+    const duplicate = await client.callTool({
+      name: "synaphex_register_project",
+      arguments: { name: "Duplicate", sourcePath },
+    });
+    assert.equal(duplicate.isError, true);
+  } finally {
+    await client.close();
+  }
+});
+
+test("B: a project-only session is self-service and supports project invocation", async (t) => {
+  const { client, sourcePath } = await bootstrapClient(t, true);
+  try {
+    const project = (
+      await client.callTool({
+        name: "synaphex_register_project",
+        arguments: { name: "Project Scope", sourcePath },
+      })
+    ).structuredContent as { id: string };
+
+    const opened = await client.callTool({
+      name: "synaphex_open_project_session",
+      arguments: { projectId: project.id },
+    });
+    assert.notEqual(opened.isError, true, JSON.stringify(opened.content));
+    const projectSession = opened.structuredContent as {
+      sessionId: string;
+      taskId: null;
+      bound: boolean;
+    };
+    assert.match(projectSession.sessionId, /^ses_[0-9a-f]{32}$/);
+    assert.equal(projectSession.taskId, null);
+
+    // get_session shows a project-only binding.
+    const session = await client.callTool({
+      name: "synaphex_get_session",
+      arguments: { sessionId: projectSession.sessionId },
+    });
+    assert.deepEqual(session.structuredContent, {
+      sessionId: projectSession.sessionId,
+      bound: true,
+      projectId: project.id,
+      taskId: null,
+    });
+
+    // RESEARCHER project-scope invocation now works self-service.
+    const researcher = await client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "project", sessionId: projectSession.sessionId },
+        instruction: "Research the project.",
+      },
+    });
+    assert.notEqual(researcher.isError, true, JSON.stringify(researcher.content));
+    const invocation = researcher.structuredContent as {
+      scope: { taskId: string | null };
+      executionPolicy: { sourceModification: string };
+    };
+    assert.equal(invocation.scope.taskId, null);
+    assert.equal(invocation.executionPolicy.sourceModification, "read_only");
+
+    // Close, then the binding is gone.
+    await client.callTool({
+      name: "synaphex_close_session",
+      arguments: { sessionId: projectSession.sessionId },
+    });
+    const afterClose = await client.callTool({
+      name: "synaphex_get_session",
+      arguments: { sessionId: projectSession.sessionId },
+    });
+    assert.deepEqual(afterClose.structuredContent, {
+      sessionId: projectSession.sessionId,
+      bound: false,
+      projectId: null,
+      taskId: null,
+    });
+  } finally {
+    await client.close();
+  }
+});
+
+test("C: PLANNER still cannot use project scope, and MCP does not broaden contracts", async (t) => {
+  const { client, sourcePath } = await bootstrapClient(t, true);
+  try {
+    const project = (
+      await client.callTool({
+        name: "synaphex_register_project",
+        arguments: { name: "Role Boundary", sourcePath },
+      })
+    ).structuredContent as { id: string };
+    const sessionId = (
+      (
+        await client.callTool({
+          name: "synaphex_open_project_session",
+          arguments: { projectId: project.id },
+        })
+      ).structuredContent as { sessionId: string }
+    ).sessionId;
+
+    const planner = await client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "planner",
+        scope: { kind: "project", sessionId },
+        instruction: "Plan it.",
+      },
+    });
+    // Refused by Core's role contract (planner requires a task binding).
+    assert.equal(planner.isError, true);
+    assert.equal(
+      (planner.structuredContent as { code: string }).code,
+      "NO_TASK_BOUND",
+    );
+  } finally {
+    await client.close();
+  }
+});
+
+test("D: a project session leaves task ownership untouched", async (t) => {
+  const { client, sourcePath } = await bootstrapClient(t);
+  try {
+    const project = (
+      await client.callTool({
+        name: "synaphex_register_project",
+        arguments: { name: "No Claim", sourcePath },
+      })
+    ).structuredContent as { id: string };
+    const task = (
+      await client.callTool({
+        name: "synaphex_create_task",
+        arguments: { projectId: project.id, description: "Unclaimed task" },
+      })
+    ).structuredContent as { id: string };
+
+    await client.callTool({
+      name: "synaphex_open_project_session",
+      arguments: { projectId: project.id },
+    });
+
+    // The task remains unclaimed: a project session holds no claim.
+    const owner = await client.callTool({
+      name: "synaphex_get_task_session_owner",
+      arguments: { projectId: project.id, taskId: task.id },
+    });
+    assert.deepEqual(owner.structuredContent, {
+      projectId: project.id,
+      taskId: task.id,
+      claimed: false,
+      sessionId: null,
+    });
+
+    // And a task session can still be opened normally afterwards.
+    const opened = await client.callTool({
+      name: "synaphex_open_task_session",
+      arguments: { projectId: project.id, taskId: task.id },
+    });
+    assert.notEqual(opened.isError, true);
+  } finally {
+    await client.close();
+  }
+});
+
+test("bootstrap tools grant no generic filesystem introspection", async (t) => {
+  const { client, home } = await bootstrapClient(t);
+  try {
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    for (const absent of [
+      "read_file",
+      "list_directory",
+      "glob",
+      "read_synaphex_file",
+      "read_provider_config",
+      "synaphex_read_file",
+      "synaphex_list_directory",
+    ]) {
+      assert.equal(names.includes(absent), false, `${absent} must not exist`);
+    }
+
+    // A sourcePath pointing at a FILE is refused, and at a directory it only
+    // ever yields project metadata -- never directory contents.
+    const filePath = join(home, "secret.txt");
+    await writeFile(filePath, "sensitive", "utf8");
+    const asFile = await client.callTool({
+      name: "synaphex_register_project",
+      arguments: { name: "File", sourcePath: filePath },
+    });
+    assert.equal(asFile.isError, true);
+    const serialized = JSON.stringify(asFile);
+    assert.equal(serialized.includes("sensitive"), false);
+  } finally {
+    await client.close();
   }
 });

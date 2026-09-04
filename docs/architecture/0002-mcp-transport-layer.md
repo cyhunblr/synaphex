@@ -111,7 +111,7 @@ invariant. A task already claimed by a live session raises Core's
 `TaskAlreadyBoundError`; the claim is never stolen and no other session is
 auto-unbound.
 
-### `closeTaskSession(sessionId)`
+### `closeSession(sessionId)`
 
 Releases the task claim via `SessionManager.unbindTask`. This is **not** task
 completion: task status, plans, memory and artifacts are untouched and no agent
@@ -133,18 +133,18 @@ Consequences accepted in this slice:
 - There is no `synaphex_get_current_session`; session identity is always passed
   explicitly, so a host restart or reconnect changes nothing.
 - Stale-session recovery is **not** solved here. A session whose process died
-  keeps its task claim until an explicit `synaphex_close_task_session`. There is
+  keeps its task claim until an explicit `synaphex_close_session`. There is
   deliberately no PID-based cleanup. `SessionManager` carries a pre-existing
   `TODO` for crash/stale-lock recovery; that remains open.
 
 ### Mutation boundary
 
-MCP receives only `SessionCommandPort` (`openTaskSession`, `closeTaskSession`)
+MCP receives only `SessionCommandPort` (`openTaskSession`, `closeSession`)
 — never a mutation-capable `TaskManager`, `SessionManager` or `StateStore`. The
 application layer owns validation, lifecycle checks, binding semantics and
 atomic ordering; MCP validates wire input, calls a command, and maps the result.
 
-`synaphex_open_task_session` and `synaphex_close_task_session` are annotated
+`synaphex_open_task_session` and `synaphex_close_session` are annotated
 `readOnlyHint: false` and `idempotentHint: false` (each open mints a new
 SessionId), with `destructiveHint: false` because releasing a binding is
 reversible and destroys no data, and `openWorldHint: false`.
@@ -168,14 +168,14 @@ Phase 2A left two inaccuracies and one naming ambiguity, all corrected here.
 
 1. **Close idempotency.** `synaphex_open_task_session` is genuinely
    non-idempotent (each call mints a new SessionId) and keeps
-   `idempotentHint: false`. `synaphex_close_task_session` is a deterministic
+   `idempotentHint: false`. `synaphex_close_session` is a deterministic
    no-op when repeated, so it now carries `idempotentHint: true`. The two no
    longer share one annotation object.
 2. **Honest results.** Close no longer hardcodes `released: true`. It reports
    `{released, releasedTaskId}`, where `released` is true only when a task
    claim was actually removed. An unknown or already-closed session yields
    `released: false, releasedTaskId: null`. Force release reports the same way.
-3. **Naming.** `closeTaskSession` now means *fully close the logical session*:
+3. **Naming.** `closeSession` now means *fully close the logical session*:
    release the task claim **and delete the binding record**. The Phase-2A shape
    — release the claim but permanently retain a project-only binding — is gone;
    accumulating "closed session" records served no architectural purpose, and
@@ -185,7 +185,7 @@ Phase 2A left two inaccuracies and one naming ambiguity, all corrected here.
    `find()` remains, marked `@deprecated`, because accepted tests use it. New
    code uses `findBinding`.
 
-Compatibility consequence: `SessionCommandPort.closeTaskSession` changed its
+Compatibility consequence: `SessionCommandPort.closeSession` changed its
 return type from `SessionBinding` to `SessionCloseResult`, and the MCP tool's
 output shape changed. Both were unreleased internal APIs introduced in Phase
 2A, consumed only by Synaphex itself, so no external contract broke.
@@ -194,7 +194,7 @@ output shape changed. Both were unreleased internal APIs introduced in Phase
 
 ```text
 openTaskSession  -> binding record + task claim, projectId and taskId set
-closeTaskSession -> claim released, binding record deleted, no state retained
+closeSession -> claim released, binding record deleted, no state retained
 ```
 
 Consequently `synaphex_get_session` on a closed SessionId reports
@@ -235,7 +235,7 @@ repeated failed opens).
 |---|---|---|---|
 | `synaphex_get_*` | true | true | false |
 | `synaphex_open_task_session` | false | false | false |
-| `synaphex_close_task_session` | false | true | false |
+| `synaphex_close_session` | false | true | false |
 | `synaphex_force_release_task_session` | false | true | **true** |
 
 Force release is marked destructive because it terminates *another* logical
@@ -804,3 +804,182 @@ redesigned and reviewed.
 This store is not provider-process tracking, a cancellation registry, an async
 job manager or an MCP tasks implementation; all provider execution remains
 synchronous within the tool request.
+
+## Phase 3D: provider-capability continuation symmetry
+
+```text
+Provider-capability continuation has two authority sources:
+
+rule allow
+→ explicit continue, no approval
+
+rule ask
+→ explicit approval + continue
+```
+
+Both are user-triggered, both are fresh executions, and neither persists
+anything. Host actions remain separate.
+
+### The gap this closes
+
+Phase 3C could progress `network` only when it was classified
+`approval_required`. An already-`allowed` network action was classified and
+returned with no continuation path, because `resumeCallerWithActionApproval`
+hard-rejects any other status — correctly, since there is no approval event to
+grant. That API was not misused to manufacture one.
+
+### Core API
+
+`AgentInvocationService` now exposes two public entrypoints over one shared
+private primitive, `resumeCallerWithProviderCapability`:
+
+- `resumeCallerWithActionApproval` — authority `explicit_approval`; requires
+  the trusted classification to be `approval_required` and carries a one-time
+  invocation-scoped approval token.
+- `resumeCallerWithAllowedAction` — authority `rule_allow`; requires `allowed`
+  and carries **no** approval token. `AllowedActionContinuationRequest` has no
+  `approvalGranted` field, so an approval cannot even be expressed.
+
+The distinction is preserved in public semantics rather than erased. It is
+observable in the resumed `ExecutionPolicy`:
+
+```text
+rule_allow        -> network.decision = "allow", approvedForInvocation = false
+explicit_approval -> network.decision = "ask",   approvedForInvocation = true
+```
+
+Both satisfy `isProviderCapabilityUsable`, but for different reasons. Tests
+assert the actual policy the provider received, not merely that it was called.
+
+Each path rejects the other's classification, and both reject host actions:
+`git_push`/`ci` are `host_action`, not `provider_capability`, so
+`InvalidActionExecutionKindError` fires before any execution.
+
+### MCP tool
+
+`synaphex_continue_allowed_network` takes exactly
+`{continuationId, requestIndex}` — no `action`, `classification`, `reason`,
+`kind`, `provider`, `host`, `approval` or `allow` field exists in the schema
+(asserted across every tool). The server retrieves the trusted classified
+action from the Phase-3C continuation record.
+
+Annotations: `readOnlyHint: false`, `idempotentHint: false`,
+`openWorldHint: true`, and `destructiveHint: **false**`. Unlike the two
+approval tools, this grants nothing that was previously denied or asked — the
+capability was already permitted by rule. Per the MCP definition
+`destructiveHint` means destructive/irreversible updates, so calling an
+external provider alone does not warrant it.
+
+`synaphex_approve_network_action` is unchanged and remains the only path for
+`approval_required`. The two surfaces are deliberately separate rather than
+merged into an ambiguous `synaphex_execute_network`.
+
+### Continuation integration
+
+`network + allowed` is now actionable, so it can cause a handle to be issued.
+Nothing else changed: a handle is still never issued solely for `git_push`,
+`ci`, `denied`, `forbidden` or `unavailable`. Store lifetime, capacity (64),
+process-locality and absence of TTL/persistence are unchanged, and the record
+shape needed no extension.
+
+```text
+ORIGIN_PENDING -> continue allowed network -> CONSUMED (new handle if actionable)
+```
+
+Ordering matches Phase 3C exactly: validation failures and provider failures
+leave the record pending and retryable, because no trusted transition occurred;
+the record is consumed only after the resumed invocation succeeds, and only
+then is a new handle issued. The consumed id is never reused.
+
+### No auto-resume
+
+An allowed capability never auto-continues. A Core-level test asserts the
+provider call count is 1 after the initial invocation, still 1 before
+continuation, and 2 only after the explicit call.
+
+## Phase 4A: project/task bootstrap and project sessions
+
+```text
+A Synaphex logical session may be:
+- project-only
+- task-bound
+```
+
+```text
+session lifetime is explicit and independent of MCP/provider lifetime
+```
+
+Project and task bootstrap is now self-service through local stdio MCP:
+
+```text
+synaphex_register_project
+→ synaphex_create_task
+→ synaphex_open_task_session
+→ synaphex_invoke_agent
+```
+
+and, for project-scoped roles:
+
+```text
+synaphex_register_project
+→ synaphex_open_project_session
+→ synaphex_invoke_agent (scope.kind = "project")
+```
+
+### Discovered Core semantics
+
+- `ProjectManager.create(name, sourcePath)` expands `~`, resolves the real
+  path, requires it to exist and be a directory, and stores the **canonical**
+  path. It never creates, clones or git-initializes the source tree; only
+  Synaphex state under the Synaphex root is written.
+- **Duplicate source paths are refused, not deduplicated.** An
+  already-registered canonical path raises
+  `ProjectPathAlreadyRegisteredError`. That existing semantic is preserved:
+  registration is therefore **not** idempotent, and its annotation says so.
+- `TaskManager.create(projectId, description)` creates an `active` task with a
+  canonical `task_*` id and derived slug, and binds **no session** and acquires
+  **no task claim**. The session coupling lives only in
+  `TaskOperations.createTask` (the terminal surface), which MCP deliberately
+  does not use — so no duplicate claim can arise from bootstrap.
+
+### Project-only vs task-bound sessions
+
+```text
+project session          task session
+  projectId                projectId
+  taskId = null            taskId
+  no TaskBindingClaim      TaskBindingClaim
+  no ownershipToken        ownershipToken
+```
+
+`openProjectSession` uses `SessionManager.bindProject` only. No fencing token
+is invented for project-only sessions: project-scoped invocation remains
+unfenced exactly as Phase 2C accepted. A test asserts
+`captureTaskOwnership` returns `null` for such a session and that no claim file
+exists.
+
+### `close_session` closes either form
+
+The Phase-2B semantics (release any task claim **and** delete the binding
+record) were always a general session close, so the misleading
+`close_task_session` name is **replaced**, not aliased — the interface is
+internal and unreleased. `SessionCommands.closeSession` matches. For a
+project-only session the result honestly reports `released: false` because
+nothing was claimed; for a task-bound session it reports the released task.
+Close stays idempotent. An audit test walks `src/`, `test/` and `docs/` to
+confirm the stale name is gone everywhere.
+
+`synaphex_force_release_task_session` remains task-specific, which is correct:
+it recovers a **task ownership claim** when the SessionId was lost, and a
+project-only session has no claim to recover. No generic session enumeration or
+recovery was added.
+
+### Boundaries preserved
+
+Bootstrap grants no generic filesystem access: there is no `read_file`,
+`list_directory`, `glob` or provider-config tool, and a `sourcePath` naming a
+file is refused without echoing its contents. Creating a project, task or
+session invokes no agent — a test asserts only bootstrap ports are touched.
+Role contracts are unbroadened: `PLANNER` with project scope still fails with
+Core's `NO_TASK_BOUND`. No plan is created or accepted by task creation, and no
+host-action tool exists.

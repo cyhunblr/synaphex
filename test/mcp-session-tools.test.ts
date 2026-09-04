@@ -4,6 +4,7 @@ import {
   AgentExecutionFailedError,
   InvalidSessionIdError,
   TaskAlreadyBoundError,
+  ProjectPathAlreadyRegisteredError,
   TaskCompletedError,
   TaskSessionOwnershipLostError,
 } from "../src/domain/errors.js";
@@ -69,10 +70,10 @@ test("open_task_session delegates to the narrow command port and returns the bin
   ]);
 });
 
-test("close_task_session reports a real release and leaves no binding", async () => {
+test("close_session reports a real release and leaves no binding", async () => {
   const reads = fakeReadDependencies();
   const sessionId = "ses_00000000000000000000000000000001";
-  const outcome = await call(reads, "synaphex_close_task_session", {
+  const outcome = await call(reads, "synaphex_close_session", {
     sessionId,
   });
   assert.equal(outcome.isError, false);
@@ -83,15 +84,15 @@ test("close_task_session reports a real release and leaves no binding", async ()
     bound: false,
   });
   assert.deepEqual(reads.calls, [
-    { port: "sessionCommands.closeTaskSession", args: [sessionId] },
+    { port: "sessionCommands.closeSession", args: [sessionId] },
   ]);
 });
 
-test("close_task_session never fabricates a release when nothing changed", async () => {
+test("close_session never fabricates a release when nothing changed", async () => {
   const reads = fakeReadDependencies();
   const sessionId = "ses_00000000000000000000000000000002";
   reads.closeResult = { sessionId, released: false, releasedTaskId: null };
-  const outcome = await call(reads, "synaphex_close_task_session", {
+  const outcome = await call(reads, "synaphex_close_session", {
     sessionId,
   });
   assert.equal(outcome.isError, false);
@@ -112,7 +113,7 @@ test("malformed session ids never reach the command service", async () => {
     "a".repeat(201),
   ]) {
     const reads = fakeReadDependencies();
-    const outcome = await call(reads, "synaphex_close_task_session", {
+    const outcome = await call(reads, "synaphex_close_session", {
       sessionId,
     });
     assert.equal(outcome.isError, true, JSON.stringify(sessionId));
@@ -172,7 +173,7 @@ test("lifecycle refusals and session id failures map to their Core codes", async
 
   const invalid = fakeReadDependencies();
   invalid.closeError = new InvalidSessionIdError("from core");
-  const invalidOutcome = await call(invalid, "synaphex_close_task_session", {
+  const invalidOutcome = await call(invalid, "synaphex_close_session", {
     sessionId: "ses_00000000000000000000000000000001",
   });
   assert.deepEqual(invalidOutcome.structured, {
@@ -248,7 +249,7 @@ test("opening a session round-trips through get_session", async () => {
 
 test("an MCP disconnect never closes the logical Synaphex session", async () => {
   // Session lifetime is explicit and domain-owned. Transport teardown must not
-  // call closeTaskSession, and must not mutate state in any way.
+  // call closeSession, and must not mutate state in any way.
   const reads = fakeReadDependencies();
   const { client, close } = await connectedClient(reads);
   await client.callTool({
@@ -265,7 +266,7 @@ test("an MCP disconnect never closes the logical Synaphex session", async () => 
     "disconnect must issue no further commands",
   );
   assert.equal(
-    reads.calls.some((c) => c.port === "sessionCommands.closeTaskSession"),
+    reads.calls.some((c) => c.port === "sessionCommands.closeSession"),
     false,
     "disconnect must not close the session",
   );
@@ -716,6 +717,7 @@ test("continuation schemas expose no tamperable authority field", async () => {
       synaphex_approve_and_execute_helper: ["continuationId", "requestIndex"],
       synaphex_resume_caller: ["continuationId"],
       synaphex_approve_network_action: ["continuationId", "requestIndex"],
+      synaphex_continue_allowed_network: ["continuationId", "requestIndex"],
     };
     for (const [name, properties] of Object.entries(expected)) {
       const tool = tools.find((candidate) => candidate.name === name);
@@ -759,6 +761,9 @@ test("continuation schemas expose no tamperable authority field", async () => {
       "directUser",
       "force",
       "unsafe",
+      "allow",
+      "approval",
+      "kind",
     ]) {
       assert.equal(
         allProperties.has(forbidden),
@@ -792,6 +797,11 @@ test("each continuation tool delegates one call to the continuation port", async
       "synaphex_approve_network_action",
       { continuationId: "cont_a", requestIndex: 0 },
       "agentContinuation.approveNetworkAction",
+    ],
+    [
+      "synaphex_continue_allowed_network",
+      { continuationId: "cont_a", requestIndex: 0 },
+      "agentContinuation.continueAllowedNetwork",
     ],
   ];
   for (const [tool, args, expectedPort] of cases) {
@@ -878,8 +888,105 @@ test("host actions have no approval tool", async () => {
     ]) {
       assert.equal(names.includes(absent), false, `${absent} must not exist`);
     }
-    assert.equal(names.length, 14);
+    assert.equal(names.length, 18);
   } finally {
     await close();
+  }
+});
+
+// --- Phase 4A: bootstrap tools --------------------------------------------
+
+test("bootstrap tools delegate to the narrow port with wire-validated input", async () => {
+  const cases: readonly [string, Record<string, unknown>, string, unknown[]][] = [
+    [
+      "synaphex_register_project",
+      { name: "Demo", sourcePath: "/tmp/demo" },
+      "projectTaskCommands.registerProject",
+      ["Demo", "/tmp/demo"],
+    ],
+    [
+      "synaphex_create_task",
+      { projectId: FAKE_PROJECT.id, description: "Do the thing" },
+      "projectTaskCommands.createTask",
+      [FAKE_PROJECT.id, "Do the thing"],
+    ],
+    [
+      "synaphex_open_project_session",
+      { projectId: FAKE_PROJECT.id },
+      "projectTaskCommands.openProjectSession",
+      [FAKE_PROJECT.id],
+    ],
+  ];
+  for (const [tool, args, port, expectedArgs] of cases) {
+    const reads = fakeReadDependencies();
+    const outcome = await call(reads, tool, args);
+    assert.equal(outcome.isError, false, `${tool}: ${outcome.text}`);
+    assert.deepEqual(reads.calls, [{ port, args: expectedArgs }]);
+  }
+});
+
+test("a project session result always reports taskId null", async () => {
+  const reads = fakeReadDependencies();
+  const outcome = await call(reads, "synaphex_open_project_session", {
+    projectId: FAKE_PROJECT.id,
+  });
+  assert.deepEqual(outcome.structured, {
+    sessionId: "ses_00000000000000000000000000000002",
+    projectId: FAKE_PROJECT.id,
+    taskId: null,
+    bound: true,
+  });
+});
+
+test("malformed bootstrap input never reaches the command port", async () => {
+  const cases: readonly [string, Record<string, unknown>][] = [
+    ["synaphex_register_project", { name: "", sourcePath: "/tmp/x" }],
+    ["synaphex_register_project", { name: "N", sourcePath: "" }],
+    ["synaphex_register_project", { sourcePath: "/tmp/x" }],
+    ["synaphex_create_task", { projectId: "nope", description: "d" }],
+    ["synaphex_create_task", { projectId: FAKE_PROJECT.id, description: "" }],
+    ["synaphex_create_task", { projectId: FAKE_PROJECT.id }],
+    ["synaphex_open_project_session", { projectId: "prj_../escape" }],
+    ["synaphex_open_project_session", {}],
+  ];
+  for (const [tool, args] of cases) {
+    const reads = fakeReadDependencies();
+    const outcome = await call(reads, tool, args);
+    assert.equal(outcome.isError, true, `${tool} ${JSON.stringify(args)}`);
+    assert.deepEqual(reads.calls, []);
+  }
+});
+
+test("bootstrap failures map to stable Core codes without leaking paths", async () => {
+  const reads = fakeReadDependencies();
+  reads.projectTaskError = new ProjectPathAlreadyRegisteredError(
+    "/home/user/private/workspace",
+    FAKE_PROJECT.id,
+  );
+  const outcome = await call(reads, "synaphex_register_project", {
+    name: "Dup",
+    sourcePath: "/home/user/private/workspace",
+  });
+  assert.equal(outcome.isError, true);
+  assert.equal(
+    outcome.structured.code,
+    "PROJECT_PATH_ALREADY_REGISTERED",
+  );
+  assert.notEqual(outcome.structured.code, "INTERNAL_ERROR");
+});
+
+test("an unexpected bootstrap failure leaks no filesystem detail", async () => {
+  const reads = fakeReadDependencies();
+  reads.projectTaskError = new Error(
+    "EACCES: /home/user/.ssh/id_rsa permission denied",
+  );
+  const outcome = await call(reads, "synaphex_register_project", {
+    name: "Boom",
+    sourcePath: "/tmp/x",
+  });
+  const serialized = `${outcome.text}${JSON.stringify(outcome.structured)}`;
+  assert.equal(outcome.structured.code, "INTERNAL_ERROR");
+  for (const secret of ["id_rsa", ".ssh", "EACCES", "at "]) {
+    assert.equal(serialized.includes(secret), false, `leaked ${secret}`);
   }
 });

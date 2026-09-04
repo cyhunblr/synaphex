@@ -51,6 +51,11 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "INVALID_AGENT_RESULT",
     "REVIEW_TARGET_NOT_AVAILABLE",
     "PLAN_DRAFT_PENDING",
+    // Phase 4A bootstrap.
+    "PROJECT_PATH_NOT_FOUND",
+    "PROJECT_PATH_ALREADY_REGISTERED",
+    "INVALID_PROJECT_PATH",
+    "INVALID_TASK_DESCRIPTION",
   ] as const satisfies readonly SynaphexErrorCode[]);
 
 export interface McpToolFailure {
@@ -93,6 +98,12 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   REVIEW_TARGET_NOT_AVAILABLE:
     "The task has no persisted Coder work record to review.",
   PLAN_DRAFT_PENDING: "A plan draft is pending acceptance.",
+  PROJECT_PATH_NOT_FOUND: "The project source path does not exist.",
+  PROJECT_PATH_ALREADY_REGISTERED:
+    "That source path is already registered as a Synaphex project.",
+  INVALID_PROJECT_PATH:
+    "The project source path is not a usable directory.",
+  INVALID_TASK_DESCRIPTION: "Task description must not be empty.",
   [MCP_INTERNAL_ERROR_CODE]: "Internal Synaphex error.",
 });
 

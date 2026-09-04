@@ -134,6 +134,21 @@ class FakeInvocations {
   readonly calls: Recorded[] = [];
   helperFails = false;
   resumeFails = false;
+  allowedFails = false;
+  allowedResult: AnyAgentInvocationResult | null = null;
+
+  async resumeCallerWithAllowedAction(request: {
+    host: HostRuntime;
+  }): Promise<AnyAgentInvocationResult> {
+    this.calls.push({
+      api: "resumeCallerWithAllowedAction",
+      host: request.host,
+    });
+    if (this.allowedFails) {
+      throw new Error("allowed continuation failed");
+    }
+    return this.allowedResult ?? invocationResult();
+  }
 
   async executeHelper(request: {
     host: HostRuntime;
@@ -244,7 +259,9 @@ test("no record is allocated when nothing is actionable", () => {
     invocationResult([helperClassification("denied")]),
     invocationResult([helperClassification("forbidden")]),
     invocationResult([helperClassification("unavailable")]),
-    invocationResult([], [actionClassification("allowed")]),
+    invocationResult([], [actionClassification("unavailable")]),
+    // An `allowed` HOST action stays inert -- no executor exists.
+    invocationResult([], [actionClassification("allowed", "git_push", "host_action")]),
     invocationResult([], [actionClassification("denied")]),
     // git_push is a host action, not a provider capability.
     invocationResult(
@@ -660,4 +677,155 @@ test("a resume failure leaves the helper-completed record intact", async () => {
   // Not consumed: the record is still resumable.
   const kept = h.store.require(record.id, HOST);
   assert.equal(kept.state, "helper_completed");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3D: allowed-network continuation
+// ---------------------------------------------------------------------------
+
+test("an allowed network action is actionable and issues a handle", () => {
+  const h = harness();
+  const record = h.store.issue({
+    host: HOST,
+    sessionId: SESSION,
+    invocation: invocationResult([], [actionClassification("allowed")]),
+  });
+  assert.notEqual(record, null);
+  assert.equal(record!.actionRequests.length, 1);
+});
+
+test("continue_allowed_network carries NO approval and consumes the record", async () => {
+  const h = harness();
+  const record = h.store.issue({
+    host: HOST,
+    sessionId: SESSION,
+    invocation: invocationResult([], [actionClassification("allowed")]),
+  })!;
+  const outcome = await h.commands.continueAllowedNetwork(record.id, 0);
+  // A distinct API from the approval path, and no approval flag.
+  assert.deepEqual(h.invocations.calls, [
+    { api: "resumeCallerWithAllowedAction", host: HOST },
+  ]);
+  assert.equal(outcome.continuationId, null);
+  // Old handle is consumed; a second attempt fails.
+  await assert.rejects(
+    h.commands.continueAllowedNetwork(record.id, 0),
+    (error: unknown) => error instanceof ContinuationNotFoundError,
+  );
+});
+
+test("the allowed and approval network paths cannot handle each other's status", async () => {
+  // allowed tool vs approval_required item
+  const asked = harness();
+  const askedRecord = asked.store.issue({
+    host: HOST,
+    sessionId: SESSION,
+    invocation: invocationResult(
+      [],
+      [actionClassification("approval_required")],
+    ),
+  })!;
+  await assert.rejects(
+    asked.commands.continueAllowedNetwork(askedRecord.id, 0),
+    (error: unknown) => error instanceof ContinuationStateError,
+  );
+  assert.equal(asked.invocations.calls.length, 0);
+
+  // approval tool vs allowed item
+  const allowed = harness();
+  const allowedRecord = allowed.store.issue({
+    host: HOST,
+    sessionId: SESSION,
+    invocation: invocationResult([], [actionClassification("allowed")]),
+  })!;
+  await assert.rejects(
+    allowed.commands.approveNetworkAction(allowedRecord.id, 0),
+    (error: unknown) => error instanceof ContinuationStateError,
+  );
+  assert.equal(allowed.invocations.calls.length, 0);
+});
+
+test("neither network tool can progress a host action or a refused status", async () => {
+  const cases: readonly [ActionClassification, string][] = [
+    [actionClassification("allowed", "git_push", "host_action"), "git_push allowed"],
+    [actionClassification("allowed", "ci", "host_action"), "ci allowed"],
+    [
+      actionClassification("approval_required", "git_push", "host_action"),
+      "git_push asked",
+    ],
+    [actionClassification("denied"), "network denied"],
+    [actionClassification("unavailable"), "network unavailable"],
+  ];
+  for (const [classification, label] of cases) {
+    for (const method of [
+      "continueAllowedNetwork",
+      "approveNetworkAction",
+    ] as const) {
+      const h = harness();
+      const record = h.store.issue({
+        host: HOST,
+        sessionId: SESSION,
+        invocation: invocationResult(
+          [],
+          [actionClassification("allowed"), classification],
+        ),
+      })!;
+      await assert.rejects(
+        h.commands[method](record.id, 1),
+        (error: unknown) => error instanceof ContinuationStateError,
+        `${method} / ${label}`,
+      );
+      assert.equal(h.invocations.calls.length, 0, `${method} / ${label}`);
+    }
+  }
+});
+
+test("an allowed-network continuation failure leaves the record retryable", async () => {
+  const h = harness();
+  const record = h.store.issue({
+    host: HOST,
+    sessionId: SESSION,
+    invocation: invocationResult([], [actionClassification("allowed")]),
+  })!;
+  h.invocations.allowedFails = true;
+  await assert.rejects(h.commands.continueAllowedNetwork(record.id, 0));
+  // Not consumed: no trusted transition occurred.
+  const pending = h.store.require(record.id, HOST);
+  assert.equal(pending.state, "origin_pending");
+
+  h.invocations.allowedFails = false;
+  const outcome = await h.commands.continueAllowedNetwork(record.id, 0);
+  assert.equal(outcome.continuationId, null);
+});
+
+test("an allowed-network continuation whose result is actionable gets a NEW handle", async () => {
+  const h = harness();
+  const record = h.store.issue({
+    host: HOST,
+    sessionId: SESSION,
+    invocation: invocationResult([], [actionClassification("allowed")]),
+  })!;
+  h.invocations.allowedResult = invocationResult([
+    helperClassification("allowed"),
+  ]);
+  const outcome = await h.commands.continueAllowedNetwork(record.id, 0);
+  assert.notEqual(outcome.continuationId, null);
+  assert.notEqual(outcome.continuationId, record.id);
+});
+
+test("an allowed-network continuation cannot run after a helper already progressed", async () => {
+  const h = harness();
+  const record = h.store.issue({
+    host: HOST,
+    sessionId: SESSION,
+    invocation: invocationResult(
+      [helperClassification("allowed")],
+      [actionClassification("allowed")],
+    ),
+  })!;
+  await h.commands.executeAllowedHelper(record.id, 0);
+  await assert.rejects(
+    h.commands.continueAllowedNetwork(record.id, 0),
+    (error: unknown) => error instanceof ContinuationStateError,
+  );
 });

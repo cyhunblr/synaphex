@@ -26,7 +26,7 @@ test("the server registers exactly the accepted tool surface", async () => {
     for (const phase1Tool of SYNAPHEX_MCP_PHASE1_TOOLS) {
       assert.ok(names.includes(phase1Tool), `${phase1Tool} must remain`);
     }
-    assert.equal(names.length, 14);
+    assert.equal(names.length, 18);
   } finally {
     await close();
   }
@@ -45,11 +45,11 @@ test("no mutation, invocation, approval or filesystem tool is registered", async
       "synaphex_invoke_coder",
       "synaphex_invoke_reviewer",
       // mutation
-      "synaphex_create_project",
-      "synaphex_create_task",
       "synaphex_complete_task",
       "synaphex_archive_task",
       "synaphex_bind_task",
+      "synaphex_delete_project",
+      "synaphex_reopen_task",
       "synaphex_unbind_task",
       "synaphex_set_rule",
       "synaphex_accept_plan",
@@ -89,9 +89,18 @@ test("annotations describe each tool honestly and are closed-world throughout", 
       );
       // Non-idempotent: open mints a new SessionId; invocation and every
       // continuation step consume provider quota and a one-time transition.
+      // Non-idempotent: anything that mints a new id (project, task,
+      // session) and anything that consumes provider quota or a one-time
+      // continuation transition. Only reads and close_session are idempotent.
+      const nonIdempotent = [
+        "synaphex_register_project",
+        "synaphex_create_task",
+        "synaphex_open_project_session",
+        "synaphex_open_task_session",
+      ];
       assert.equal(
         tool.annotations?.idempotentHint,
-        tool.name !== "synaphex_open_task_session" && !invocationLike,
+        !nonIdempotent.includes(tool.name) && !invocationLike,
         `${tool.name} idempotentHint`,
       );
       // Destructive: force release (terminates another session's ownership),
@@ -128,6 +137,7 @@ test("server identity uses the package name and the injected package version", a
     sessionRecovery: reads.sessionRecovery,
     agentInvocation: reads.agentInvocation,
     agentContinuation: reads.agentContinuation,
+    projectTaskCommands: reads.projectTaskCommands,
     version: "9.9.9-test",
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

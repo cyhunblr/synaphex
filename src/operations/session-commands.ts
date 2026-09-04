@@ -28,7 +28,7 @@ import type { TaskId } from "../domain/task.js";
  * invocation. Claim atomicity and the one-writable-session-per-task invariant
  * remain owned by `SessionManager`; nothing is reimplemented here.
  *
- * Naming: `closeTaskSession` fully closes a logical session -- it releases the
+ * Naming: `closeSession` fully closes a logical session -- it releases the
  * task claim AND deletes the binding record. The Phase-2A operation of the
  * same name released only the claim while permanently retaining a
  * project-binding record; that shape is gone, because accumulating
@@ -36,7 +36,7 @@ import type { TaskId } from "../domain/task.js";
  */
 export interface SessionCommandPort {
   openTaskSession(projectId: ProjectId, taskId: TaskId): Promise<SessionBinding>;
-  closeTaskSession(sessionId: SessionId): Promise<SessionCloseResult>;
+  closeSession(sessionId: SessionId): Promise<SessionCloseResult>;
 }
 
 /**
@@ -136,7 +136,7 @@ export class SessionCommands
    * already-closed session reports `released: false` rather than failing, so
    * the result never claims success where nothing changed.
    */
-  async closeTaskSession(sessionId: SessionId): Promise<SessionCloseResult> {
+  async closeSession(sessionId: SessionId): Promise<SessionCloseResult> {
     return this.dependencies.sessions.closeSession(parseSessionId(sessionId));
   }
 

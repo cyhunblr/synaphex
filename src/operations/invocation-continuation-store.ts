@@ -215,10 +215,13 @@ export class InvocationContinuationStore {
 }
 
 /**
- * Only `allowed` helpers, `approval_required` helpers, and
- * `approval_required` provider-capability `network` actions can be progressed
- * by the tools in this slice. Denied, forbidden and unavailable requests, and
- * host actions (`git_push`, `ci`), are reported but never actionable.
+ * Actionable requests are: `allowed` and `approval_required` helpers, and
+ * provider-capability `network` actions classified either `approval_required`
+ * (explicit approval) or `allowed` (explicit continue, no approval).
+ *
+ * Denied, forbidden and unavailable requests, and host actions (`git_push`,
+ * `ci`), are reported but never actionable -- host actions have no executor,
+ * so no handle is issued for them alone.
  */
 export function hasActionableRequest(
   helperRequests: readonly HelperCallClassification[],
@@ -228,15 +231,38 @@ export function hasActionableRequest(
     (request) =>
       request.status === "allowed" || request.status === "approval_required",
   );
-  const actionActionable = actionRequests.some(isActionableNetworkApproval);
+  const actionActionable = actionRequests.some(
+    (request) =>
+      isActionableNetworkApproval(request) ||
+      isContinuableAllowedNetwork(request),
+  );
   return helperActionable || actionActionable;
 }
 
+/** `network` needing an explicit one-time approval (rule = ask). */
 export function isActionableNetworkApproval(
   classification: ActionClassification,
 ): boolean {
   return (
-    classification.status === "approval_required" &&
+    isProviderCapabilityNetwork(classification) &&
+    classification.status === "approval_required"
+  );
+}
+
+/** `network` already permitted by rule (rule = allow); no approval exists. */
+export function isContinuableAllowedNetwork(
+  classification: ActionClassification,
+): boolean {
+  return (
+    isProviderCapabilityNetwork(classification) &&
+    classification.status === "allowed"
+  );
+}
+
+function isProviderCapabilityNetwork(
+  classification: ActionClassification,
+): boolean {
+  return (
     classification.executionKind === "provider_capability" &&
     classification.request.action === "network"
   );

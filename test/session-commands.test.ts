@@ -188,14 +188,14 @@ test("openTaskSession does not mutate the task, plans, memory or the source tree
   assert.deepEqual(await readdir(fixture.project.sourcePath), sourceBefore);
 });
 
-test("closeTaskSession fully closes the session and reports a real release", async (t) => {
+test("closeSession fully closes the session and reports a real release", async (t) => {
   const fixture = await createFixture(t);
   const opened = await fixture.commands.openTaskSession(
     fixture.project.id,
     fixture.task.id,
   );
 
-  const closed = await fixture.commands.closeTaskSession(opened.sessionId);
+  const closed = await fixture.commands.closeSession(opened.sessionId);
   assert.deepEqual(closed, {
     sessionId: opened.sessionId,
     released: true,
@@ -214,7 +214,7 @@ test("closeTaskSession fully closes the session and reports a real release", asy
   assert.notEqual(reopened.sessionId, opened.sessionId);
 });
 
-test("closeTaskSession does not complete, archive or otherwise change the task", async (t) => {
+test("closeSession does not complete, archive or otherwise change the task", async (t) => {
   const fixture = await createFixture(t);
   const opened = await fixture.commands.openTaskSession(
     fixture.project.id,
@@ -222,7 +222,7 @@ test("closeTaskSession does not complete, archive or otherwise change the task",
   );
   const before = await fixture.tasks.get(fixture.project.id, fixture.task.id);
 
-  await fixture.commands.closeTaskSession(opened.sessionId);
+  await fixture.commands.closeSession(opened.sessionId);
 
   const after = await fixture.tasks.get(fixture.project.id, fixture.task.id);
   assert.deepEqual(after, before);
@@ -231,11 +231,11 @@ test("closeTaskSession does not complete, archive or otherwise change the task",
   assert.equal(after.archivedAt, null);
 });
 
-test("closeTaskSession never reports success when nothing was released", async (t) => {
+test("closeSession never reports success when nothing was released", async (t) => {
   const fixture = await createFixture(t);
   // Unknown session: no binding exists, so nothing is released.
   assert.deepEqual(
-    await fixture.commands.closeTaskSession(
+    await fixture.commands.closeSession(
       "ses_00000000000000000000000000000000",
     ),
     {
@@ -250,9 +250,9 @@ test("closeTaskSession never reports success when nothing was released", async (
     fixture.project.id,
     fixture.task.id,
   );
-  const firstClose = await fixture.commands.closeTaskSession(opened.sessionId);
+  const firstClose = await fixture.commands.closeSession(opened.sessionId);
   assert.equal(firstClose.released, true);
-  const secondClose = await fixture.commands.closeTaskSession(opened.sessionId);
+  const secondClose = await fixture.commands.closeSession(opened.sessionId);
   assert.deepEqual(secondClose, {
     sessionId: opened.sessionId,
     released: false,
@@ -260,11 +260,11 @@ test("closeTaskSession never reports success when nothing was released", async (
   });
 });
 
-test("closeTaskSession validates the session id through Core before touching state", async (t) => {
+test("closeSession validates the session id through Core before touching state", async (t) => {
   const fixture = await createFixture(t);
   for (const invalid of ["", "../../etc/passwd", "has space", "a".repeat(201)]) {
     await assert.rejects(
-      fixture.commands.closeTaskSession(invalid),
+      fixture.commands.closeSession(invalid),
       (error: unknown) => error instanceof InvalidSessionIdError,
       `must reject ${JSON.stringify(invalid)}`,
     );
