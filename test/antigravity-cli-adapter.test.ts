@@ -15,8 +15,8 @@ import type {
 import {
   ANTIGRAVITY_FIXED_PRINT_INSTRUCTION,
   AntigravityCliAgentExecutor,
+  buildAntigravityArgs,
 } from "../src/providers/antigravity-cli-agent-executor.js";
-import { StandardAgentResultJsonSchemaBuilder } from "../src/providers/standard-agent-result-json-schema-builder.js";
 import {
   syntheticAgentContext,
   syntheticExecutionPolicy,
@@ -100,69 +100,68 @@ function optionValue(args: readonly string[], option: string): string {
   return value;
 }
 
-test("Antigravity builds the exact fresh sandboxed read-only command and decodes native output", async (t) => {
+// Antigravity 1.1.26 has no invocation-scoped policy mechanism, so the executor
+// must never spawn a process for any ExecutionPolicy. The exact command vector
+// is still pinned via the pure builder so a future accepted policy cannot
+// silently regress the flags. See docs/architecture/0001-google-cli-runtime.md.
+
+test("Antigravity never spawns a process for any supported role and policy", async (t) => {
   const sourcePath = await workspace(t);
   const providerConfig = join(sourcePath, ".gemini", "antigravity-cli", "settings.json");
   await mkdir(join(sourcePath, ".gemini", "antigravity-cli"), { recursive: true });
   await writeFile(providerConfig, "{\"preserve\":true}\n");
-  const runner = new FakeRunner(() => success());
-  const input = executionInput("researcher", sourcePath);
-  const result = await new AntigravityCliAgentExecutor({ processRunner: runner }).execute(input);
-
-  assert.deepEqual(result, validResearcher);
-  const call = runner.calls[0]!;
-  assert.equal(call.executable, "agy");
-  assert.equal(call.cwd, sourcePath);
-  assert.equal(call.env, undefined);
-  assert.equal(optionValue(call.args, "-p"), ANTIGRAVITY_FIXED_PRINT_INSTRUCTION);
-  assert.equal(optionValue(call.args, "--output-format"), "json");
-  assert.deepEqual(
-    JSON.parse(optionValue(call.args, "--json-schema")),
-    new StandardAgentResultJsonSchemaBuilder().build(input.context),
-  );
-  assert.equal(optionValue(call.args, "--model"), "explicit-antigravity-model");
-  assert.equal(optionValue(call.args, "--mode"), "plan");
-  assert.ok(call.args.includes("--sandbox"));
-  assert.ok(call.args.includes("--disable-slash-commands"));
-  assert.equal(optionValue(call.args, "--print-timeout"), "1800000ms");
-  for (const forbidden of [
-    "--continue",
-    "-c",
-    "--conversation",
-    "--dangerously-skip-permissions",
-    "--prompt-interactive",
-  ]) {
-    assert.equal(call.args.includes(forbidden), false);
+  for (const agent of ["researcher", "coder"] satisfies AgentName[]) {
+    const runner = new FakeRunner(() => success());
+    await assert.rejects(
+      new AntigravityCliAgentExecutor({ processRunner: runner }).execute(
+        executionInput(agent, sourcePath),
+      ),
+      (error: unknown) =>
+        failure("unsupported_execution_policy")(error) &&
+        typeof (error as AntigravityCliExecutionError).details?.policyReason ===
+          "string" &&
+        /not_enforceable_without_invocation_scoped_policy$/.test(
+          (error as AntigravityCliExecutionError).details
+            ?.policyReason as string,
+        ),
+      `${agent} must fail closed`,
+    );
+    assert.equal(runner.calls.length, 0, `${agent} must not spawn agy`);
   }
-  assert.equal(JSON.stringify(call.args).includes("Follow the explicit user instruction."), false);
-  assert.match(call.stdin, /Follow the explicit user instruction\./);
-  assert.match(call.stdin, /source repository is strictly read-only/i);
-  assert.match(call.stdin, /request git_push through requestedActions/);
-  assert.match(call.stdin, /request ci through requestedActions/);
-  assert.equal(call.stdoutCaptureMode, "full");
-  assert.equal(call.stdoutLimitBytes, 8 * 1024 * 1024);
-  assert.equal(call.stderrTailLimitBytes, 64 * 1024);
-  assert.equal(call.timeoutMs, 30 * 60 * 1_000);
+  // Failing closed must never touch provider-owned settings.
   assert.equal(await readFile(providerConfig, "utf8"), "{\"preserve\":true}\n");
 });
 
-test("Antigravity workspace-write uses accept-edits while preserving sandbox", async (t) => {
-  const sourcePath = await workspace(t);
-  const output = {
-    agent: "coder",
-    outcome: "success",
-    summary: "edited",
-    workRecord: { custom_field: true },
-  };
-  const runner = new FakeRunner(() => success(output));
-  await new AntigravityCliAgentExecutor({ processRunner: runner }).execute(
-    executionInput("coder", sourcePath),
-  );
-  const call = runner.calls[0]!;
-  assert.equal(optionValue(call.args, "--mode"), "accept-edits");
-  assert.ok(call.args.includes("--sandbox"));
-  assert.equal(call.args.includes("--dangerously-skip-permissions"), false);
-  assert.match(call.stdin, /do not run arbitrary shell\/build\/test commands/i);
+test("Antigravity command vector stays sandboxed, fresh, and free of bypass flags", () => {
+  for (const mode of ["plan", "accept-edits"] as const) {
+    const args = buildAntigravityArgs({
+      model: "explicit-antigravity-model",
+      mode,
+      schema: "{\"type\":\"object\"}",
+      timeoutMs: 30 * 60 * 1_000,
+    });
+    assert.equal(optionValue(args, "-p"), ANTIGRAVITY_FIXED_PRINT_INSTRUCTION);
+    assert.equal(optionValue(args, "--output-format"), "json");
+    assert.equal(optionValue(args, "--json-schema"), "{\"type\":\"object\"}");
+    assert.equal(optionValue(args, "--model"), "explicit-antigravity-model");
+    assert.equal(optionValue(args, "--mode"), mode);
+    assert.ok(args.includes("--sandbox"));
+    assert.ok(args.includes("--disable-slash-commands"));
+    assert.equal(optionValue(args, "--print-timeout"), "1800000ms");
+    for (const forbidden of [
+      "--continue",
+      "-c",
+      "--conversation",
+      "--dangerously-skip-permissions",
+      "--prompt-interactive",
+      "--add-dir",
+      "--agent",
+      "--project",
+      "--new-project",
+    ]) {
+      assert.equal(args.includes(forbidden), false, `${forbidden} must never be emitted`);
+    }
+  }
 });
 
 test("Antigravity rejects routes, settings, role-policy mismatch, and workspaces before spawn", async (t) => {
@@ -173,14 +172,26 @@ test("Antigravity rejects routes, settings, role-policy mismatch, and workspaces
   await assert.rejects(executor.execute({ ...base, route: { ...base.route, provider: "openai" } }), failure("unsupported_route"));
   await assert.rejects(executor.execute({ ...base, route: { ...base.route, effectiveSurface: "vscode" } }), failure("unsupported_route"));
   await assert.rejects(executor.execute(executionInput("researcher", sourcePath, { effort: "high" })), failure("unsupported_settings"));
-  await assert.rejects(executor.execute({
-    ...base,
-    executionPolicy: { ...base.executionPolicy, sourceModification: "workspace_write" },
-  }), failure("unsupported_execution_policy"));
-  await assert.rejects(executor.execute(executionInput("researcher", join(sourcePath, "missing"))), failure("invalid_workspace"));
+  await assert.rejects(
+    executor.execute({
+      ...base,
+      executionPolicy: { ...base.executionPolicy, sourceModification: "workspace_write" },
+    }),
+    (error: unknown) =>
+      failure("unsupported_execution_policy")(error) &&
+      (error as AntigravityCliExecutionError).details?.policyReason ===
+        "source_modification_role_mismatch",
+  );
+  // Policy resolution deliberately runs before workspace validation, so an
+  // unsupported policy fails closed without touching the filesystem at all.
   const filePath = join(sourcePath, "file.txt");
   await writeFile(filePath, "file");
-  await assert.rejects(executor.execute(executionInput("researcher", filePath)), failure("invalid_workspace"));
+  for (const badWorkspace of [join(sourcePath, "missing"), filePath]) {
+    await assert.rejects(
+      executor.execute(executionInput("researcher", badWorkspace)),
+      failure("unsupported_execution_policy"),
+    );
+  }
   assert.equal(runner.calls.length, 0);
 });
 
@@ -204,38 +215,6 @@ test("Antigravity network-enabled policies fail before spawn", async (t) => {
     );
     assert.equal(runner.calls.length, 0);
   }
-});
-
-test("Antigravity maps bounded process failures and returns unknown candidates", async (t) => {
-  const sourcePath = await workspace(t);
-  const cases = [
-    [success(undefined, { timedOut: true, exitCode: null, signal: "SIGTERM" }), "timeout"],
-    [success(undefined, { stdoutOverflowed: true }), "stdout_overflow"],
-    [success(undefined, { exitCode: 2, stderr: "provider failed" }), "non_zero_exit"],
-    [success(undefined, { exitCode: 2, stderr: "flag provided but not defined: --sandbox" }), "unsupported_cli_capability"],
-  ] as const;
-  for (const [processResult, reason] of cases) {
-    await assert.rejects(
-      new AntigravityCliAgentExecutor({
-        processRunner: new FakeRunner(() => processResult),
-        includeStderrDiagnostic: true,
-      }).execute(executionInput("researcher", sourcePath)),
-      failure(reason),
-    );
-  }
-  await assert.rejects(
-    new AntigravityCliAgentExecutor({
-      processRunner: new FakeRunner(() => { throw new Error("spawn"); }),
-    }).execute(executionInput("researcher", sourcePath)),
-    failure("spawn_failed"),
-  );
-  const malformedCore = { still: "unknown" };
-  assert.deepEqual(
-    await new AntigravityCliAgentExecutor({
-      processRunner: new FakeRunner(() => success(malformedCore)),
-    }).execute(executionInput("researcher", sourcePath)),
-    malformedCore,
-  );
 });
 
 function failure(reason: string) {

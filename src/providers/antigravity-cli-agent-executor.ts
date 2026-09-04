@@ -20,6 +20,7 @@ import {
 import { AntigravityAgentResultEnvelopeDecoder } from "./antigravity-agent-result-envelope-decoder.js";
 import {
   resolveAntigravityExecutionPolicy,
+  type AntigravityExecutionMode,
   type ResolvedAntigravityExecutionPolicy,
 } from "./antigravity-execution-policy-resolver.js";
 import { StandardAgentResultJsonSchemaBuilder } from "./standard-agent-result-json-schema-builder.js";
@@ -35,6 +36,43 @@ export interface AntigravityCliAgentExecutorOptions {
 
 export const ANTIGRAVITY_FIXED_PRINT_INSTRUCTION =
   "Follow the complete Synaphex logical-agent context provided on stdin. Return exactly the structured result required by the supplied schema.";
+
+export interface AntigravityCommandSpec {
+  readonly model: string;
+  readonly mode: AntigravityExecutionMode;
+  readonly schema: string;
+  readonly timeoutMs: number;
+}
+
+/**
+ * Builds the exact `agy` argument vector for a fresh, sandboxed print-mode run.
+ *
+ * `--mode` and `--sandbox` are defense-in-depth behavioral guards, not the
+ * source-modification enforcement boundary; see
+ * AntigravityExecutionPolicyResolver and
+ * docs/architecture/0001-google-cli-runtime.md. Permission-bypass and
+ * conversation-continuation flags are never emitted.
+ */
+export function buildAntigravityArgs(
+  spec: AntigravityCommandSpec,
+): readonly string[] {
+  return Object.freeze([
+    "-p",
+    ANTIGRAVITY_FIXED_PRINT_INSTRUCTION,
+    "--output-format",
+    "json",
+    "--json-schema",
+    spec.schema,
+    "--model",
+    spec.model,
+    "--mode",
+    spec.mode,
+    "--sandbox",
+    "--disable-slash-commands",
+    "--print-timeout",
+    `${spec.timeoutMs}ms`,
+  ]);
+}
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1_000;
 const DEFAULT_TERMINATION_GRACE_MS = 2_000;
@@ -72,6 +110,10 @@ export class AntigravityCliAgentExecutor implements AgentExecutor {
 
   async execute(input: AgentExecutionInput): Promise<unknown> {
     assertSupportedRoute(input);
+    // Fails closed: Antigravity 1.1.26 exposes no invocation-scoped policy
+    // mechanism, so no ExecutionPolicy is currently accepted. Resolution runs
+    // before any workspace, schema or prompt work so an unsupported policy can
+    // never reach process construction.
     const policy = resolveSupportedExecutionPolicy(input);
     await assertWorkspace(input.context.project.sourcePath);
     const schema = JSON.stringify(this.schemaBuilder.build(input.context));
@@ -94,22 +136,12 @@ export class AntigravityCliAgentExecutor implements AgentExecutor {
     schema: string,
     prompt: string,
   ): Promise<ProcessResult> {
-    const args = [
-      "-p",
-      ANTIGRAVITY_FIXED_PRINT_INSTRUCTION,
-      "--output-format",
-      "json",
-      "--json-schema",
+    const args = buildAntigravityArgs({
+      model: input.route.model,
+      mode: policy.mode,
       schema,
-      "--model",
-      input.route.model,
-      "--mode",
-      policy.mode,
-      "--sandbox",
-      "--disable-slash-commands",
-      "--print-timeout",
-      `${this.timeoutMs}ms`,
-    ];
+      timeoutMs: this.timeoutMs,
+    });
     try {
       // Omit env so provider-owned cached authentication remains available;
       // Synaphex neither reads nor injects Antigravity credentials/settings.
@@ -261,10 +293,14 @@ function antigravityExecutionInstructions(
 ): string {
   return [
     "## ANTIGRAVITY PROVIDER EXECUTION CONTROLS",
+    // Behavioral guard only. `--mode` and `--sandbox` do not deny
+    // command(...), mcp(...), read_url(...) or write_file(...) when a
+    // persistent Antigravity permission grant allows them, so this wording is
+    // never Synaphex's source-modification enforcement boundary.
     `Execution mode: ${policy.mode}. Provider sandbox is mandatory.`,
     "External network capability is not granted. Do not use external research, browser, remote, MCP, plugin, or subagent tools.",
     policy.mode === "plan"
-      ? "The source repository is strictly read-only; do not create, edit, rename, or delete files."
+      ? "Treat the source repository as read-only; do not create, edit, rename, or delete files."
       : "Workspace file edits are allowed, but do not run arbitrary shell/build/test commands unless separately authorized by a future Synaphex capability.",
     "Never run git push directly; request git_push through requestedActions.",
     "Never trigger external CI directly; request ci through requestedActions.",
