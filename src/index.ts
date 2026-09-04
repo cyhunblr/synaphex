@@ -15,7 +15,7 @@ export {
   AgentUnconfiguredError,
   ClaudeCliExecutionError,
   CodexCliExecutionError,
-  GeminiCliExecutionError,
+  AntigravityCliExecutionError,
   ArtifactNotFoundError,
   ImmutableContractViolationError,
   InvalidArtifactError,
@@ -69,7 +69,7 @@ export {
   type SynaphexErrorCode,
   type ClaudeCliExecutionFailureReason,
   type CodexCliExecutionFailureReason,
-  type GeminiCliExecutionFailureReason,
+  type AntigravityCliExecutionFailureReason,
 } from "./domain/errors.js";
 export { AGENT_NAMES, isAgentName, type AgentName } from "./domain/agent.js";
 export {
@@ -239,38 +239,30 @@ export {
   type ClaudeCliRuntimeUnavailableReason,
 } from "./providers/claude-cli-runtime-availability.js";
 export {
-  GEMINI_FIXED_HEADLESS_INSTRUCTION,
-  GeminiCliAgentExecutor,
-  geminiInvocationProjectSettings,
-  type GeminiCliAgentExecutorOptions,
-  type GeminiInvocationProjectSettings,
-} from "./providers/gemini-cli-agent-executor.js";
+  ANTIGRAVITY_FIXED_PRINT_INSTRUCTION,
+  AntigravityCliAgentExecutor,
+  type AntigravityCliAgentExecutorOptions,
+} from "./providers/antigravity-cli-agent-executor.js";
 export {
-  GeminiAgentResultContractSerializer,
-} from "./providers/gemini-agent-result-contract-serializer.js";
+  AntigravityAgentResultEnvelopeDecoder,
+} from "./providers/antigravity-agent-result-envelope-decoder.js";
 export {
-  GeminiAgentResultEnvelopeDecoder,
-} from "./providers/gemini-agent-result-envelope-decoder.js";
+  AntigravityExecutionPolicyResolver,
+  resolveAntigravityExecutionPolicy,
+  type AntigravityExecutionMode,
+  type ResolvedAntigravityExecutionPolicy,
+} from "./providers/antigravity-execution-policy-resolver.js";
 export {
-  GEMINI_BROAD_DENY_PRIORITY,
-  GEMINI_MCP_DENY_PRIORITY,
-  GEMINI_NETWORK_TOOL,
-  GEMINI_READ_ONLY_TOOLS,
-  GEMINI_SELECTED_ALLOW_PRIORITY,
-  GEMINI_WRITE_TOOLS,
-  resolveGeminiExecutionPolicy,
-  serializeGeminiPolicy,
-  type GeminiBuiltInTool,
-  type GeminiNetworkMechanism,
-  type ResolvedGeminiExecutionPolicy,
-} from "./providers/gemini-execution-policy-resolver.js";
+  ANTIGRAVITY_REQUIRED_HELP_FLAGS,
+  AntigravityCliRuntimeAvailability,
+  type AntigravityCliRuntimeAvailabilityOptions,
+  type AntigravityCliRuntimeAvailabilityResult,
+  type AntigravityCliRuntimeUnavailableReason,
+} from "./providers/antigravity-cli-runtime-availability.js";
 export {
-  GEMINI_CALLABLE_CAPABILITY_PROBE_ARGS,
-  GeminiCliRuntimeAvailability,
-  type GeminiCliRuntimeAvailabilityOptions,
-  type GeminiCliRuntimeAvailabilityResult,
-  type GeminiCliRuntimeUnavailableReason,
-} from "./providers/gemini-cli-runtime-availability.js";
+  StandardAgentResultJsonSchemaBuilder,
+  type StandardAgentResultJsonSchema,
+} from "./providers/standard-agent-result-json-schema-builder.js";
 export {
   SpawnProcessRunner,
   type ProcessRunInput,

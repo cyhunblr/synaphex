@@ -88,7 +88,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
   "CODEX_CLI_EXECUTION_FAILED",
   "CLAUDE_CLI_EXECUTION_FAILED",
-  "GEMINI_CLI_EXECUTION_FAILED",
+  "ANTIGRAVITY_CLI_EXECUTION_FAILED",
 ] as const;
 
 export type SynaphexErrorCode = (typeof SYNAPHEX_ERROR_CODES)[number];
@@ -826,31 +826,30 @@ export class ClaudeCliExecutionError extends SynaphexError<"CLAUDE_CLI_EXECUTION
   }
 }
 
-export type GeminiCliExecutionFailureReason =
+export type AntigravityCliExecutionFailureReason =
   | "unsupported_route"
   | "unsupported_settings"
   | "invalid_workspace"
-  | "invalid_execution_policy"
+  | "unsupported_execution_policy"
   | "unsupported_cli_capability"
   | "temporary_io"
   | "spawn_failed"
   | "timeout"
   | "stdout_overflow"
   | "non_zero_exit"
-  | "malformed_envelope"
+  | "malformed_output"
   | "provider_error"
-  | "missing_response"
-  | "malformed_agent_json";
+  | "missing_structured_output";
 
-export class GeminiCliExecutionError extends SynaphexError<"GEMINI_CLI_EXECUTION_FAILED"> {
+export class AntigravityCliExecutionError extends SynaphexError<"ANTIGRAVITY_CLI_EXECUTION_FAILED"> {
   constructor(
-    reason: GeminiCliExecutionFailureReason,
+    reason: AntigravityCliExecutionFailureReason,
     details: Readonly<Record<string, unknown>> = {},
     options?: ErrorOptions,
   ) {
     super(
-      "GEMINI_CLI_EXECUTION_FAILED",
-      `Google Gemini CLI execution failed: ${reason.replaceAll("_", " ")}`,
+      "ANTIGRAVITY_CLI_EXECUTION_FAILED",
+      `Google Antigravity CLI execution failed: ${reason.replaceAll("_", " ")}`,
       { reason, ...details },
       options,
     );
