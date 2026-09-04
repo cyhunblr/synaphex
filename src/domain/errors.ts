@@ -87,6 +87,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "HOST_ACTION_UNAVAILABLE",
   "INVALID_HOST_ACTION_AUTHORIZATION",
   "AGENT_INVOCATION_DEPTH_EXCEEDED",
+  "UNSUPPORTED_AGENT_INVOCATION",
   "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
   "CODEX_CLI_EXECUTION_FAILED",
   "CLAUDE_CLI_EXECUTION_FAILED",
@@ -784,6 +785,25 @@ export class ProviderExecutionPolicyUnsupportedError extends SynaphexError<"PROV
       "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
       `Provider cannot safely enforce the requested execution policy: ${provider}`,
       { provider, reason, ...(action === undefined ? {} : { action }) },
+    );
+  }
+}
+
+/**
+ * Raised when an invocation target or scope is not permitted by the calling
+ * surface -- for example an agent that is not exposed through MCP Phase 3A, an
+ * agent whose role may modify the source workspace, or a project-scope request
+ * made against a task-bound session.
+ *
+ * Distinct from the Core lifecycle errors, which describe why a legitimately
+ * exposed agent cannot run right now.
+ */
+export class UnsupportedAgentInvocationError extends SynaphexError<"UNSUPPORTED_AGENT_INVOCATION"> {
+  constructor(agent: string, reason: string) {
+    super(
+      "UNSUPPORTED_AGENT_INVOCATION",
+      `Agent invocation is not supported: ${agent} (${reason})`,
+      { agent, reason },
     );
   }
 }

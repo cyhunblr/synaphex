@@ -3,6 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  SYNAPHEX_MCP_INVOCATION_TOOLS,
   SYNAPHEX_MCP_PHASE1_TOOLS,
   SYNAPHEX_MCP_RECOVERY_TOOLS,
   SYNAPHEX_MCP_SESSION_TOOLS,
@@ -21,12 +22,23 @@ async function mcpSources(): Promise<readonly [string, string][]> {
   );
 }
 
+/**
+ * `stdio-main.ts` is the composition root: it is the one module allowed to
+ * construct Core services and wire them into narrow ports. Every OTHER mcp
+ * module -- in particular anything holding tool handlers -- must stay isolated.
+ */
+const COMPOSITION_ROOT = "stdio-main.ts";
+
+async function mcpHandlerSources(): Promise<readonly [string, string][]> {
+  return (await mcpSources()).filter(([name]) => name !== COMPOSITION_ROOT);
+}
+
 function stripComments(source: string): string {
   return source.replaceAll(/\/\*[\s\S]*?\*\//g, "").replaceAll(/\/\/.*$/gm, "");
 }
 
-test("MCP never imports a broad mutation, invocation or provider module", async () => {
-  for (const [name, source] of await mcpSources()) {
+test("MCP handler modules never import a broad mutation, invocation or provider module", async () => {
+  for (const [name, source] of await mcpHandlerSources()) {
     const code = stripComments(source);
     const imports = [...code.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]!);
     for (const specifier of imports) {
@@ -37,13 +49,13 @@ test("MCP never imports a broad mutation, invocation or provider module", async 
         false,
         `${name} must not import a provider module (${specifier})`,
       );
-      // Only the narrow session-command boundary may come from operations/;
-      // the mixed read/write operations surface stays out.
+      // Only the narrow application ports may come from operations/; the
+      // mixed read/write operations surface stays out.
       if (specifier.includes("operations/")) {
-        assert.equal(
-          specifier.endsWith("session-commands.js"),
-          true,
-          `${name} may only import operations/session-commands (${specifier})`,
+        assert.ok(
+          specifier.endsWith("session-commands.js") ||
+            specifier.endsWith("direct-agent-invocation.js"),
+          `${name} may only import narrow operations ports (${specifier})`,
         );
       }
       for (const forbiddenModule of [
@@ -66,8 +78,8 @@ test("MCP never imports a broad mutation, invocation or provider module", async 
   }
 });
 
-test("MCP never names a mutation, approval or host-action API directly", async () => {
-  for (const [name, source] of await mcpSources()) {
+test("MCP handler modules never name a mutation, approval or host-action API", async () => {
+  for (const [name, source] of await mcpHandlerSources()) {
     const code = stripComments(source);
     for (const forbidden of [
       // project/task mutation
@@ -157,7 +169,7 @@ test("a handler cannot reach a broader mutation API because none is injected", a
   }
 });
 
-test("the tool surface is exactly reads, session lifecycle and recovery", async () => {
+test("the tool surface is exactly reads, session lifecycle, recovery and invocation", async () => {
   const { client, close } = await connectedClient();
   try {
     const tools = (await client.listTools()).tools;
@@ -165,18 +177,34 @@ test("the tool surface is exactly reads, session lifecycle and recovery", async 
       tools.length,
       SYNAPHEX_MCP_PHASE1_TOOLS.length +
         SYNAPHEX_MCP_SESSION_TOOLS.length +
-        SYNAPHEX_MCP_RECOVERY_TOOLS.length,
+        SYNAPHEX_MCP_RECOVERY_TOOLS.length +
+        SYNAPHEX_MCP_INVOCATION_TOOLS.length,
     );
     const mutating = tools
       .filter((tool) => tool.annotations?.readOnlyHint !== true)
       .map((tool) => tool.name)
       .sort();
-    // Exactly three mutating tools: open, close, and explicit force release.
+    // Exactly four mutating tools. No helper-execution, action-approval,
+    // cancellation or invocation-status tool exists yet.
     assert.deepEqual(mutating, [
       "synaphex_close_task_session",
       "synaphex_force_release_task_session",
+      "synaphex_invoke_agent",
       "synaphex_open_task_session",
     ]);
+    for (const absent of [
+      "synaphex_execute_helper",
+      "synaphex_approve_action",
+      "synaphex_abort_invocation",
+      "synaphex_get_invocation",
+      "synaphex_accept_plan",
+    ]) {
+      assert.equal(
+        tools.some((tool) => tool.name === absent),
+        false,
+        `${absent} must not exist yet`,
+      );
+    }
     // No session enumeration tool yet.
     assert.equal(
       tools.some((tool) => /list_sessions|get_current_session/.test(tool.name)),
@@ -188,7 +216,7 @@ test("the tool surface is exactly reads, session lifecycle and recovery", async 
 });
 
 test("Synaphex implements no lease, heartbeat or PID-based session expiry", async () => {
-  for (const [name, source] of await mcpSources()) {
+  for (const [name, source] of await mcpHandlerSources()) {
     const code = stripComments(source);
     // Word-boundary matched so "release" does not trip the "lease" check.
     for (const forbidden of [

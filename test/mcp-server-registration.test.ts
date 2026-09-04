@@ -25,7 +25,7 @@ test("the server registers exactly the accepted tool surface", async () => {
     for (const phase1Tool of SYNAPHEX_MCP_PHASE1_TOOLS) {
       assert.ok(names.includes(phase1Tool), `${phase1Tool} must remain`);
     }
-    assert.equal(names.length, 9);
+    assert.equal(names.length, 10);
   } finally {
     await close();
   }
@@ -78,7 +78,8 @@ test("annotations describe each tool honestly and are closed-world throughout", 
       const mutates =
         tool.name === "synaphex_open_task_session" ||
         tool.name === "synaphex_close_task_session" ||
-        tool.name === "synaphex_force_release_task_session";
+        tool.name === "synaphex_force_release_task_session" ||
+        tool.name === "synaphex_invoke_agent";
       // Mutating tools must NOT claim readOnlyHint.
       assert.equal(
         tool.annotations?.readOnlyHint,
@@ -88,19 +89,22 @@ test("annotations describe each tool honestly and are closed-world throughout", 
       // Only open is non-idempotent: it mints a new SessionId each call.
       assert.equal(
         tool.annotations?.idempotentHint,
-        tool.name !== "synaphex_open_task_session",
+        tool.name !== "synaphex_open_task_session" &&
+          tool.name !== "synaphex_invoke_agent",
         `${tool.name} idempotentHint`,
       );
       // Only force release is destructive: it terminates another session's
       // ownership and deletes that session's binding record.
       assert.equal(
         tool.annotations?.destructiveHint,
-        tool.name === "synaphex_force_release_task_session",
+        tool.name === "synaphex_force_release_task_session" ||
+          tool.name === "synaphex_invoke_agent",
         `${tool.name} destructiveHint`,
       );
+      // Only agent invocation reaches an external provider/model.
       assert.equal(
         tool.annotations?.openWorldHint,
-        false,
+        tool.name === "synaphex_invoke_agent",
         `${tool.name} openWorldHint`,
       );
     }
@@ -115,6 +119,7 @@ test("server identity uses the package name and the injected package version", a
     ...reads.ports,
     sessionCommands: reads.sessionCommands,
     sessionRecovery: reads.sessionRecovery,
+    agentInvocation: reads.agentInvocation,
     version: "9.9.9-test",
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

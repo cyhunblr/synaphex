@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { AGENT_NAMES } from "../domain/agent.js";
 import { RULE_DECISIONS, RULE_SCOPES, formatRuleKey } from "../domain/rule.js";
+import type { AnyAgentInvocationResult } from "../domain/agent-invocation.js";
 import { parseSessionId } from "../domain/session.js";
 import { TASK_STATUSES } from "../domain/task.js";
 import { toMcpToolFailure } from "./mcp-error-mapping.js";
@@ -10,6 +11,10 @@ import {
   parseProjectId,
   parseTaskId,
 } from "./mcp-input-validation.js";
+import {
+  MCP_INVOCABLE_AGENTS,
+  type DirectAgentInvocationPort,
+} from "../operations/direct-agent-invocation.js";
 import type {
   SessionCommandPort,
   SessionRecoveryPort,
@@ -68,11 +73,20 @@ export const SYNAPHEX_MCP_RECOVERY_TOOLS = Object.freeze([
   "synaphex_force_release_task_session",
 ] as const);
 
+/**
+ * Agent invocation (Phase 3A). Exactly one generic tool rather than five
+ * near-identical ones. CODER is excluded at the schema level.
+ */
+export const SYNAPHEX_MCP_INVOCATION_TOOLS = Object.freeze([
+  "synaphex_invoke_agent",
+] as const);
+
 /** Every tool this server registers. */
 export const SYNAPHEX_MCP_TOOLS = Object.freeze([
   ...SYNAPHEX_MCP_PHASE1_TOOLS,
   ...SYNAPHEX_MCP_SESSION_TOOLS,
   ...SYNAPHEX_MCP_RECOVERY_TOOLS,
+  ...SYNAPHEX_MCP_INVOCATION_TOOLS,
 ] as const);
 
 export interface CreateSynaphexMcpServerOptions
@@ -87,6 +101,13 @@ export interface CreateSynaphexMcpServerOptions
    * so force release can never be reached by accident.
    */
   readonly sessionRecovery: SessionRecoveryPort;
+  /**
+   * Narrow direct-user invocation boundary. MCP never receives
+   * AgentInvocationService, ProviderRouter or ContextBuilder directly, and the
+   * process-bound HostContext lives inside this port -- tool input cannot
+   * supply or override it.
+   */
+  readonly agentInvocation: DirectAgentInvocationPort;
   /** Server version; callers pass the package.json version (never duplicated here). */
   readonly version: string;
   /** Diagnostics sink. Defaults to stderr so MCP stdout stays protocol-only. */
@@ -154,6 +175,101 @@ const forceReleaseOutputSchema = z.object({
   previousSessionId: z.string().nullable(),
 });
 
+const MAX_INSTRUCTION_LENGTH = 8_000;
+
+/**
+ * Invocation input.
+ *
+ * The agent enum is exactly the Phase-3A source-read-only targets, so `coder`
+ * is rejected by schema validation before any application code runs. Scope is
+ * a discriminated union: a caller supplies only a sessionId, never a
+ * contradictory projectId+taskId+sessionId triple. There is deliberately no
+ * hostProvider/hostSurface/caller/directUser field -- host identity is
+ * immutable process configuration and the entrypoint is chosen by the server.
+ */
+const invokeAgentInputSchema = z.object({
+  agent: z
+    .enum(MCP_INVOCABLE_AGENTS)
+    .describe(
+      "Synaphex logical agent to invoke. CODER is not invocable through MCP.",
+    ),
+  scope: z
+    .discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("task_session"),
+        sessionId: z
+          .string()
+          .describe(
+            "Synaphex session id; the authoritative binding resolves project and task.",
+          ),
+      }),
+      z.object({
+        kind: z.literal("project"),
+        sessionId: z
+          .string()
+          .describe("Synaphex session id bound to a project with no task."),
+      }),
+    ])
+    .describe("Invocation scope."),
+  instruction: z
+    .string()
+    .min(1)
+    .max(MAX_INSTRUCTION_LENGTH)
+    .describe("The user instruction for this invocation."),
+});
+
+const invokeAgentOutputSchema = z.object({
+  agent: z.string(),
+  outcome: z.string(),
+  summary: z.string(),
+  scope: z.object({
+    sessionId: z.string(),
+    projectId: z.string(),
+    taskId: z.string().nullable(),
+  }),
+  route: z.object({
+    provider: z.string(),
+    configuredSurface: z.string(),
+    effectiveSurface: z.string(),
+    routingReason: z.string(),
+    model: z.string(),
+    host: z.object({ provider: z.string(), surface: z.string() }),
+  }),
+  executionPolicy: z.object({
+    sourceModification: z.string(),
+  }),
+  lineage: z.object({
+    rootInvocationId: z.string(),
+    currentInvocationId: z.string(),
+    parentInvocationId: z.string().nullable(),
+  }),
+  result: z.record(z.string(), z.unknown()),
+  // Classifications are REPORTED, never executed: the user stays the
+  // orchestrator, so MCP does not auto-run an allowed helper or auto-approve
+  // an action.
+  requestedCalls: z.array(
+    z.object({
+      target: z.string(),
+      purpose: z.string(),
+      status: z.string(),
+      immutableReason: z.string().nullable(),
+      ruleDecision: z.string().nullable(),
+      ruleSource: z.string().nullable(),
+      errorCode: z.string().nullable(),
+    }),
+  ),
+  requestedActions: z.array(
+    z.object({
+      action: z.string(),
+      status: z.string(),
+      executionKind: z.string(),
+      ruleDecision: z.string().nullable(),
+      ruleSource: z.string().nullable(),
+      errorCode: z.string().nullable(),
+    }),
+  ),
+});
+
 const agentConfigOutputSchema = z.object({
   agent: z.enum(AGENT_NAMES),
   status: z.enum(["configured", "unconfigured", "removed"]),
@@ -191,6 +307,7 @@ export function createSynaphexMcpServer(
     effectiveRuleReads,
     sessionCommands,
     sessionRecovery,
+    agentInvocation,
     version,
     onDiagnostic = defaultDiagnostic,
   } = options;
@@ -523,7 +640,118 @@ export function createSynaphexMcpServer(
       }),
   );
 
+  // --- Phase 3A: direct-user agent invocation ------------------------------
+  //
+  // Mutating (role-dependent), so readOnlyHint is false. It spawns an external
+  // provider/model, so openWorldHint is true. Non-idempotent: a repeat consumes
+  // provider quota and can create new artifacts, memory, drafts or complete a
+  // task.
+  //
+  // destructiveHint is TRUE, chosen conservatively: a REVIEWER PASS can
+  // complete task lifecycle state, and an EXAMINER result can replace canonical
+  // memory. Those are not simple additive writes, so hosts should be able to
+  // gate this behind confirmation. (MCP treats annotations as untrusted hints.)
+  server.registerTool(
+    "synaphex_invoke_agent",
+    {
+      title: "Invoke Synaphex agent",
+      description:
+        "Invoke one Synaphex logical agent as a direct user invocation. Available agents: questioner, researcher, examiner, planner, reviewer. CODER is not invocable through MCP. Requested helper calls and actions are returned classified but never executed.",
+      inputSchema: invokeAgentInputSchema,
+      outputSchema: invokeAgentOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ agent, scope, instruction }) =>
+      run(onDiagnostic, "synaphex_invoke_agent", async () => {
+        // Wire validation only; every domain rule stays in the application.
+        const sessionId = parseSessionId(scope.sessionId);
+        const result = await agentInvocation.invoke({
+          agent,
+          scope: { kind: scope.kind, sessionId },
+          instruction,
+        });
+        return presentInvocationResult(result);
+      }),
+  );
+
   return server;
+}
+
+/**
+ * Maps the internal invocation result to a safe MCP shape.
+ *
+ * Deliberately omitted: the ownership fencing token, provider credentials, raw
+ * provider stderr, auth metadata, stack traces, process diagnostics and temp
+ * paths. `executionPolicy` is reduced to its source-modification decision
+ * rather than forwarding provider-capability internals.
+ */
+function presentInvocationResult(
+  result: AnyAgentInvocationResult,
+): Record<string, unknown> {
+  const { processedResult } = result;
+  return {
+    agent: result.agent,
+    // Preserves the agent's own outcome (success / needs_user / blocked /
+    // error). A needs_user result is a SUCCESSFUL tool call carrying that
+    // outcome -- it is not an MCP error.
+    outcome: processedResult.outcome,
+    summary: processedResult.summary,
+    scope: {
+      sessionId: result.scope.sessionId,
+      projectId: result.scope.projectId,
+      taskId: result.scope.taskId,
+    },
+    route: {
+      provider: result.route.provider,
+      configuredSurface: result.route.configuredSurface,
+      effectiveSurface: result.route.effectiveSurface,
+      routingReason: result.route.routingReason,
+      model: result.route.model,
+      host: {
+        provider: result.route.host.provider,
+        surface: result.route.host.surface,
+      },
+    },
+    executionPolicy: {
+      sourceModification: result.executionPolicy.sourceModification,
+    },
+    lineage: {
+      rootInvocationId: result.lineage.rootInvocationId,
+      currentInvocationId: result.lineage.currentInvocationId,
+      parentInvocationId: result.lineage.parentInvocationId,
+    },
+    result: {
+      warnings: [...processedResult.warnings],
+      persistedArtifacts: processedResult.persistedArtifacts.map(
+        (artifact) => ({ ...artifact }),
+      ),
+      stateEffects: processedResult.stateEffects.map((effect) => ({
+        ...effect,
+      })),
+    },
+    requestedCalls: result.helperCalls.map((call) => ({
+      target: call.request.target,
+      purpose: call.request.purpose,
+      status: call.status,
+      immutableReason: call.immutableReason ?? null,
+      ruleDecision: call.effectiveRule?.decision ?? null,
+      ruleSource: call.effectiveRule?.source ?? null,
+      errorCode: "errorCode" in call ? call.errorCode : null,
+    })),
+    requestedActions: result.actionClassifications.map((action) => ({
+      action: action.request.action,
+      status: action.status,
+      executionKind: action.executionKind,
+      ruleDecision: action.effectiveRule?.decision ?? null,
+      ruleSource: action.effectiveRule?.source ?? null,
+      errorCode: "errorCode" in action ? action.errorCode : null,
+    })),
+  };
 }
 
 /**

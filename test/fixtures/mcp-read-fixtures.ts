@@ -12,6 +12,10 @@ import type { SessionBinding, SessionId } from "../../src/domain/session.js";
 import type { Task, TaskId } from "../../src/domain/task.js";
 import { createSynaphexMcpServer } from "../../src/mcp/create-synaphex-mcp-server.js";
 import type {
+  DirectAgentInvocationPort,
+  DirectAgentInvocationRequest,
+} from "../../src/operations/direct-agent-invocation.js";
+import type {
   SessionCommandPort,
   SessionRecoveryPort,
 } from "../../src/operations/session-commands.js";
@@ -115,6 +119,29 @@ export class FakeReads {
     previousSessionId: "ses_00000000000000000000000000000001",
   };
   forceReleaseError: Error | null = null;
+  invokeError: Error | null = null;
+  invokeResult: unknown = null;
+  readonly invocations: DirectAgentInvocationRequest[] = [];
+
+  /**
+   * Narrow invocation fake. It exposes ONLY `invoke`, so no MCP handler can
+   * reach AgentInvocationService, ProviderRouter or a StateStore through it.
+   */
+  get agentInvocation(): DirectAgentInvocationPort {
+    return {
+      invoke: async (request) => {
+        this.calls.push({
+          port: "agentInvocation.invoke",
+          args: [request],
+        });
+        this.invocations.push(request);
+        if (this.invokeError !== null) {
+          throw this.invokeError;
+        }
+        return (this.invokeResult ?? defaultInvocationResult(request)) as never;
+      },
+    };
+  }
 
   /**
    * Narrow recovery fake, separate from ordinary session commands.
@@ -245,6 +272,7 @@ export async function connectedClient(
     ...reads.ports,
     sessionCommands: reads.sessionCommands,
     sessionRecovery: reads.sessionRecovery,
+    agentInvocation: reads.agentInvocation,
     version: "0.0.0-test",
     onDiagnostic: (message) => {
       reads.diagnostics.push(message);
@@ -263,5 +291,59 @@ export async function connectedClient(
       await client.close();
       await server.close();
     },
+  };
+}
+
+/**
+ * Minimal invocation result shaped like the real `AgentInvocationResult`,
+ * enough for the MCP presenter to map without pulling in provider machinery.
+ */
+export function defaultInvocationResult(
+  request: DirectAgentInvocationRequest,
+): Record<string, unknown> {
+  return {
+    agent: request.agent,
+    lineage: {
+      rootInvocationId: "invocation_root01",
+      currentInvocationId: "invocation_root01",
+      parentInvocationId: null,
+    },
+    scope: {
+      sessionId: request.scope.sessionId,
+      projectId: FAKE_PROJECT.id,
+      taskId: request.scope.kind === "task_session" ? FAKE_TASK.id : null,
+    },
+    route: {
+      agent: request.agent,
+      host: { provider: "anthropic", surface: "vscode" },
+      provider: "openai",
+      configuredSurface: "cli",
+      effectiveSurface: "cli",
+      cliForcedByCrossProvider: true,
+      routingReason: "cross_provider_cli",
+      model: `${request.agent}-model`,
+    },
+    executionPolicy: {
+      sourceModification: "read_only",
+      providerCapabilities: {
+        network: {
+          decision: "deny",
+          source: "default_deny",
+          approvedForInvocation: false,
+        },
+      },
+    },
+    processedResult: {
+      agent: request.agent,
+      outcome: "success",
+      summary: `${request.agent} completed.`,
+      warnings: [],
+      persistedArtifacts: [],
+      requestedCalls: [],
+      requestedActions: [],
+      stateEffects: [],
+    },
+    helperCalls: [],
+    actionClassifications: [],
   };
 }

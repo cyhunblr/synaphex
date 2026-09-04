@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { AgentConfigManager } from "../src/core/agent-config-manager.js";
 import { ProjectManager } from "../src/core/project-manager.js";
 import { TaskManager } from "../src/core/task-manager.js";
 import { StateStore } from "../src/infrastructure/state-store.js";
@@ -19,6 +20,18 @@ import { StateStore } from "../src/infrastructure/state-store.js";
  */
 
 const ENTRYPOINT = join(process.cwd(), ".test-dist", "src", "mcp", "stdio-main.js");
+
+/**
+ * Immutable host context supplied at process startup. The server refuses to
+ * start without it, and no tool call can override it.
+ */
+const HOST_ARGS = [
+  "--host-provider",
+  "anthropic",
+  "--host-surface",
+  "vscode",
+] as const;
+const ENTRYPOINT_ARGS = [ENTRYPOINT, ...HOST_ARGS] as const;
 
 async function temporaryStateRoot(t: TestContext): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "synaphex-mcp-stdio-"));
@@ -51,7 +64,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
 
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [ENTRYPOINT],
+    args: [...ENTRYPOINT_ARGS],
     // StateStore defaults to `${homedir()}/.synaphex`, so redirecting HOME
     // keeps the test entirely inside the temporary state root.
     env: { ...process.env, HOME: home },
@@ -111,8 +124,27 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_get_session",
       "synaphex_get_task",
       "synaphex_get_task_session_owner",
+      "synaphex_invoke_agent",
       "synaphex_open_task_session",
     ]);
+
+    // CODER must be absent from the invocation enum at the schema level.
+    const invokeTool = (await client.listTools()).tools.find(
+      (candidate) => candidate.name === "synaphex_invoke_agent",
+    );
+    const agentEnum = (
+      (invokeTool?.inputSchema as {
+        properties?: { agent?: { enum?: string[] } };
+      })?.properties?.agent?.enum ?? []
+    ).slice().sort();
+    assert.deepEqual(agentEnum, [
+      "examiner",
+      "planner",
+      "questioner",
+      "researcher",
+      "reviewer",
+    ]);
+    assert.equal(agentEnum.includes("coder"), false, "CODER must be absent");
 
     // 3 + 4: open a task session and capture the returned SessionId.
     const opened = await client.callTool({
@@ -254,7 +286,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
   // 9: start a completely new MCP process against the same state.
   const recoveryTransport = new StdioClientTransport({
     command: process.execPath,
-    args: [ENTRYPOINT],
+    args: [...ENTRYPOINT_ARGS],
     env: { ...process.env, HOME: home },
     stderr: "pipe",
   });
@@ -385,7 +417,7 @@ test("an unusable state root degrades to protocol errors, never corrupt stdout",
   // Make the state root unusable by planting a file where the directory goes.
   await writeFile(join(home, ".synaphex"), "not-a-directory\n");
   const { spawn } = await import("node:child_process");
-  const child = spawn(process.execPath, [ENTRYPOINT], {
+  const child = spawn(process.execPath, [...ENTRYPOINT_ARGS], {
     env: { ...process.env, HOME: home },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -429,4 +461,207 @@ test("an unusable state root degrades to protocol errors, never corrupt stdout",
   assert.equal(stdout.includes("not-a-directory"), false);
   assert.equal(/\n\s+at /.test(stdout), false, "no stack frames on stdout");
   assert.equal(stderr.includes("secret"), false);
+});
+
+// --- Phase 3A: host context startup validation -----------------------------
+
+async function startupFailure(
+  args: readonly string[],
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const { spawn } = await import("node:child_process");
+  const child = spawn(process.execPath, [ENTRYPOINT, ...args], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
+  child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
+  child.stdin.end();
+  const code = await new Promise<number | null>((resolve) =>
+    child.on("close", (exitCode) => resolve(exitCode)),
+  );
+  return { code, stdout, stderr };
+}
+
+test("invalid or missing host context is a fatal startup error", async () => {
+  const cases: readonly [string, readonly string[]][] = [
+    ["missing both", []],
+    ["missing surface", ["--host-provider", "anthropic"]],
+    ["missing provider", ["--host-surface", "vscode"]],
+    ["invalid provider", ["--host-provider", "acme", "--host-surface", "cli"]],
+    ["invalid surface", ["--host-provider", "openai", "--host-surface", "emacs"]],
+    // google + vscode is not a supported host: Antigravity IDE is not a
+    // Synaphex host integration.
+    [
+      "unsupported combination",
+      ["--host-provider", "google", "--host-surface", "vscode"],
+    ],
+    [
+      "duplicate provider flag",
+      [
+        "--host-provider",
+        "anthropic",
+        "--host-provider",
+        "openai",
+        "--host-surface",
+        "cli",
+      ],
+    ],
+    [
+      "provider flag without value",
+      ["--host-provider", "--host-surface", "cli"],
+    ],
+  ];
+  for (const [label, args] of cases) {
+    const outcome = await startupFailure(args);
+    assert.notEqual(outcome.code, 0, `${label} must exit non-zero`);
+    // Diagnostics on stderr only; stdout must carry no protocol garbage.
+    assert.equal(outcome.stdout, "", `${label} must not write to stdout`);
+    assert.match(outcome.stderr, /\[synaphex-mcp\] fatal/, label);
+  }
+});
+
+test("a supported host context starts successfully", async () => {
+  const { spawn } = await import("node:child_process");
+  const child = spawn(
+    process.execPath,
+    [ENTRYPOINT, "--host-provider", "openai", "--host-surface", "cli"],
+    { stdio: ["pipe", "pipe", "pipe"] },
+  );
+  let stderr = "";
+  child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
+  child.stdin.end();
+  await new Promise<void>((resolve) => child.on("close", () => resolve()));
+  assert.match(stderr, /host context: openai\/cli/);
+  assert.equal(stderr.includes("fatal"), false);
+});
+
+// --- Phase 3A: protocol-level agent invocation -----------------------------
+
+const FAKE_PROVIDER_ENTRYPOINT = join(
+  process.cwd(),
+  ".test-dist",
+  "test",
+  "fixtures",
+  "mcp-stdio-fake-provider.js",
+);
+
+test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) => {
+  const home = await temporaryStateRoot(t);
+  const { projectId, taskId } = await fixtureProjectAndTask(home);
+  const routeSink = join(home, "route.json");
+
+  // 1: launch with explicit immutable HostContext (anthropic/vscode).
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [FAKE_PROVIDER_ENTRYPOINT, ...HOST_ARGS],
+    env: {
+      ...process.env,
+      HOME: home,
+      SYNAPHEX_TEST_ROUTE_SINK: routeSink,
+    },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "synaphex-invoke-smoke", version: "0.0.0" });
+  try {
+    // 2: negotiate.
+    await client.connect(transport);
+
+    // 3 + 4: the invocation tool exists.
+    const tools = (await client.listTools()).tools;
+    const invokeTool = tools.find(
+      (candidate) => candidate.name === "synaphex_invoke_agent",
+    );
+    assert.notEqual(invokeTool, undefined);
+    assert.equal(tools.length, 10);
+
+    // 5: CODER is absent from the observable enum.
+    const agentEnum =
+      (invokeTool?.inputSchema as {
+        properties?: { agent?: { enum?: string[] } };
+      })?.properties?.agent?.enum ?? [];
+    assert.equal(agentEnum.includes("coder"), false);
+
+    // 6 + 7: fixture project/task were created outside MCP; open a session.
+    const opened = await client.callTool({
+      name: "synaphex_open_task_session",
+      arguments: { projectId, taskId },
+    });
+    const sessionId = (opened.structuredContent as { sessionId: string })
+      .sessionId;
+
+    // Configure the target agent through Core (not through MCP, which exposes
+    // no configuration tool).
+    const store = new StateStore(join(home, ".synaphex"));
+    await new AgentConfigManager(store).setConfigured("researcher", {
+      provider: "openai",
+      surface: "cli",
+      model: "researcher-model",
+    });
+
+    // 8 + 9: invoke and receive a structured InvocationResult.
+    const invoked = await client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId },
+        instruction: "Research the fencing behavior over stdio.",
+      },
+    });
+    assert.notEqual(invoked.isError, true, JSON.stringify(invoked.content));
+    const invocation = invoked.structuredContent as Record<string, unknown>;
+    assert.equal(invocation.agent, "researcher");
+    assert.equal(invocation.outcome, "success");
+    assert.deepEqual(invocation.scope, { sessionId, projectId, taskId });
+    assert.deepEqual(invocation.executionPolicy, {
+      sourceModification: "read_only",
+    });
+
+    // 10: the backend received the immutable process host context, and the
+    // cross-provider CLI route was resolved from it.
+    const observedRoute = JSON.parse(await readFile(routeSink, "utf8"));
+    assert.deepEqual(observedRoute.host, {
+      provider: "anthropic",
+      surface: "vscode",
+    });
+    assert.equal(observedRoute.provider, "openai");
+    assert.equal(observedRoute.effectiveSurface, "cli");
+    assert.equal(observedRoute.routingReason, "cross_provider_cli");
+    assert.equal(observedRoute.sourceModification, "read_only");
+
+    // 11: classifications are returned, and nothing was executed.
+    const calls = invocation.requestedCalls as { target: string; status: string }[];
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.target, "examiner");
+    const actions = invocation.requestedActions as {
+      action: string;
+      status: string;
+    }[];
+    assert.equal(actions.length, 1);
+    assert.equal(actions[0]?.action, "network");
+    // Only ONE provider execution happened: no helper auto-ran.
+    assert.equal(
+      JSON.parse(await readFile(routeSink, "utf8")).agent,
+      "researcher",
+    );
+
+    // No ownership token anywhere in the protocol payload.
+    const serialized = JSON.stringify(invoked);
+    assert.equal(serialized.includes("ownershipToken"), false);
+    assert.equal(serialized.includes("ownershipFence"), false);
+
+    // CODER is refused at the protocol level.
+    const coder = await client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "coder",
+        scope: { kind: "task_session", sessionId },
+        instruction: "Write the code.",
+      },
+    });
+    assert.equal(coder.isError, true);
+  } finally {
+    // 12: shut down cleanly.
+    await client.close();
+  }
 });

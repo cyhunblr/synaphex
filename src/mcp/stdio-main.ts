@@ -5,9 +5,17 @@ import { ProjectManager } from "../core/project-manager.js";
 import { RuleResolver } from "../core/rule-resolver.js";
 import { SessionManager } from "../core/session-manager.js";
 import { TaskManager } from "../core/task-manager.js";
+import { AgentInvocationService } from "../core/agent-invocation-service.js";
+import type {
+  AgentExecutor,
+} from "../domain/agent-invocation.js";
+import type { RuntimeAvailability } from "../domain/provider-routing.js";
+import { RoleContractRegistry } from "../core/role-contract-registry.js";
 import { StateStore } from "../infrastructure/state-store.js";
+import { DirectAgentInvocation } from "../operations/direct-agent-invocation.js";
 import { SessionCommands } from "../operations/session-commands.js";
 import { createSynaphexMcpServer } from "./create-synaphex-mcp-server.js";
+import { parseHostContextArguments } from "./mcp-host-context.js";
 import { readSynaphexVersion } from "./synaphex-mcp-version.js";
 
 /**
@@ -26,11 +34,43 @@ import { readSynaphexVersion } from "./synaphex-mcp-version.js";
  * process serves exactly one stdio connection for its lifetime.
  */
 
+/**
+ * Placeholder dispatch used when no executor is supplied. It fails closed
+ * rather than pretending a provider ran; provider composition arrives with the
+ * installer work.
+ */
+const unconfiguredExecutor: AgentExecutor = {
+  async execute() {
+    throw new Error("no provider executor is configured for this MCP process");
+  },
+};
+
+const unconfiguredRuntimeAvailability: RuntimeAvailability = {
+  async isAvailable() {
+    return false;
+  },
+};
+
 function diagnostic(message: string): void {
   process.stderr.write(`${message}\n`);
 }
 
-export async function main(): Promise<void> {
+export interface StdioMainOptions {
+  /**
+   * Provider dispatch for agent execution.
+   *
+   * Injected rather than constructed here: MCP must not depend on provider
+   * adapters (Codex/Claude/Antigravity) directly, and Synaphex has no
+   * composite provider-dispatching executor yet. Until one exists, the
+   * composition root that launches this process supplies it. When absent,
+   * invocation fails deterministically instead of guessing a provider.
+   */
+  readonly executor?: AgentExecutor;
+  readonly runtimeAvailability?: RuntimeAvailability;
+  readonly argv?: readonly string[];
+}
+
+export async function main(options: StdioMainOptions = {}): Promise<void> {
   const stateStore = new StateStore();
   const projects = new ProjectManager(stateStore);
   const tasks = new TaskManager(stateStore, projects);
@@ -43,6 +83,23 @@ export async function main(): Promise<void> {
   // narrow capabilities so recovery is never reachable by accident.
   const sessionCommands = new SessionCommands({ projects, tasks, sessions });
 
+  // Host identity is parsed once, at startup, and is immutable for the
+  // server's lifetime. Tool input can never supply or override it.
+  const host = parseHostContextArguments(options.argv ?? process.argv.slice(2));
+  diagnostic(
+    `[synaphex-mcp] host context: ${host.provider}/${host.surface}`,
+  );
+  const agentInvocation = new DirectAgentInvocation({
+    host,
+    invocations: new AgentInvocationService({
+      executor: options.executor ?? unconfiguredExecutor,
+      runtimeAvailability:
+        options.runtimeAvailability ?? unconfiguredRuntimeAvailability,
+    }),
+    sessions,
+    roleContracts: new RoleContractRegistry(),
+  });
+
   const server = createSynaphexMcpServer({
     version: await readSynaphexVersion(),
     projectReads: projects,
@@ -52,6 +109,7 @@ export async function main(): Promise<void> {
     effectiveRuleReads: rules,
     sessionCommands,
     sessionRecovery: sessionCommands,
+    agentInvocation,
     onDiagnostic: diagnostic,
   });
 

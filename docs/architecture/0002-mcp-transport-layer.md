@@ -411,3 +411,144 @@ mid-upgrade leaves the prior claim content intact and the upgrade simply
 re-runs. The Phase-2B residual window (an inert binding record after a crash
 between claim removal and binding deletion) is unchanged. The invariant holds:
 no phantom ownership ever silently blocks or redirects authority.
+
+## Phase 3A: host context and source-read-only agent invocation
+
+```text
+MCP HostContext is immutable process configuration.
+It is distinct from Synaphex SessionId.
+Top-level local stdio invocation represents a direct user invocation.
+Agent helper requests remain subject to Synaphex agent->agent rules.
+```
+
+### HostContext
+
+Host identity reuses Core's existing `HostRuntime` (`{provider, surface}`)
+rather than introducing a parallel type. It describes *where the user is
+interacting with Synaphex*, not the target agent's configuration, and carries
+no model, sessionId, conversationId or PID.
+
+```text
+Synaphex Session != MCP connection != provider host identity
+```
+
+It is parsed once at startup from internal arguments
+(`--host-provider`, `--host-surface`), validated against the supported
+combinations, and immutable for the server's lifetime. It is never inferred
+from MCP `clientInfo`, process name, PID, conversation/thread id, model output,
+tool input or SessionId — otherwise a model or tool argument could spoof
+ProviderRouter's routing context. `clientInfo` is diagnostic only, never
+routing authority.
+
+Supported host combinations are `openai/{cli,vscode}`,
+`anthropic/{cli,vscode}` and `google/cli`. `google/vscode` is absent:
+Antigravity IDE is not a Synaphex host integration (ADR 0001), and Google VS
+Code support is not invented here. Host identity and target executability are
+separate questions — `google/cli` is a valid *host* even though every
+Antigravity ExecutionPolicy is unsupported as a *target*.
+
+These are internal integration arguments for future installer-generated MCP
+configuration. There is still no public `synaphex mcp` command; the accepted
+terminal-facing commands remain `synaphex install` and `synaphex uninstall`.
+Installer registration is not implemented.
+
+### Invocation-origin trust assumption
+
+A top-level MCP invocation enters the existing **direct-user** entrypoint
+(`invokeUserAgent`). Accepted semantics therefore apply: the top-level target
+bypasses the configurable agent→agent edge rule while still obeying lifecycle,
+config, routing, ExecutionPolicy, provider-capability policy and Phase-2C
+ownership fencing. Helper requests the agent returns are still classified
+through normal agent→agent rules.
+
+The wire schema has no `directUser`, `caller`, `callerAgent`, `hostProvider` or
+`hostSurface` field, so an MCP client or model cannot impersonate another
+Synaphex caller or supply host identity; the server chooses the entrypoint.
+
+**This is acceptable only because MCP is currently local stdio with a
+user-controlled integration. Before any remote MCP transport,
+invocation-origin and authentication must be reviewed again.**
+
+### Exposed agents
+
+`synaphex_invoke_agent` is one generic tool, not five. Its agent enum is
+exactly `questioner`, `researcher`, `examiner`, `planner`, `reviewer`, so
+**CODER is rejected by schema validation** before any application code, the
+invocation service or a provider runs. There is no hidden `allowCoder`,
+`unsafe` or `force` flag.
+
+```text
+CODER is intentionally not exposed through MCP Phase 3A.
+```
+
+Reason:
+
+```text
+Phase 2C fencing protects Synaphex state but cannot roll back
+filesystem changes already performed by CODER.
+```
+
+"Source-read-only" means these five must not modify the user's *source
+workspace* — not that they make no Synaphex mutation. Questioner context,
+research artifacts, canonical memory, plan drafts, review artifacts and
+Reviewer task completion are all still possible, and are protected by Phase-2C
+fencing. As defence in depth, the application port fails closed if any exposed
+role ever resolves to `workspace_write`.
+
+### Scope
+
+Scope is a discriminated union carrying only a `sessionId`; the authoritative
+Core binding resolves project and task, so a contradictory
+`projectId + taskId + sessionId` triple cannot be expressed. Role/scope
+eligibility stays in Core: `taskBinding: "optional"` (researcher, examiner)
+permits project scope, and `"required"` roles raise `NoTaskBoundError`. MCP
+only checks the wire shape, plus one guard that a `project`-scope request is
+not made against a task-bound session.
+
+Session ids use Core's `parseSessionId`; there is no MCP-local grammar.
+
+### Result, helpers and actions
+
+The result maps the existing `AgentInvocationResult` to a safe shape: agent,
+outcome, summary, scope, route (including host), source-modification decision,
+lineage, warnings/persisted-artifact/state-effect references, and classified
+`requestedCalls` / `requestedActions`. Deliberately omitted: the ownership
+token, provider credentials, raw provider stderr, auth metadata, stack traces,
+process diagnostics and temp paths.
+
+Classifications are **reported, never executed** — the user remains the
+orchestrator. MCP does not auto-run an allowed helper, auto-approve network, or
+execute `git_push`/`ci`. No helper-execution, action-approval, cancellation or
+invocation-status tool exists yet.
+
+An agent outcome of `needs_user` / `blocked` / `error` is a **successful** tool
+call carrying that outcome; only a Synaphex invocation failure maps through
+MCP-safe error handling. `TASK_SESSION_OWNERSHIP_LOST` keeps its stable code
+(never `INTERNAL_ERROR`) and does not disclose the replacement owner.
+`AGENT_EXECUTION_FAILED` is reported with a generic message so provider stderr,
+command arguments and environment never reach the client.
+
+### Native VS Code routes
+
+VS Code extensions remain interactive host surfaces, not callable targets. A
+CLI host targeting a vscode surface fails with `INVALID_PROVIDER_ROUTE`. A
+same-provider vscode→vscode route resolves as `same_provider_native`, but **no
+executor dispatches it**: all three CLI executors reject
+`effectiveSurface !== "cli"`, so it fails deterministically rather than
+spawning a CLI while claiming the vscode surface. That gap is pre-existing and
+unchanged here.
+
+### Synchronous execution
+
+Invocation is an ordinary synchronous MCP request in this slice — no MCP tasks,
+background registry, polling, detached execution, cancellation or status
+endpoint. A long provider call therefore occupies a tool request, which is
+accepted for Phase 3A.
+
+### Provider composition gap
+
+Synaphex has no composite provider-dispatching `AgentExecutor`. Rather than
+building one inside MCP (which would couple MCP to provider adapters), the
+stdio entrypoint accepts an injected executor and runtime availability. Absent
+one, invocation fails closed instead of guessing a provider. Wiring real
+provider dispatch belongs with the installer work.

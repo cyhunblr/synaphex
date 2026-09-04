@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  AgentExecutionFailedError,
   InvalidSessionIdError,
   TaskAlreadyBoundError,
   TaskCompletedError,
+  TaskSessionOwnershipLostError,
 } from "../src/domain/errors.js";
 import type { TaskId } from "../src/domain/task.js";
 import {
   FAKE_PROJECT,
   FAKE_TASK,
   connectedClient,
+  defaultInvocationResult,
   fakeReadDependencies,
   type FakeReads,
 } from "./fixtures/mcp-read-fixtures.js";
@@ -429,4 +432,260 @@ test("an MCP disconnect never force-releases a task claim", async () => {
     false,
     "disconnect must never reach recovery",
   );
+});
+
+// --- Phase 3A: agent invocation tool --------------------------------------
+
+test("invoke_agent delegates to the narrow invocation port and returns a safe result", async () => {
+  const reads = fakeReadDependencies();
+  const outcome = await call(reads, "synaphex_invoke_agent", {
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
+    instruction: "Research the fencing behavior.",
+  });
+  assert.equal(outcome.isError, false, outcome.text);
+  assert.equal(outcome.structured.agent, "researcher");
+  assert.equal(outcome.structured.outcome, "success");
+  assert.deepEqual(outcome.structured.scope, {
+    sessionId: "ses_00000000000000000000000000000001",
+    projectId: FAKE_PROJECT.id,
+    taskId: FAKE_TASK.id,
+  });
+  assert.deepEqual(reads.calls, [
+    {
+      port: "agentInvocation.invoke",
+      args: [
+        {
+          agent: "researcher",
+          scope: {
+            kind: "task_session",
+            sessionId: "ses_00000000000000000000000000000001",
+          },
+          instruction: "Research the fencing behavior.",
+        },
+      ],
+    },
+  ]);
+});
+
+test("CODER is rejected by the wire schema before the invocation port", async () => {
+  const reads = fakeReadDependencies();
+  const outcome = await call(reads, "synaphex_invoke_agent", {
+    agent: "coder",
+    scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
+    instruction: "Write the code.",
+  });
+  assert.equal(outcome.isError, true);
+  assert.match(outcome.text, /Invalid option/);
+  assert.deepEqual(reads.calls, [], "the invocation port must not be reached");
+});
+
+test("no hidden flag can enable CODER or override the entrypoint", async () => {
+  for (const extra of [
+    { allowCoder: true },
+    { unsafe: true },
+    { force: true },
+    { directUser: false },
+    { caller: "planner" },
+    { hostProvider: "google", hostSurface: "cli" },
+  ]) {
+    const reads = fakeReadDependencies();
+    const outcome = await call(reads, "synaphex_invoke_agent", {
+      agent: "coder",
+      scope: {
+        kind: "task_session",
+        sessionId: "ses_00000000000000000000000000000001",
+      },
+      instruction: "Write the code.",
+      ...extra,
+    });
+    assert.equal(outcome.isError, true, JSON.stringify(extra));
+    assert.deepEqual(reads.calls, []);
+  }
+});
+
+test("the invocation schema exposes no host or caller override field", async () => {
+  const { client, close } = await connectedClient();
+  try {
+    const tool = (await client.listTools()).tools.find(
+      (candidate) => candidate.name === "synaphex_invoke_agent",
+    );
+    const properties = Object.keys(
+      (tool?.inputSchema as { properties?: Record<string, unknown> })
+        ?.properties ?? {},
+    ).sort();
+    assert.deepEqual(properties, ["agent", "instruction", "scope"]);
+  } finally {
+    await close();
+  }
+});
+
+test("malformed invocation input never reaches the invocation port", async () => {
+  const cases: readonly Record<string, unknown>[] = [
+    { agent: "researcher", scope: { kind: "task_session", sessionId: "" }, instruction: "x" },
+    {
+      agent: "researcher",
+      scope: { kind: "task_session", sessionId: "../../etc/passwd" },
+      instruction: "x",
+    },
+    { agent: "researcher", scope: { kind: "bogus", sessionId: "ses_1" }, instruction: "x" },
+    {
+      agent: "researcher",
+      scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
+      instruction: "",
+    },
+    {
+      agent: "researcher",
+      scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
+      instruction: "x".repeat(8_001),
+    },
+  ];
+  for (const args of cases) {
+    const reads = fakeReadDependencies();
+    const outcome = await call(reads, "synaphex_invoke_agent", args);
+    assert.equal(outcome.isError, true, JSON.stringify(args).slice(0, 80));
+    assert.deepEqual(reads.calls, []);
+  }
+});
+
+test("helper and action classifications are returned without execution", async () => {
+  const reads = fakeReadDependencies();
+  const base = defaultInvocationResult({
+    agent: "researcher",
+    scope: {
+      kind: "task_session",
+      sessionId: "ses_00000000000000000000000000000001",
+    },
+    instruction: "x",
+  });
+  reads.invokeResult = {
+    ...base,
+    helperCalls: [
+      {
+        status: "denied",
+        request: {
+          target: "examiner",
+          purpose: "memory_update",
+          handoff: {
+            caller: "researcher",
+            target: "examiner",
+            purpose: "memory_update",
+            summary: "Record it.",
+          },
+        },
+        immutableReason: "no_immutable_restriction",
+        effectiveRule: {
+          key: { kind: "agent_call", caller: "researcher", target: "examiner" },
+          decision: "deny",
+          source: "global",
+        },
+      },
+    ],
+    actionClassifications: [
+      {
+        status: "approval_required",
+        request: { action: "network", reason: "Needs research." },
+        executionKind: "provider_capability",
+        effectiveRule: {
+          key: { kind: "action", action: "network" },
+          decision: "ask",
+          source: "project",
+        },
+      },
+    ],
+  };
+  const outcome = await call(reads, "synaphex_invoke_agent", {
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
+    instruction: "Research it.",
+  });
+  assert.equal(outcome.isError, false, outcome.text);
+  assert.deepEqual(outcome.structured.requestedCalls, [
+    {
+      target: "examiner",
+      purpose: "memory_update",
+      status: "denied",
+      immutableReason: "no_immutable_restriction",
+      ruleDecision: "deny",
+      ruleSource: "global",
+      errorCode: null,
+    },
+  ]);
+  assert.deepEqual(outcome.structured.requestedActions, [
+    {
+      action: "network",
+      status: "approval_required",
+      executionKind: "provider_capability",
+      ruleDecision: "ask",
+      ruleSource: "project",
+      errorCode: null,
+    },
+  ]);
+  // Exactly one application call: nothing was auto-executed or auto-approved.
+  assert.equal(reads.calls.length, 1);
+});
+
+test("ownership loss maps to its stable code without exposing the replacement owner", async () => {
+  const reads = fakeReadDependencies();
+  reads.invokeError = new TaskSessionOwnershipLostError(
+    FAKE_TASK.id,
+    "ses_00000000000000000000000000000009",
+    "commit",
+  );
+  const outcome = await call(reads, "synaphex_invoke_agent", {
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
+    instruction: "Research it.",
+  });
+  assert.equal(outcome.isError, true);
+  assert.equal(outcome.structured.code, "TASK_SESSION_OWNERSHIP_LOST");
+  assert.notEqual(outcome.structured.code, "INTERNAL_ERROR");
+  const serialized = `${outcome.text}${JSON.stringify(outcome.structured)}`;
+  assert.equal(serialized.includes("ses_00000000000000000000000000000009"), false);
+});
+
+test("a provider execution failure exposes no CLI internals", async () => {
+  const reads = fakeReadDependencies();
+  reads.invokeError = new AgentExecutionFailedError("researcher", "openai", "cli", {
+    cause: new Error("codex exited 1: /home/user/.codex/auth.json unreadable"),
+  });
+  const outcome = await call(reads, "synaphex_invoke_agent", {
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
+    instruction: "Research it.",
+  });
+  assert.equal(outcome.isError, true);
+  const serialized = `${outcome.text}${JSON.stringify(outcome.structured)}`;
+  for (const secret of ["auth.json", ".codex", "exited 1", "at "]) {
+    assert.equal(serialized.includes(secret), false, `leaked ${secret}`);
+  }
+});
+
+test("no invocation result or transcript carries an ownership token", async () => {
+  const reads = fakeReadDependencies();
+  const base = defaultInvocationResult({
+    agent: "researcher",
+    scope: {
+      kind: "task_session",
+      sessionId: "ses_00000000000000000000000000000001",
+    },
+    instruction: "x",
+  });
+  // Plant a token where a careless presenter might forward it.
+  reads.invokeResult = {
+    ...base,
+    ownershipToken: "deadbeefdeadbeefdeadbeefdeadbeef",
+    ownershipFence: {
+      ownershipToken: "deadbeefdeadbeefdeadbeefdeadbeef",
+    },
+  };
+  const outcome = await call(reads, "synaphex_invoke_agent", {
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
+    instruction: "Research it.",
+  });
+  const serialized = `${outcome.text}${JSON.stringify(outcome.structured)}`;
+  assert.equal(serialized.includes("deadbeef"), false);
+  assert.equal(serialized.includes("ownershipToken"), false);
+  assert.equal(serialized.includes("ownershipFence"), false);
 });

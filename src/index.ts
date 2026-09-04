@@ -398,6 +398,24 @@ export {
   type TaskOperationsOptions,
 } from "./operations/task-operations.js";
 export {
+  MCP_INVOCABLE_AGENTS,
+  DirectAgentInvocation,
+  isMcpInvocableAgent,
+  type DirectAgentInvocationDependencies,
+  type DirectAgentInvocationPort,
+  type DirectAgentInvocationRequest,
+  type DirectInvocationScope,
+  type McpInvocableAgent,
+} from "./operations/direct-agent-invocation.js";
+export {
+  HOST_PROVIDER_FLAG,
+  HOST_SURFACE_FLAG,
+  InvalidHostContextError,
+  isSupportedHostRuntime,
+  parseHostContextArguments,
+} from "./mcp/mcp-host-context.js";
+export {
+  SYNAPHEX_MCP_INVOCATION_TOOLS,
   SYNAPHEX_MCP_PHASE1_TOOLS,
   SYNAPHEX_MCP_RECOVERY_TOOLS,
   SYNAPHEX_MCP_SERVER_NAME,

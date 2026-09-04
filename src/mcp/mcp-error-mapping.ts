@@ -37,6 +37,19 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "SESSION_ALREADY_BOUND_TO_TASK",
     "NO_PROJECT_BOUND",
     "TASK_BINDING_LOCK_TIMEOUT",
+    // Phase 2C fencing + Phase 3A invocation.
+    "TASK_SESSION_OWNERSHIP_LOST",
+    "UNSUPPORTED_AGENT_INVOCATION",
+    "NO_TASK_BOUND",
+    "AGENT_UNCONFIGURED",
+    "AGENT_CONFIGURATION_REMOVED",
+    "INVALID_PROVIDER_ROUTE",
+    "PROVIDER_CLI_UNAVAILABLE",
+    "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
+    "AGENT_EXECUTION_FAILED",
+    "INVALID_AGENT_RESULT",
+    "REVIEW_TARGET_NOT_AVAILABLE",
+    "PLAN_DRAFT_PENDING",
   ] as const satisfies readonly SynaphexErrorCode[]);
 
 export interface McpToolFailure {
@@ -58,6 +71,25 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   NO_PROJECT_BOUND: "Session has no project bound.",
   TASK_BINDING_LOCK_TIMEOUT:
     "Timed out waiting to update task binding state.",
+  TASK_SESSION_OWNERSHIP_LOST:
+    "Task session ownership was lost before the result could be committed.",
+  UNSUPPORTED_AGENT_INVOCATION:
+    "This agent or scope cannot be invoked through MCP.",
+  NO_TASK_BOUND: "Session has no task bound.",
+  AGENT_UNCONFIGURED: "Agent is not configured.",
+  AGENT_CONFIGURATION_REMOVED: "Agent configuration was removed.",
+  INVALID_PROVIDER_ROUTE:
+    "The configured agent cannot be reached from this host.",
+  PROVIDER_CLI_UNAVAILABLE: "The provider CLI runtime is unavailable.",
+  PROVIDER_EXECUTION_POLICY_UNSUPPORTED:
+    "The provider cannot safely enforce the required execution policy.",
+  // Deliberately generic: provider stderr, command arguments, environment and
+  // stack traces must never reach the client.
+  AGENT_EXECUTION_FAILED: "Agent execution failed.",
+  INVALID_AGENT_RESULT: "The agent returned an invalid result.",
+  REVIEW_TARGET_NOT_AVAILABLE:
+    "The task has no persisted Coder work record to review.",
+  PLAN_DRAFT_PENDING: "A plan draft is pending acceptance.",
   [MCP_INTERNAL_ERROR_CODE]: "Internal Synaphex error.",
 });
 
