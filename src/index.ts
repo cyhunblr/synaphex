@@ -346,6 +346,15 @@ export {
   type PublishedChangeSet,
 } from "./core/coder-change-set-manager.js";
 export {
+  ChangeSetApplyManager,
+  type ChangeSetApplyIntent,
+  type ChangeSetApplyManagerOptions,
+  type ChangeSetDecision,
+  type ChangeSetDecisionRecord,
+  type ChangeSetState,
+  type ChangeSetStatus,
+} from "./core/change-set-apply-manager.js";
+export {
   SpawnIsolatedGitRunner,
   ISOLATED_GIT_CONFIG_OVERRIDES,
   type IsolatedGitRunInput,
@@ -441,6 +450,15 @@ export {
   type PlanReadPort,
   type PlanReviewState,
 } from "./operations/plan-decision-commands.js";
+export {
+  ChangeSetCommands,
+  type ChangeSetCommandDependencies,
+  type ChangeSetDecisionOutcome,
+  type ChangeSetDecisionPort,
+  type ChangeSetPatchChunk,
+  type ChangeSetReadPort,
+  type ChangeSetReview,
+} from "./operations/change-set-commands.js";
 export {
   ProjectTaskCommands,
   type ProjectCommandPort,

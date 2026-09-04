@@ -26,7 +26,7 @@ test("the server registers exactly the accepted tool surface", async () => {
     for (const phase1Tool of SYNAPHEX_MCP_PHASE1_TOOLS) {
       assert.ok(names.includes(phase1Tool), `${phase1Tool} must remain`);
     }
-    assert.equal(names.length, 21);
+    assert.equal(names.length, 25);
   } finally {
     await close();
   }
@@ -81,12 +81,13 @@ test("annotations describe each tool honestly and are closed-world throughout", 
         SYNAPHEX_MCP_CONTINUATION_TOOLS as readonly string[]
       ).includes(tool.name);
       const invocationLike = tool.name === "synaphex_invoke_agent" || continuationTool;
-      // Read tools claim readOnlyHint; everything else must not.
-      assert.equal(
-        tool.name.startsWith("synaphex_get_"),
-        !mutates,
-        `${tool.name} readOnlyHint`,
-      );
+      // Read tools claim readOnlyHint; everything else must not. Reading a
+      // change-set patch is a genuine read: it returns already-persisted
+      // bytes and touches neither the source workspace nor task state.
+      const readOnly =
+        tool.name.startsWith("synaphex_get_") ||
+        tool.name === "synaphex_read_change_set_patch";
+      assert.equal(readOnly, !mutates, `${tool.name} readOnlyHint`);
       // Non-idempotent: open mints a new SessionId; invocation and every
       // continuation step consume provider quota and a one-time transition.
       // Non-idempotent: anything that mints a new id (project, task,
@@ -99,6 +100,10 @@ test("annotations describe each tool honestly and are closed-world throughout", 
         "synaphex_create_task",
         "synaphex_open_project_session",
         "synaphex_open_task_session",
+        // Applying mutates the source workspace; rejecting is a one-time
+        // terminal decision for that exact change-set instance.
+        "synaphex_apply_change_set",
+        "synaphex_reject_change_set",
       ];
       assert.equal(
         tool.annotations?.idempotentHint,
@@ -119,6 +124,10 @@ test("annotations describe each tool honestly and are closed-world throughout", 
           // archives/replaces current, rejection deletes the draft.
           "synaphex_accept_plan_draft",
           "synaphex_reject_plan_draft",
+          // Apply mutates the registered source workspace; reject is an
+          // irreversible decision for that exact change set.
+          "synaphex_apply_change_set",
+          "synaphex_reject_change_set",
         ].includes(tool.name),
         `${tool.name} destructiveHint`,
       );
@@ -144,6 +153,7 @@ test("server identity uses the package name and the injected package version", a
     agentInvocation: reads.agentInvocation,
     agentContinuation: reads.agentContinuation,
     planCommands: reads.planCommands,
+    changeSetCommands: reads.changeSetCommands,
     projectTaskCommands: reads.projectTaskCommands,
     version: "9.9.9-test",
   });

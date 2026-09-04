@@ -52,6 +52,18 @@ export const SYNAPHEX_ERROR_CODES = [
   "CODER_STAGING_FAILED",
   "CHANGE_SET_NOT_FOUND",
   "CHANGE_SET_CORRUPT",
+  "CHANGE_SET_NOT_CURRENT_TARGET",
+  "CHANGE_SET_NOT_AUTHORIZED",
+  "CHANGE_SET_ALREADY_DECIDED",
+  "CHANGE_SET_SOURCE_HEAD_CHANGED",
+  "CHANGE_SET_SOURCE_DIRTY",
+  "CHANGE_SET_APPLY_CHECK_FAILED",
+  "CHANGE_SET_APPLY_INTERRUPTED",
+  "CHANGE_SET_APPLY_RECOVERY_REQUIRED",
+  "SOURCE_MUTATION_LOCK_TIMEOUT",
+  "REVIEW_TARGET_REJECTED",
+  "REVIEW_TARGET_APPLY_INTERRUPTED",
+  "REVIEW_TARGET_CHANGED",
   "NO_PLAN_DRAFT",
   "PLAN_ALREADY_ACCEPTED",
   "PLAN_DRAFT_REVISION_MISMATCH",
@@ -396,6 +408,153 @@ export class ChangeSetNotFoundError extends SynaphexError<"CHANGE_SET_NOT_FOUND"
       "CHANGE_SET_NOT_FOUND",
       `Change set was not found for task ${taskId}`,
       { taskId, changeSetId },
+    );
+  }
+}
+
+/** The change set is not the task's current actionable CODER target. */
+export class ChangeSetNotCurrentTargetError extends SynaphexError<"CHANGE_SET_NOT_CURRENT_TARGET"> {
+  constructor(taskId: TaskId, changeSetId: string) {
+    super(
+      "CHANGE_SET_NOT_CURRENT_TARGET",
+      "That change set is not the current CODER target for this task",
+      { taskId, changeSetId },
+    );
+  }
+}
+
+/**
+ * The change set has no authoritative CODER work-record reference.
+ *
+ * Directory existence under `changes/` is never authority: this is what makes
+ * a Phase-5B orphan (published, then a crash before the work record) unusable
+ * as an implementation target.
+ */
+export class ChangeSetNotAuthorizedError extends SynaphexError<"CHANGE_SET_NOT_AUTHORIZED"> {
+  constructor(taskId: TaskId, changeSetId: string) {
+    super(
+      "CHANGE_SET_NOT_AUTHORIZED",
+      "That change set is not referenced by an authoritative CODER work record",
+      { taskId, changeSetId },
+    );
+  }
+}
+
+export class ChangeSetAlreadyDecidedError extends SynaphexError<"CHANGE_SET_ALREADY_DECIDED"> {
+  constructor(changeSetId: string, decision: "applied" | "rejected") {
+    super(
+      "CHANGE_SET_ALREADY_DECIDED",
+      `That change set was already ${decision}`,
+      { changeSetId, decision },
+    );
+  }
+}
+
+export class ChangeSetSourceHeadChangedError extends SynaphexError<"CHANGE_SET_SOURCE_HEAD_CHANGED"> {
+  constructor(changeSetId: string, expectedBaseCommit: string) {
+    super(
+      "CHANGE_SET_SOURCE_HEAD_CHANGED",
+      "The source workspace HEAD no longer matches the change set baseline",
+      { changeSetId, expectedBaseCommit },
+    );
+  }
+}
+
+export class ChangeSetSourceDirtyError extends SynaphexError<"CHANGE_SET_SOURCE_DIRTY"> {
+  constructor(changeSetId: string, entryCount: number) {
+    super(
+      "CHANGE_SET_SOURCE_DIRTY",
+      "The source workspace has local changes; applying requires a clean worktree",
+      { changeSetId, entryCount },
+    );
+  }
+}
+
+/**
+ * The exact patch could not apply to the exact baseline, or the post-apply
+ * tree did not match the expected result.
+ *
+ * Never resolved by a merge or three-way apply: that would produce a result
+ * the user never reviewed.
+ */
+export class ChangeSetApplyCheckFailedError extends SynaphexError<"CHANGE_SET_APPLY_CHECK_FAILED"> {
+  constructor(changeSetId: string, stage: string) {
+    super(
+      "CHANGE_SET_APPLY_CHECK_FAILED",
+      `The change set could not be applied exactly (${stage})`,
+      { changeSetId, stage },
+    );
+  }
+}
+
+/** A durable apply intent exists with no terminal decision. */
+export class ChangeSetApplyInterruptedError extends SynaphexError<"CHANGE_SET_APPLY_INTERRUPTED"> {
+  constructor(changeSetId: string) {
+    super(
+      "CHANGE_SET_APPLY_INTERRUPTED",
+      "A previous apply of this change set was interrupted and needs explicit recovery",
+      { changeSetId },
+    );
+  }
+}
+
+/** Rollback did not restore the exact clean baseline; no further automatic action. */
+export class ChangeSetApplyRecoveryRequiredError extends SynaphexError<"CHANGE_SET_APPLY_RECOVERY_REQUIRED"> {
+  constructor(changeSetId: string) {
+    super(
+      "CHANGE_SET_APPLY_RECOVERY_REQUIRED",
+      "Applying failed and the source workspace could not be restored automatically; manual recovery is required",
+      { changeSetId },
+    );
+  }
+}
+
+export class ReviewTargetRejectedError extends SynaphexError<"REVIEW_TARGET_REJECTED"> {
+  constructor(taskId: TaskId, changeSetId: string) {
+    super(
+      "REVIEW_TARGET_REJECTED",
+      "The task's current CODER change set was rejected and cannot be reviewed",
+      { taskId, changeSetId },
+    );
+  }
+}
+
+export class ReviewTargetApplyInterruptedError extends SynaphexError<"REVIEW_TARGET_APPLY_INTERRUPTED"> {
+  constructor(taskId: TaskId, changeSetId: string) {
+    super(
+      "REVIEW_TARGET_APPLY_INTERRUPTED",
+      "The task's current CODER change set has an interrupted apply and cannot be reviewed",
+      { taskId, changeSetId },
+    );
+  }
+}
+
+/**
+ * The source no longer exactly represents the applied change set, so a review
+ * would examine drifted state and a PASS could complete the task falsely.
+ */
+export class ReviewTargetChangedError extends SynaphexError<"REVIEW_TARGET_CHANGED"> {
+  constructor(taskId: TaskId, changeSetId: string, reason: string) {
+    super(
+      "REVIEW_TARGET_CHANGED",
+      "The source workspace no longer matches the applied change set",
+      { taskId, changeSetId, reason },
+    );
+  }
+}
+
+/**
+ * The per-project source-mutation lock could not be acquired.
+ *
+ * Distinct from {@link TaskBindingLockTimeoutError}: this one means another
+ * apply/reject is mutating the SAME registered source workspace, so the caller
+ * must retry rather than assume a task-ownership problem.
+ */
+export class SourceMutationLockTimeoutError extends SynaphexError<"SOURCE_MUTATION_LOCK_TIMEOUT"> {
+  constructor(projectId: string) {
+    super(
+      "SOURCE_MUTATION_LOCK_TIMEOUT",
+      `Timed out acquiring the source mutation lock for project ${projectId}.`,
     );
   }
 }

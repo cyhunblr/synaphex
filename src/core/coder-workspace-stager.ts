@@ -54,6 +54,15 @@ export interface CoderChangeSetCandidate {
   readonly projectId: ProjectId;
   readonly taskId: TaskId;
   readonly baseCommit: string;
+  /**
+   * Full Git tree object id of the exact staged CODER result.
+   *
+   * `baseCommit` is the input baseline and `resultTree` is the expected
+   * output tree, so a future apply can verify it produced precisely the
+   * reviewed state rather than trusting `git apply`'s exit code. Derived by
+   * Synaphex from staging Git state -- a provider can supply neither.
+   */
+  readonly resultTree: string;
   /** Raw patch bytes; empty when the staging workspace has no changes. */
   readonly patch: Buffer;
   readonly changedFiles: readonly ChangedFile[];
@@ -181,9 +190,17 @@ export class CoderWorkspaceStager {
         projectId: prepared.projectId,
         taskId: prepared.taskId,
         baseCommit: prepared.baseCommit,
+        resultTree: "",
         patch: Buffer.alloc(0),
         changedFiles: [],
       };
+    }
+
+    // The exact expected output tree, written from the staged index.
+    const tree = await this.git(prepared, ["write-tree"], "result tree");
+    const resultTree = tree.stdout.trim();
+    if (!/^[0-9a-f]{40,64}$/.test(resultTree)) {
+      throw new CoderStagingFailedError("result tree");
     }
 
     const runner = this.gitRunner;
@@ -210,6 +227,7 @@ export class CoderWorkspaceStager {
       projectId: prepared.projectId,
       taskId: prepared.taskId,
       baseCommit: prepared.baseCommit,
+      resultTree,
       patch: patch.stdout,
       changedFiles,
     };

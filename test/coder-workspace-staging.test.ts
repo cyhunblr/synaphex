@@ -788,34 +788,51 @@ test("no apply, merge or commit-to-real-source capability exists", async () => {
   }
 });
 
-test("staging internals are not exposed through MCP, and no apply tool exists", async () => {
+test("staging internals stay internal, and only the sanctioned change-set tools exist", async () => {
   const { SYNAPHEX_MCP_TOOLS, MCP_DIRECT_INVOCABLE_AGENTS } = await import(
     "../src/index.js"
   );
-  assert.equal(SYNAPHEX_MCP_TOOLS.length, 21);
+  assert.equal(SYNAPHEX_MCP_TOOLS.length, 25);
   // Phase 5B: direct CODER is enabled because every path is staged.
   assert.equal(
     (MCP_DIRECT_INVOCABLE_AGENTS as readonly string[]).includes("coder"),
     true,
   );
+  // Phase 5C exposes review and decisions over the CHANGE SET only. There is
+  // still no tool that hands out staging paths, commits, pushes, merges, or
+  // arbitrary bytes from the source workspace.
+  for (const present of [
+    "synaphex_get_change_set",
+    "synaphex_read_change_set_patch",
+    "synaphex_apply_change_set",
+    "synaphex_reject_change_set",
+  ]) {
+    assert.equal(
+      (SYNAPHEX_MCP_TOOLS as readonly string[]).includes(present),
+      true,
+      `${present} must be registered`,
+    );
+  }
   for (const absent of [
     "synaphex_invoke_coder",
-    "synaphex_get_changes",
-    "synaphex_apply_changes",
-    "synaphex_reject_changes",
-    "synaphex_get_change_set",
+    "synaphex_commit_change_set",
+    "synaphex_push_change_set",
+    "synaphex_merge_change_set",
+    "synaphex_get_staging_workspace",
+    "synaphex_read_source_file",
   ]) {
     assert.equal(
       (SYNAPHEX_MCP_TOOLS as readonly string[]).includes(absent),
       false,
-      `${absent} must not exist yet`,
+      `${absent} must not exist`,
     );
   }
-  // No MCP module references the staging or change-set foundation.
+  // No MCP HANDLER module references the staging or change-set foundation --
+  // stdio-main.ts is the composition root and is allowed to construct them.
   const mcpDirectory = join(process.cwd(), "src", "mcp");
   const { readdir: readDir } = await import("node:fs/promises");
-  for (const name of (await readDir(mcpDirectory)).filter((n) =>
-    n.endsWith(".ts"),
+  for (const name of (await readDir(mcpDirectory)).filter(
+    (n) => n.endsWith(".ts") && n !== "stdio-main.ts",
   )) {
     const source = await readFile(join(mcpDirectory, name), "utf8");
     for (const forbidden of [
@@ -830,5 +847,10 @@ test("staging internals are not exposed through MCP, and no apply tool exists", 
         `${name} must not reference ${forbidden}`,
       );
     }
+  }
+  // Even the composition root never leaks a staging path or isolated HOME.
+  const main = await readFile(join(mcpDirectory, "stdio-main.ts"), "utf8");
+  for (const forbidden of ["CoderWorkspaceStager", "stagingPath", "isolatedHome"]) {
+    assert.equal(main.includes(forbidden), false, `stdio-main leaks ${forbidden}`);
   }
 });

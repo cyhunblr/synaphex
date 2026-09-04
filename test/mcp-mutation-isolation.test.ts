@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
+  SYNAPHEX_MCP_CHANGE_SET_TOOLS,
   SYNAPHEX_MCP_PLAN_TOOLS,
   SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_INVOCATION_TOOLS,
@@ -60,7 +61,8 @@ test("MCP handler modules never import a broad mutation, invocation or provider 
             specifier.endsWith("direct-agent-invocation.js") ||
             specifier.endsWith("invocation-continuation-commands.js") ||
             specifier.endsWith("project-task-commands.js") ||
-            specifier.endsWith("plan-decision-commands.js"),
+            specifier.endsWith("plan-decision-commands.js") ||
+            specifier.endsWith("change-set-commands.js"),
           `${name} may only import narrow operations ports (${specifier})`,
         );
       }
@@ -192,16 +194,18 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
         SYNAPHEX_MCP_INVOCATION_TOOLS.length +
         SYNAPHEX_MCP_CONTINUATION_TOOLS.length +
         SYNAPHEX_MCP_BOOTSTRAP_TOOLS.length +
-        SYNAPHEX_MCP_PLAN_TOOLS.length,
+        SYNAPHEX_MCP_PLAN_TOOLS.length +
+        SYNAPHEX_MCP_CHANGE_SET_TOOLS.length,
     );
     const mutating = tools
       .filter((tool) => tool.annotations?.readOnlyHint !== true)
       .map((tool) => tool.name)
       .sort();
-    // Exactly four mutating tools. No helper-execution, action-approval,
-    // cancellation or invocation-status tool exists yet.
+    // Every mutating tool, enumerated. Reading a change-set patch is NOT in
+    // this list: it returns already-persisted bytes and mutates nothing.
     assert.deepEqual(mutating, [
       "synaphex_accept_plan_draft",
+      "synaphex_apply_change_set",
       "synaphex_approve_and_execute_helper",
       "synaphex_approve_network_action",
       "synaphex_close_session",
@@ -213,6 +217,7 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
       "synaphex_open_project_session",
       "synaphex_open_task_session",
       "synaphex_register_project",
+      "synaphex_reject_change_set",
       "synaphex_reject_plan_draft",
       "synaphex_resume_caller",
     ]);

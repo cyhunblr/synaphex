@@ -10,6 +10,7 @@ import type { AgentContext } from "../domain/agent-context.js";
 import type { TaskId } from "../domain/task.js";
 import type { ExecutionRoute } from "../domain/provider-routing.js";
 import type { TaskOwnershipFence } from "./session-manager.js";
+import { ChangeSetApplyManager } from "./change-set-apply-manager.js";
 import { CoderChangeSetManager } from "./coder-change-set-manager.js";
 import {
   CoderStagingCoordinator,
@@ -85,8 +86,11 @@ import {
   TaskSessionOwnershipLostError,
   NoTaskBoundError,
   PlanDraftPendingError,
+  ReviewTargetApplyInterruptedError,
+  ReviewTargetChangedError,
   ReviewTargetNotAppliedError,
   ReviewTargetNotAvailableError,
+  ReviewTargetRejectedError,
   SynaphexError,
   TaskArchivedError,
   TaskCompletedError,
@@ -148,6 +152,7 @@ export class AgentInvocationService {
   private readonly router: ProviderRouter;
   private readonly resultProcessor: ResultProcessor;
   private readonly coderStaging: CoderStagingCoordinator;
+  private readonly changeSetApply: ChangeSetApplyManager;
   private readonly roleContracts: RoleContractRegistry;
   private readonly rules: RuleResolver;
   private readonly actionRegistry = new ActionRegistry();
@@ -186,6 +191,7 @@ export class AgentInvocationService {
         ? {}
         : { homeDirectory: options.homeDirectory }),
     });
+    this.changeSetApply = new ChangeSetApplyManager(store, this.tasks);
     this.coderStaging =
       options.coderStaging ??
       new CoderStagingCoordinator({
@@ -796,16 +802,32 @@ export class AgentInvocationService {
       if (coderRecords.length === 0) {
         throw new ReviewTargetNotAvailableError(task.id);
       }
-      // Staged CODER leaves the registered source unchanged, so REVIEWER must
-      // not review (or PASS-complete) a task whose implementation exists only
-      // as an unapplied change set. A legacy record has no `changeSet` field
-      // at all and keeps its accepted behavior.
+      // Staged CODER leaves the registered source unchanged, so REVIEWER may
+      // only proceed when the source EXACTLY represents an applied change set.
+      // A legacy record has no `changeSet` field at all and keeps its accepted
+      // behavior; a staged record with `changeSet: null` changed nothing.
       const latest = coderRecords[coderRecords.length - 1]!;
-      if ("changeSet" in latest && latest.changeSet !== null) {
-        throw new ReviewTargetNotAppliedError(
-          task.id,
-          latest.changeSet?.id ?? null,
+      if ("changeSet" in latest && latest.changeSet != null) {
+        const changeSetId = latest.changeSet.id;
+        const status = await this.changeSetApply.status(task.id, changeSetId);
+        if (status.state === "pending") {
+          throw new ReviewTargetNotAppliedError(task.id, changeSetId);
+        }
+        if (status.state === "rejected") {
+          throw new ReviewTargetRejectedError(task.id, changeSetId);
+        }
+        if (status.state === "applying_interrupted") {
+          throw new ReviewTargetApplyInterruptedError(task.id, changeSetId);
+        }
+        // Applied: the source must STILL exactly represent that target, or a
+        // PASS could complete the task against drifted state.
+        const drift = await this.changeSetApply.verifyAppliedStillCurrent(
+          scope.project,
+          status.decision!,
         );
+        if (drift !== null) {
+          throw new ReviewTargetChangedError(task.id, changeSetId, drift);
+        }
       }
     }
     return scope;

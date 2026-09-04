@@ -68,6 +68,21 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "CODER_STAGING_UNSUPPORTED_REPOSITORY",
     "CODER_STAGING_FAILED",
     "REVIEW_TARGET_NOT_APPLIED",
+    // Phase 5C change-set review and decisions.
+    "CHANGE_SET_NOT_FOUND",
+    "CHANGE_SET_CORRUPT",
+    "CHANGE_SET_NOT_AUTHORIZED",
+    "CHANGE_SET_NOT_CURRENT_TARGET",
+    "CHANGE_SET_ALREADY_DECIDED",
+    "CHANGE_SET_SOURCE_HEAD_CHANGED",
+    "CHANGE_SET_SOURCE_DIRTY",
+    "CHANGE_SET_APPLY_CHECK_FAILED",
+    "CHANGE_SET_APPLY_INTERRUPTED",
+    "CHANGE_SET_APPLY_RECOVERY_REQUIRED",
+    "SOURCE_MUTATION_LOCK_TIMEOUT",
+    "REVIEW_TARGET_REJECTED",
+    "REVIEW_TARGET_APPLY_INTERRUPTED",
+    "REVIEW_TARGET_CHANGED",
   ] as const satisfies readonly SynaphexErrorCode[]);
 
 export interface McpToolFailure {
@@ -135,6 +150,28 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   REVIEW_TARGET_NOT_APPLIED:
     "The task has staged code changes that are not applied to the source workspace.",
   [MCP_INTERNAL_ERROR_CODE]: "Internal Synaphex error.",
+  CHANGE_SET_NOT_FOUND: "Change set not found.",
+  CHANGE_SET_CORRUPT: "Change set state is corrupt.",
+  CHANGE_SET_NOT_AUTHORIZED:
+    "Change set is not authorised by a CODER work record for this task.",
+  CHANGE_SET_NOT_CURRENT_TARGET:
+    "Change set is not the task's current CODER target.",
+  CHANGE_SET_ALREADY_DECIDED: "Change set has already been decided.",
+  CHANGE_SET_SOURCE_HEAD_CHANGED:
+    "Source HEAD no longer matches the change-set baseline.",
+  CHANGE_SET_SOURCE_DIRTY: "Source workspace has uncommitted changes.",
+  CHANGE_SET_APPLY_CHECK_FAILED:
+    "Change set could not be applied cleanly to the source workspace.",
+  CHANGE_SET_APPLY_INTERRUPTED:
+    "Apply failed and the source was restored to its baseline.",
+  CHANGE_SET_APPLY_RECOVERY_REQUIRED:
+    "A previous apply was interrupted and the source must be resolved manually.",
+  SOURCE_MUTATION_LOCK_TIMEOUT: "Timed out acquiring the source mutation lock.",
+  REVIEW_TARGET_REJECTED: "The change set under review was rejected.",
+  REVIEW_TARGET_APPLY_INTERRUPTED:
+    "The change set under review was not successfully applied.",
+  REVIEW_TARGET_CHANGED:
+    "The applied change set no longer matches the source workspace.",
 });
 
 /** Validation failures raised before any service is touched. */

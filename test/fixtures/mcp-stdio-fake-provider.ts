@@ -90,6 +90,18 @@ function scriptedResult(agent: string): unknown {
         "# Implementation plan\n\n1. Approved: build it.\n",
     };
   }
+  if (agent === "reviewer") {
+    // FAIL, not PASS: a PASS would complete the task, ending the session the
+    // protocol test is still driving.
+    return {
+      agent: "reviewer",
+      outcome: "success",
+      summary: "Reviewed the applied change.",
+      reviewStatus: "FAIL",
+      failureOrigin: "implementation",
+      report: { validation_results: ["needs another pass"] },
+    };
+  }
   if (agent === "examiner") {
     return {
       agent: "examiner",

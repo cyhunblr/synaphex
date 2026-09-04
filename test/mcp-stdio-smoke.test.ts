@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -118,6 +119,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
     const tools = (await client.listTools()).tools.map((tool) => tool.name).sort();
     assert.deepEqual(tools, [
       "synaphex_accept_plan_draft",
+      "synaphex_apply_change_set",
       "synaphex_approve_and_execute_helper",
       "synaphex_approve_network_action",
       "synaphex_close_session",
@@ -126,6 +128,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_execute_helper",
       "synaphex_force_release_task_session",
       "synaphex_get_agent_config",
+      "synaphex_get_change_set",
       "synaphex_get_effective_rules",
       "synaphex_get_project",
       "synaphex_get_session",
@@ -135,7 +138,9 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_invoke_agent",
       "synaphex_open_project_session",
       "synaphex_open_task_session",
+      "synaphex_read_change_set_patch",
       "synaphex_register_project",
+      "synaphex_reject_change_set",
       "synaphex_reject_plan_draft",
       "synaphex_resume_caller",
     ].sort());
@@ -586,7 +591,7 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
       (candidate) => candidate.name === "synaphex_invoke_agent",
     );
     assert.notEqual(invokeTool, undefined);
-    assert.equal(tools.length, 21);
+    assert.equal(tools.length, 25);
 
     // 5: the enum is exactly the six logical agents.
     const agentEnum =
@@ -2059,6 +2064,123 @@ test("staged CODER runs through MCP and leaves the real source unchanged", async
     assert.equal(
       (task.structuredContent as { status: string }).status,
       "active",
+    );
+
+    // --- Phase 5C: exact review, then apply, over the same real stdio link ---
+
+    const changeSetId = payload.changeSet!.id;
+    const review = (
+      await client.callTool({
+        name: "synaphex_get_change_set",
+        arguments: { sessionId, changeSetId },
+      })
+    ).structuredContent as {
+      state: string;
+      patchHash: string;
+      patchBytes: number;
+      resultTree: string | null;
+      changedFiles: { path: string }[];
+    };
+    assert.equal(review.state, "pending");
+    assert.equal(review.patchHash, payload.changeSet!.patchHash);
+    assert.deepEqual(
+      review.changedFiles.map((file) => file.path).sort(),
+      ["app.txt", "coder-new.txt"],
+    );
+
+    // The patch reassembles byte-exactly from base64 chunks across the wire.
+    const chunks: Buffer[] = [];
+    let offset = 0;
+    for (;;) {
+      const chunk = (
+        await client.callTool({
+          name: "synaphex_read_change_set_patch",
+          arguments: { sessionId, changeSetId, offset, maxBytes: 32 },
+        })
+      ).structuredContent as {
+        data: string;
+        encoding: string;
+        nextOffset: number;
+        done: boolean;
+      };
+      assert.equal(chunk.encoding, "base64");
+      chunks.push(Buffer.from(chunk.data, "base64"));
+      offset = chunk.nextOffset;
+      if (chunk.done) {
+        break;
+      }
+    }
+    const patch = Buffer.concat(chunks);
+    assert.equal(patch.byteLength, review.patchBytes);
+    assert.equal(
+      createHash("sha256").update(patch).digest("hex"),
+      review.patchHash,
+    );
+
+    // Apply mutates the registered source, staged and uncommitted.
+    const applied = await client.callTool({
+      name: "synaphex_apply_change_set",
+      arguments: { sessionId, changeSetId },
+    });
+    assert.notEqual(applied.isError, true, JSON.stringify(applied.content));
+    assert.equal(
+      (applied.structuredContent as { state: string }).state,
+      "applied",
+    );
+    assert.equal(
+      spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: sourcePath,
+        env: gitEnv,
+        encoding: "utf8",
+      }).stdout.trim(),
+      headBefore,
+      "Synaphex must never commit on the user's behalf",
+    );
+    // The applied content is exactly what CODER produced in staging.
+    assert.equal(
+      await readFile(join(sourcePath, "app.txt"), "utf8"),
+      "modified by coder\n",
+    );
+    assert.equal(
+      await readFile(join(sourcePath, "coder-new.txt"), "utf8"),
+      "new file\n",
+    );
+    assert.deepEqual(
+      spawnSync("git", ["status", "--porcelain"], {
+        cwd: sourcePath,
+        env: gitEnv,
+        encoding: "utf8",
+      })
+        .stdout.trim()
+        .split("\n")
+        .sort(),
+      ["A  coder-new.txt", "M  app.txt"],
+    );
+
+    // A second decision is refused: terminal means terminal.
+    const again = await client.callTool({
+      name: "synaphex_reject_change_set",
+      arguments: { sessionId, changeSetId },
+    });
+    assert.equal(again.isError, true);
+    assert.equal(
+      (again.structuredContent as { code: string }).code,
+      "CHANGE_SET_ALREADY_DECIDED",
+    );
+
+    // With the source now exactly representing the target, REVIEWER runs.
+    const reviewedAfter = await client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "reviewer",
+        scope: { kind: "task_session", sessionId },
+        instruction: "Review it.",
+      },
+    });
+    assert.notEqual(
+      reviewedAfter.isError,
+      true,
+      JSON.stringify(reviewedAfter.content),
     );
   } finally {
     await client.close();

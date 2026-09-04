@@ -22,6 +22,10 @@ import type {
   TaskCommandPort,
 } from "../../src/operations/project-task-commands.js";
 import type {
+  ChangeSetDecisionPort,
+  ChangeSetReadPort,
+} from "../../src/operations/change-set-commands.js";
+import type {
   PlanDecisionPort,
   PlanReadPort,
 } from "../../src/operations/plan-decision-commands.js";
@@ -177,6 +181,91 @@ export class FakeReads {
           ...scope,
           sessionId,
           draftRevisionId: draftRevisionId as never,
+        };
+      },
+    };
+  }
+
+  changeSetError: Error | null = null;
+  changeSetPatch: Buffer = Buffer.from(
+    "diff --git a/a.txt b/a.txt\n@@ -1 +1 @@\n-a\n+b\n",
+    "utf8",
+  );
+
+  /** Narrow change-set review/decision fake; owns no business logic. */
+  get changeSetCommands(): ChangeSetReadPort & ChangeSetDecisionPort {
+    const guard = (port: string, args: readonly unknown[]) => {
+      this.calls.push({ port, args });
+      if (this.changeSetError !== null) {
+        throw this.changeSetError;
+      }
+    };
+    const scope = {
+      projectId: FAKE_PROJECT.id,
+      taskId: FAKE_TASK.id,
+    };
+    const self = this;
+    return {
+      async getChangeSet(sessionId, changeSetId) {
+        guard("changeSetCommands.getChangeSet", [sessionId, changeSetId]);
+        return {
+          ...scope,
+          sessionId,
+          changeSetId,
+          baseCommit: "1".repeat(40),
+          resultTree: "2".repeat(40),
+          patchHash: "3".repeat(64),
+          patchBytes: self.changeSetPatch.byteLength,
+          changedFiles: [
+            { path: "a.txt", change: "modified", binary: false } as never,
+          ],
+          state: "pending" as const,
+          decidedAt: null,
+          workRecordId: "art_fixture01",
+        };
+      },
+      async readPatch(sessionId, changeSetId, offset, maxBytes) {
+        guard("changeSetCommands.readPatch", [
+          sessionId,
+          changeSetId,
+          offset,
+          maxBytes,
+        ]);
+        const total = self.changeSetPatch.byteLength;
+        const start = Math.min(offset, total);
+        const end = Math.min(start + maxBytes, total);
+        const slice = self.changeSetPatch.subarray(start, end);
+        return {
+          changeSetId,
+          offset: start,
+          returnedBytes: slice.byteLength,
+          nextOffset: end,
+          done: end >= total,
+          totalBytes: total,
+          encoding: "base64" as const,
+          data: slice.toString("base64"),
+        };
+      },
+      async applyChangeSet(sessionId, changeSetId) {
+        guard("changeSetCommands.applyChangeSet", [sessionId, changeSetId]);
+        return {
+          ...scope,
+          sessionId,
+          changeSetId,
+          state: "applied" as const,
+          decidedAt: "2026-02-01T00:00:00.000Z",
+          resultTree: "2".repeat(40),
+        };
+      },
+      async rejectChangeSet(sessionId, changeSetId) {
+        guard("changeSetCommands.rejectChangeSet", [sessionId, changeSetId]);
+        return {
+          ...scope,
+          sessionId,
+          changeSetId,
+          state: "rejected" as const,
+          decidedAt: "2026-02-01T00:00:00.000Z",
+          resultTree: null,
         };
       },
     };
@@ -412,6 +501,7 @@ export async function connectedClient(
     agentContinuation: reads.agentContinuation,
     projectTaskCommands: reads.projectTaskCommands,
     planCommands: reads.planCommands,
+    changeSetCommands: reads.changeSetCommands,
     version: "0.0.0-test",
     onDiagnostic: (message) => {
       reads.diagnostics.push(message);

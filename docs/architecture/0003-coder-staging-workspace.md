@@ -1,6 +1,6 @@
 # ADR 0003: CODER staging workspace and durable change sets
 
-Status: accepted (Phase 5A foundation; not yet wired to CODER invocation)
+Status: accepted (Phase 5A foundation, 5B invocation, 5C review and apply)
 
 ```text
 CODER does not write directly to the registered source workspace.
@@ -11,7 +11,7 @@ Provider edits occur in an isolated temporary repository with no remotes.
 
 Provider edits become an immutable task-scoped change set.
 
-Applying a change set is a separate explicit future user operation.
+Applying a change set is a separate, explicit, deterministic user operation.
 ```
 
 ## Why
@@ -337,16 +337,16 @@ REVIEWER reads the real source, which staged CODER intentionally leaves
 unchanged. Reviewing an unapplied change set would examine a tree without the
 implementation, and a PASS could complete a task on that false basis. So when
 the latest CODER record carries a non-null `changeSet`, REVIEWER is refused
-with `REVIEW_TARGET_NOT_APPLIED` before the provider runs. Phase 5C will refine
-this with exact change-set review/apply semantics.
+with `REVIEW_TARGET_NOT_APPLIED` before the provider runs. Phase 5C refines
+this into a four-state gate (below).
 
 ### MCP surface
 
-`coder` is now in the `synaphex_invoke_agent` agent enum, and the tool count
-stays **21** — no new tool. The result carries a change-set **summary**
-(`id`, `baseCommit`, `patchHash`, `patchBytes`, `changedFiles`) or `null`;
-never the patch itself, the staging path, the isolated Git HOME or an ownership
-token. No change-set read or apply tool exists yet.
+`coder` is in the `synaphex_invoke_agent` agent enum. The invocation result
+carries a change-set **summary** (`id`, `baseCommit`, `patchHash`,
+`patchBytes`, `changedFiles`) or `null`; never the patch itself, the staging
+path, the isolated Git HOME or an ownership token. Phase 5C adds four tools,
+taking the surface from **21** to **25**.
 
 The direct and helper surfaces are now **separate sets**:
 
@@ -360,3 +360,133 @@ execution through a helper continuation — that gets its own review later. The
 Phase-3A defence-in-depth assertion became role-specific rather than being
 removed: CODER must resolve `workspace_write`, every other MCP agent must
 resolve `read_only`, and either surprise fails closed.
+
+
+## Phase 5C: exact review and transaction-guarded decisions
+
+### Authority: existence is not permission
+
+A directory under `changes/` is **never** sufficient authority. A change set is
+actionable only when *all* of the following hold, checked in this order:
+
+1. the session is bound to a task and currently **owns** it;
+2. the task has a CODER work record whose `changeSet` is non-null;
+3. that record is the **latest**, and its `changeSet.id` equals the requested id;
+4. the persisted patch still hashes to the recorded `patchHash` and matches
+   `patchBytes`.
+
+Failing (2) gives `CHANGE_SET_NOT_AUTHORIZED`, (3) gives
+`CHANGE_SET_NOT_CURRENT_TARGET`, (4) gives `CHANGE_SET_CORRUPT`. This is what
+makes a Phase-5B **orphan** — a change set published without a work record —
+permanently unusable rather than quietly applicable, and it is tested directly.
+
+### Decision state machine
+
+```text
+pending ──apply(ok)──▶ applied      (terminal)
+   │
+   ├────reject───────▶ rejected     (terminal)
+   │
+   └──crash mid-apply▶ applying_interrupted  (explicit recovery only)
+```
+
+State is **derived**, not stored as a mutable field: an exclusively-created
+decision receipt means terminal, an intent file with no receipt means
+interrupted, neither means pending. A receipt always outranks a stale intent,
+which closes the crash window between writing the receipt and removing the
+intent. Because receipts are created exclusively and never overwritten, a
+change set can never move `applied → rejected` or vice versa, and two racing
+decisions have exactly one winner.
+
+### Apply is a checked transaction, not a merge
+
+Preconditions, all on the **real** source: it is a Git worktree, `HEAD` equals
+`baseCommit` exactly (branch names are irrelevant — only the object id counts),
+and the worktree is strictly clean including untracked files.
+
+Then: resolve the expected result tree → write a durable **intent** → `git
+apply --check --index --binary` → `git apply --index --binary` → verify → write
+the receipt → remove the intent.
+
+Verification is stronger than a zero exit code. All four must hold:
+
+```text
+HEAD == baseCommit          (Synaphex never commits for the user)
+write-tree == resultTree    (exactly the tree that was reviewed)
+no unstaged differences     (worktree matches index)
+no untracked files          (nothing extra appeared)
+```
+
+Changes are left **staged and uncommitted**. Committing, branching and pushing
+remain entirely the user's.
+
+There is deliberately **no** merge, cherry-pick, rebase or `--3way` rescue. A
+patch that cannot apply exactly signals inconsistency, and resolving it would
+produce a tree the user never reviewed. An enumerated-verb audit test asserts
+the apply path only ever runs `rev-parse`, `status`, `write-tree`, `diff`,
+`ls-files`, `apply`, `reset`, `clone` and `checkout`.
+
+### Rollback never destroys unowned work
+
+A failed apply runs `reset --hard <baseCommit>` and **no `git clean`**: an
+external writer may have created an untracked file concurrently, and destroying
+it would be worse than failing. If the exact clean baseline is not restored,
+the intent is **kept** and `CHANGE_SET_APPLY_RECOVERY_REQUIRED` is raised.
+After a genuine crash, Synaphex never auto-resets the source — edits made in
+the meantime could be destroyed — so `applying_interrupted` blocks further
+decisions until recovery becomes explicit (deferred, like stale-lock recovery).
+
+### Locks
+
+A **per-project** source-mutation lock (`state/source-locks/<projectId>.json`),
+because two tasks can point at one registered source. Order is fixed:
+
+```text
+source-mutation lock  ──▶  withTaskOwnershipAuthority(...)
+```
+
+never the reverse, and never held across provider execution. Contention raises
+`SOURCE_MUTATION_LOCK_TIMEOUT` — deliberately distinct from
+`TASK_BINDING_LOCK_TIMEOUT`, so a caller can tell which resource is contended.
+
+### Patch transport
+
+`synaphex_read_change_set_patch` returns bounded slices of the **original
+persisted bytes**, base64-encoded and never normalised, so reassembled chunks
+hash to `patchHash` (tested with 7-byte chunks across a real binary hunk). It
+is scoped to the authorised change-set patch only — not a general filesystem
+read. `resultTree` is Git object identity, derived by Synaphex; a provider can
+never submit it.
+
+**Legacy compatibility:** a Phase-5B change set has no `resultTree`. It stays
+applicable — the tree is derived on demand in an isolated temporary clone,
+never by touching the real source.
+
+### REVIEWER gate, refined
+
+When the latest CODER record carries a non-null `changeSet`:
+
+| change-set state      | REVIEWER outcome                     |
+| --------------------- | ------------------------------------ |
+| `pending`             | `REVIEW_TARGET_NOT_APPLIED`          |
+| `rejected`            | `REVIEW_TARGET_REJECTED`             |
+| `applying_interrupted`| `REVIEW_TARGET_APPLY_INTERRUPTED`    |
+| `applied` + drift     | `REVIEW_TARGET_CHANGED`              |
+| `applied` + exact     | runs                                 |
+
+Drift is re-verified at invocation time, not trusted from the receipt, so a
+user edit or commit after apply is caught before a PASS could complete the task
+against state nobody reviewed.
+
+### Tool surface
+
+```text
+synaphex_get_change_set          readOnly, idempotent
+synaphex_read_change_set_patch   readOnly, idempotent
+synaphex_apply_change_set        destructive  (mutates the registered source)
+synaphex_reject_change_set       destructive  (irreversible task-state decision)
+```
+
+All four are `openWorldHint: false` — none reaches a provider or the network.
+Still absent, deliberately: commit, push, merge, staging-path and
+arbitrary-source-read tools.

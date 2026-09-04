@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { AgentConfigManager } from "../core/agent-config-manager.js";
+import { ArtifactManager } from "../core/artifact-manager.js";
+import { ChangeSetApplyManager } from "../core/change-set-apply-manager.js";
+import { CoderChangeSetManager } from "../core/coder-change-set-manager.js";
 import { PlanManager } from "../core/plan-manager.js";
 import { ProjectManager } from "../core/project-manager.js";
 import { RuleResolver } from "../core/rule-resolver.js";
@@ -22,6 +25,7 @@ import { StateStore } from "../infrastructure/state-store.js";
 import { DirectAgentInvocation } from "../operations/direct-agent-invocation.js";
 import { InvocationContinuationCommands } from "../operations/invocation-continuation-commands.js";
 import { InvocationContinuationStore } from "../operations/invocation-continuation-store.js";
+import { ChangeSetCommands } from "../operations/change-set-commands.js";
 import { PlanDecisionCommands } from "../operations/plan-decision-commands.js";
 import { ProjectTaskCommands } from "../operations/project-task-commands.js";
 import { SessionCommands } from "../operations/session-commands.js";
@@ -130,6 +134,15 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
   diagnostic(
     `[synaphex-mcp] host context: ${host.provider}/${host.surface}`,
   );
+  const changeSetApply = new ChangeSetApplyManager(stateStore, tasks);
+  const changeSetCommands = new ChangeSetCommands({
+    projects,
+    tasks,
+    artifacts: new ArtifactManager(stateStore, projects, tasks),
+    changeSets: new CoderChangeSetManager(stateStore, tasks),
+    applyManager: changeSetApply,
+    sessions,
+  });
   const planCommands = new PlanDecisionCommands({
     plans: new PlanManager(stateStore, tasks),
     tasks,
@@ -172,6 +185,7 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
     agentContinuation,
     projectTaskCommands,
     planCommands,
+    changeSetCommands,
     onDiagnostic: diagnostic,
   });
 

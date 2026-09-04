@@ -30,6 +30,10 @@ import type {
   PlanReadPort,
 } from "../operations/plan-decision-commands.js";
 import type {
+  ChangeSetDecisionPort,
+  ChangeSetReadPort,
+} from "../operations/change-set-commands.js";
+import type {
   SessionCommandPort,
   SessionRecoveryPort,
 } from "../operations/session-commands.js";
@@ -95,6 +99,20 @@ export const SYNAPHEX_MCP_BOOTSTRAP_TOOLS = Object.freeze([
  * in a Planner result has no authority, and decisions are bound to the exact
  * draft revision the user reviewed.
  */
+/**
+ * Exact change-set review and decisions (Phase 5C).
+ *
+ * A change set is immutable proposed source state. Only the task's current
+ * authoritative CODER target is actionable, and applying it is an explicit
+ * user decision -- never automatic.
+ */
+export const SYNAPHEX_MCP_CHANGE_SET_TOOLS = Object.freeze([
+  "synaphex_get_change_set",
+  "synaphex_read_change_set_patch",
+  "synaphex_apply_change_set",
+  "synaphex_reject_change_set",
+] as const);
+
 export const SYNAPHEX_MCP_PLAN_TOOLS = Object.freeze([
   "synaphex_get_plan_state",
   "synaphex_accept_plan_draft",
@@ -144,6 +162,7 @@ export const SYNAPHEX_MCP_TOOLS = Object.freeze([
   ...SYNAPHEX_MCP_PHASE1_TOOLS,
   ...SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
   ...SYNAPHEX_MCP_PLAN_TOOLS,
+  ...SYNAPHEX_MCP_CHANGE_SET_TOOLS,
   ...SYNAPHEX_MCP_SESSION_TOOLS,
   ...SYNAPHEX_MCP_RECOVERY_TOOLS,
   ...SYNAPHEX_MCP_INVOCATION_TOOLS,
@@ -186,6 +205,8 @@ export interface CreateSynaphexMcpServerOptions
    * mutation-capable PlanManager.
    */
   readonly planCommands: PlanReadPort & PlanDecisionPort;
+  /** Narrow change-set review/decision boundary. */
+  readonly changeSetCommands: ChangeSetReadPort & ChangeSetDecisionPort;
   /** Server version; callers pass the package.json version (never duplicated here). */
   readonly version: string;
   /** Diagnostics sink. Defaults to stderr so MCP stdout stays protocol-only. */
@@ -503,6 +524,78 @@ const planDecisionOutputSchema = z.object({
   currentContent: z.string().nullable(),
 });
 
+const changeSetRefSchema = z.object({
+  sessionId: z.string().describe("Task-bound Synaphex session id."),
+  changeSetId: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe(
+      "The exact change set to act on. Published change sets are immutable and never reused, so the id alone is exact-instance identity.",
+    ),
+});
+
+const changeSetPatchInputSchema = z.object({
+  sessionId: z.string().describe("Task-bound Synaphex session id."),
+  changeSetId: z.string().min(1).max(200),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .max(1_073_741_824)
+    .default(0)
+    .describe("Byte offset into the authoritative patch."),
+  maxBytes: z
+    .number()
+    .int()
+    .min(1)
+    .max(262_144)
+    .default(65_536)
+    .describe("Maximum bytes to return in this chunk."),
+});
+
+const changeSetReviewOutputSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  changeSetId: z.string(),
+  baseCommit: z.string(),
+  resultTree: z.string().nullable(),
+  patchHash: z.string(),
+  patchBytes: z.number(),
+  changedFiles: z.array(
+    z.object({
+      path: z.string(),
+      change: z.string(),
+      binary: z.boolean(),
+    }),
+  ),
+  state: z.enum(["pending", "applying_interrupted", "applied", "rejected"]),
+  decidedAt: z.string().nullable(),
+  workRecordId: z.string(),
+});
+
+const changeSetPatchOutputSchema = z.object({
+  changeSetId: z.string(),
+  offset: z.number(),
+  returnedBytes: z.number(),
+  nextOffset: z.number(),
+  done: z.boolean(),
+  totalBytes: z.number(),
+  encoding: z.literal("base64"),
+  data: z.string(),
+});
+
+const changeSetDecisionOutputSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  changeSetId: z.string(),
+  state: z.enum(["applied", "rejected"]),
+  decidedAt: z.string(),
+  resultTree: z.string().nullable(),
+});
+
 const agentConfigOutputSchema = z.object({
   agent: z.enum(AGENT_NAMES),
   status: z.enum(["configured", "unconfigured", "removed"]),
@@ -544,6 +637,7 @@ export function createSynaphexMcpServer(
     agentContinuation,
     projectTaskCommands,
     planCommands,
+    changeSetCommands,
     version,
     onDiagnostic = defaultDiagnostic,
   } = options;
@@ -713,6 +807,111 @@ export function createSynaphexMcpServer(
           })),
         };
       }),
+  );
+
+  // --- Phase 5C: exact change-set review and decisions ---------------------
+  //
+  // Reads are genuinely read-only; decisions are destructive because apply
+  // mutates the registered source workspace and reject is an irreversible
+  // terminal decision for that exact change-set instance. None reaches a
+  // provider or the network, so openWorldHint is false throughout.
+  server.registerTool(
+    "synaphex_get_change_set",
+    {
+      title: "Get Synaphex change set",
+      description:
+        "Read the authoritative metadata and decision state of the task's current CODER change set. A change set not referenced by a CODER work record, or superseded by newer CODER work, is refused.",
+      inputSchema: changeSetRefSchema,
+      outputSchema: changeSetReviewOutputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId, changeSetId }) =>
+      run(onDiagnostic, "synaphex_get_change_set", async () => {
+        const review = await changeSetCommands.getChangeSet(
+          parseSessionId(sessionId),
+          changeSetId,
+        );
+        return { ...review, changedFiles: [...review.changedFiles] };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_read_change_set_patch",
+    {
+      title: "Read Synaphex change-set patch",
+      description:
+        "Read a bounded slice of the authoritative patch bytes for exact review. Bytes are returned base64-encoded and are never normalised, so the reassembled stream hashes to the recorded patchHash. This reads only the selected change-set patch.",
+      inputSchema: changeSetPatchInputSchema,
+      outputSchema: changeSetPatchOutputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId, changeSetId, offset, maxBytes }) =>
+      run(onDiagnostic, "synaphex_read_change_set_patch", async () =>
+        changeSetCommands.readPatch(
+          parseSessionId(sessionId),
+          changeSetId,
+          offset,
+          maxBytes,
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "synaphex_apply_change_set",
+    {
+      title: "Apply Synaphex change set",
+      description:
+        "Apply the exact reviewed change set to the registered source workspace. Requires the source HEAD to still equal the change-set baseline and the worktree to be clean. Changes are left STAGED; no commit is created. The result is verified against the expected Git tree, and a failed apply is rolled back to the baseline.",
+      inputSchema: changeSetRefSchema,
+      outputSchema: changeSetDecisionOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId, changeSetId }) =>
+      run(onDiagnostic, "synaphex_apply_change_set", async () =>
+        changeSetCommands.applyChangeSet(
+          parseSessionId(sessionId),
+          changeSetId,
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "synaphex_reject_change_set",
+    {
+      title: "Reject Synaphex change set",
+      description:
+        "Permanently reject the exact change set. The source workspace is not modified and the patch is retained for audit, but the change set can never later be applied.",
+      inputSchema: changeSetRefSchema,
+      outputSchema: changeSetDecisionOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId, changeSetId }) =>
+      run(onDiagnostic, "synaphex_reject_change_set", async () =>
+        changeSetCommands.rejectChangeSet(
+          parseSessionId(sessionId),
+          changeSetId,
+        ),
+      ),
   );
 
   // --- Phase 4B: plan review and deterministic decisions -------------------

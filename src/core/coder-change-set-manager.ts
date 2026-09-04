@@ -36,6 +36,12 @@ export interface ChangeSetMetadata {
   readonly taskId: TaskId;
   /** Full canonical object id of the source HEAD the patch applies to. */
   readonly baseCommit: string;
+  /**
+   * Expected result tree. Absent on Phase-5B change sets published before
+   * this field existed; those stay readable and their tree is derived on
+   * demand in an isolated temporary repository.
+   */
+  readonly resultTree?: string;
   readonly createdAt: string;
   readonly patchHash: string;
   readonly patchBytes: number;
@@ -92,6 +98,7 @@ export class CoderChangeSetManager {
       projectId: candidate.projectId,
       taskId: candidate.taskId,
       baseCommit: candidate.baseCommit,
+      resultTree: candidate.resultTree,
       createdAt: new Date().toISOString(),
       patchHash: hashPatch(candidate.patch),
       patchBytes: candidate.patch.byteLength,
@@ -198,6 +205,8 @@ function isChangeSetMetadata(value: unknown): value is ChangeSetMetadata {
     typeof candidate.taskId === "string" &&
     typeof candidate.baseCommit === "string" &&
     /^[0-9a-f]{40,64}$/.test(candidate.baseCommit) &&
+    (candidate.resultTree === undefined ||
+      /^[0-9a-f]{40,64}$/.test(candidate.resultTree)) &&
     typeof candidate.createdAt === "string" &&
     typeof candidate.patchHash === "string" &&
     typeof candidate.patchBytes === "number" &&
