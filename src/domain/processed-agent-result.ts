@@ -1,4 +1,5 @@
 import type { AgentName } from "./agent.js";
+import type { CoderChangeSetReference } from "./artifact.js";
 import type {
   AgentResultOutcome,
   MemoryConflict,
@@ -76,6 +77,16 @@ export interface ProcessedAgentResultBase<TAgent extends AgentName> {
   readonly stateEffects: readonly AgentStateEffect[];
 }
 
+/**
+ * Staged CODER result: carries the system-derived change-set reference so the
+ * caller can report it without re-reading artifact state. `null` when the
+ * invocation changed nothing.
+ */
+export interface ProcessedCoderResult
+  extends ProcessedAgentResultBase<"coder"> {
+  readonly coderChangeSet?: CoderChangeSetReference | null;
+}
+
 export interface ProcessedExaminerResult
   extends ProcessedAgentResultBase<"examiner"> {
   readonly memoryConflict?: MemoryConflict;
@@ -112,7 +123,7 @@ export type ProcessedAgentResult =
   | ProcessedAgentResultBase<"researcher">
   | ProcessedExaminerResult
   | ProcessedPlannerResult
-  | ProcessedAgentResultBase<"coder">
+  | ProcessedCoderResult
   | ProcessedReviewerResult;
 
 export type ProcessedAgentResultFor<TAgent extends AgentName> = Extract<

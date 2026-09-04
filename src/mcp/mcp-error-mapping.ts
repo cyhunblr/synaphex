@@ -62,6 +62,12 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "PLAN_DRAFT_REVISION_MISMATCH",
     "PLAN_MUTATION_LOCK_TIMEOUT",
     "INVALID_PLAN_CONTENT",
+    // Phase 5B staged CODER.
+    "CODER_STAGING_REQUIRES_GIT",
+    "CODER_STAGING_WORKTREE_DIRTY",
+    "CODER_STAGING_UNSUPPORTED_REPOSITORY",
+    "CODER_STAGING_FAILED",
+    "REVIEW_TARGET_NOT_APPLIED",
   ] as const satisfies readonly SynaphexErrorCode[]);
 
 export interface McpToolFailure {
@@ -118,6 +124,16 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
     "That plan draft revision is not the current draft; read the plan state again before deciding.",
   PLAN_MUTATION_LOCK_TIMEOUT: "Timed out waiting to update plan state.",
   INVALID_PLAN_CONTENT: "Plan content must not be empty.",
+  CODER_STAGING_REQUIRES_GIT:
+    "CODER requires the project source workspace to be a Git worktree.",
+  CODER_STAGING_WORKTREE_DIRTY:
+    "CODER requires a clean source worktree; commit or set aside local changes first.",
+  CODER_STAGING_UNSUPPORTED_REPOSITORY:
+    "CODER cannot safely stage this repository, or the produced changes were unsafe.",
+  // Generic on purpose: raw Git stderr and paths never reach the client.
+  CODER_STAGING_FAILED: "CODER workspace staging failed.",
+  REVIEW_TARGET_NOT_APPLIED:
+    "The task has staged code changes that are not applied to the source workspace.",
   [MCP_INTERNAL_ERROR_CODE]: "Internal Synaphex error.",
 });
 

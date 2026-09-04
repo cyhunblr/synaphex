@@ -7,20 +7,30 @@ import type { HostRuntime } from "../domain/provider-routing.js";
 import { parseSessionId, type SessionId } from "../domain/session.js";
 
 /**
- * Agents exposed through MCP Phase 3A: the "source-read-only" targets.
+ * Agents a USER may invoke directly through MCP.
  *
- * These five may mutate task-scoped Synaphex state (questioner context,
- * research artifacts, canonical memory, plan drafts, review artifacts and
- * Reviewer task completion) -- that is protected by Phase 2C ownership
- * fencing. "Source-read-only" means only that they must not modify the user's
- * source workspace.
- *
- * CODER is deliberately absent. Phase 2C fencing protects Synaphex state but
- * cannot roll back filesystem changes CODER may already have made in the real
- * source workspace before ownership was revoked. Exposing it needs enforceable
- * cancellation or an isolated workspace first.
+ * CODER is included from Phase 5B because `AgentInvocationService` now stages
+ * every CODER invocation: the provider edits an isolated clone and Synaphex
+ * captures an immutable change set, so the registered source workspace remains
+ * unchanged. Applying that change set is a separate explicit operation.
  */
-export const MCP_INVOCABLE_AGENTS = Object.freeze([
+export const MCP_DIRECT_INVOCABLE_AGENTS = Object.freeze([
+  "questioner",
+  "researcher",
+  "examiner",
+  "planner",
+  "coder",
+  "reviewer",
+] as const);
+
+/**
+ * Agents an AGENT may reach through a helper continuation.
+ *
+ * Deliberately NOT the same set: a user may explicitly invoke staged CODER,
+ * but another agent must not smuggle CODER execution through a helper
+ * continuation. Helper-CODER semantics get their own review later.
+ */
+export const MCP_CONTINUATION_HELPER_AGENTS = Object.freeze([
   "questioner",
   "researcher",
   "examiner",
@@ -28,16 +38,30 @@ export const MCP_INVOCABLE_AGENTS = Object.freeze([
   "reviewer",
 ] as const);
 
-export type McpInvocableAgent = (typeof MCP_INVOCABLE_AGENTS)[number];
+/** @deprecated Ambiguous; use the direct or helper set explicitly. */
+export const MCP_INVOCABLE_AGENTS = MCP_DIRECT_INVOCABLE_AGENTS;
 
-export function isMcpInvocableAgent(
+export function isMcpDirectInvocableAgent(
   value: unknown,
 ): value is McpInvocableAgent {
   return (
     typeof value === "string" &&
-    (MCP_INVOCABLE_AGENTS as readonly string[]).includes(value)
+    (MCP_DIRECT_INVOCABLE_AGENTS as readonly string[]).includes(value)
   );
 }
+
+export function isMcpContinuationHelperAgent(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    (MCP_CONTINUATION_HELPER_AGENTS as readonly string[]).includes(value)
+  );
+}
+
+export type McpInvocableAgent =
+  (typeof MCP_DIRECT_INVOCABLE_AGENTS)[number];
+
+/** @deprecated Use {@link isMcpDirectInvocableAgent}. */
+export const isMcpInvocableAgent = isMcpDirectInvocableAgent;
 
 /**
  * Invocation scope as supplied by a caller.
@@ -102,17 +126,28 @@ export class DirectAgentInvocation implements DirectAgentInvocationPort {
   async invoke(
     request: DirectAgentInvocationRequest,
   ): Promise<AnyAgentInvocationResult> {
-    if (!isMcpInvocableAgent(request.agent)) {
+    if (!isMcpDirectInvocableAgent(request.agent)) {
       // Defence in depth: the wire schema rejects this first.
       throw new UnsupportedAgentInvocationError(
         String(request.agent),
         "agent_not_invocable",
       );
     }
-    // Defence in depth against a Core defect or misconfiguration: every agent
-    // exposed in this slice must resolve to read_only source modification.
-    // Failing closed is preferred over silently continuing.
-    if (this.dependencies.roleContracts.canModifySourceCode(request.agent)) {
+    // Defence in depth against a Core defect or misconfiguration. The
+    // assertion is role-specific rather than globally read-only: CODER is
+    // legitimately workspace_write (applied to its staging clone), while every
+    // other exposed agent must stay read-only. Either surprise fails closed.
+    const mayModifySource = this.dependencies.roleContracts.canModifySourceCode(
+      request.agent,
+    );
+    if (request.agent === "coder") {
+      if (!mayModifySource) {
+        throw new UnsupportedAgentInvocationError(
+          request.agent,
+          "coder_must_resolve_workspace_write",
+        );
+      }
+    } else if (mayModifySource) {
       throw new UnsupportedAgentInvocationError(
         request.agent,
         "source_modification_not_permitted",

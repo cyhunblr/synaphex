@@ -81,6 +81,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "INVALID_AGENT_RESULT",
   "PLAN_DRAFT_PENDING",
   "REVIEW_TARGET_NOT_AVAILABLE",
+  "REVIEW_TARGET_NOT_APPLIED",
   "AGENT_EXECUTION_FAILED",
   "AGENT_CALL_APPROVAL_REQUIRED",
   "AGENT_CALL_DENIED",
@@ -337,7 +338,9 @@ export type CoderStagingUnsupportedReason =
   | "submodule_gitlink"
   | "unsafe_symlink"
   | "detached_or_unborn_head"
-  | "bare_repository";
+  | "bare_repository"
+  /** CODER re-added a remote inside the staging workspace. */
+  | "provider_added_remote";
 
 export class CoderStagingRequiresGitError extends SynaphexError<"CODER_STAGING_REQUIRES_GIT"> {
   constructor(projectId: ProjectId) {
@@ -737,6 +740,25 @@ export class ReviewTargetNotAvailableError extends SynaphexError<"REVIEW_TARGET_
       "REVIEW_TARGET_NOT_AVAILABLE",
       `Task has no persisted Coder work record to review: ${taskId}`,
       { taskId },
+    );
+  }
+}
+
+/**
+ * The latest CODER work record describes a STAGED change set that has not been
+ * applied to the registered source workspace.
+ *
+ * REVIEWER reads the real source, which staged CODER intentionally leaves
+ * unchanged, so reviewing would examine a tree without the implementation --
+ * and a PASS could complete a task on that false basis. Legacy CODER records
+ * (pre-staging, direct-source execution) keep their existing behavior.
+ */
+export class ReviewTargetNotAppliedError extends SynaphexError<"REVIEW_TARGET_NOT_APPLIED"> {
+  constructor(taskId: TaskId, changeSetId: string | null) {
+    super(
+      "REVIEW_TARGET_NOT_APPLIED",
+      `Task ${taskId} has staged code changes that are not applied to the source workspace`,
+      { taskId, changeSetId },
     );
   }
 }

@@ -204,3 +204,159 @@ executionWorkspacePath    -> per-invocation, staging, provider-facing
 each provider executor would use it as its workspace instead of
 `context.project.sourcePath`. The provider is never told the real source path
 merely for convenience. Not implemented here.
+
+## Phase 5B: staged CODER invocation (accepted)
+
+```text
+AgentInvocationService CODER is always staged.
+
+Direct and MCP CODER share one semantic.
+
+The registered source workspace remains unchanged after CODER execution.
+
+A successful staged CODER result produces an immutable proposed change set.
+
+REVIEWER cannot review staged source changes until they are explicitly applied.
+```
+
+This **intentionally changes** the previous direct-CODER behavior. There is no
+longer an "MCP CODER = staged, direct CODER = writes real source" split: Core
+semantics do not depend on transport, so every `AgentInvocationService` CODER
+path stages, whether the caller arrived via MCP, a CLI host, a VS Code host or
+any future transport. Provider adapters may still be unit- and live-tested
+directly against a real directory; that tests the adapter, not Synaphex CODER.
+
+### Execution-context projection
+
+`CoderStagingCoordinator` builds an ephemeral provider-facing clone of the
+`AgentContext` in which **only** `project.sourcePath` is replaced by the
+staging path:
+
+```text
+project.sourcePath (persisted)  -> registered real source, never rewritten
+context.project.sourcePath      -> staging clone, for CODER execution only
+```
+
+No provider adapter changed. All three continue treating
+`input.context.project.sourcePath` as their cwd and know nothing about staging.
+Every other agent still receives the real source, because they remain
+source-read-only. The prompt serializer never emitted `sourcePath`, so the
+projection is sufficient: a test asserts the real absolute path is absent from
+the structured provider-facing context (project, task, route, ExecutionPolicy).
+
+CODER keeps `sourceModification = workspace_write` — that is not weakened into
+a lie. The security change is that workspace_write now applies to the staging
+clone.
+
+### Pipeline
+
+```text
+preflight (binding, lifecycle, PLAN_DRAFT_PENDING, config, routing, policy)
+  -> capture ownership fence
+     -> prepare isolated staging workspace
+        -> revalidate ownership          (clone can take time)
+           -> execute provider against the projected context
+              -> validate AgentResult, classify calls/actions
+                 -> revalidate ownership
+                    -> capture changes from staging Git state
+                       -> post-provider repository safety audit
+                          -> publish change set under ownership authority
+                             -> ResultProcessor writes the work record
+  finally -> dispose staging + isolated HOME
+```
+
+Staging runs only after the pipeline has established the invocation is legal,
+so an unconfigured agent, bad route or pending plan draft never pays for a
+clone. A dirty/non-Git/unsupported source fails with the precise
+`CODER_STAGING_*` error, never `AGENT_EXECUTION_FAILED`, because no provider
+ran. Conversely a provider failure keeps `AGENT_EXECUTION_FAILED` with its
+cause intact, and post-provider unsafe output yields the staging safety error —
+the provider ran, but its result was rejected.
+
+### Post-provider repository safety audit
+
+Phase 5A validated the source snapshot *before* execution; that is not enough,
+because CODER can create unsafe structures while working. The final staged
+index and remote list are therefore revalidated before any publish, rejecting:
+
+- a **gitlink** (`160000`) — e.g. a provider-created nested Git repository;
+- an **unsafe symlink** (`120000`) whose staged blob is absolute, `~`-relative
+  or escapes the staging root;
+- any **re-added remote**, failing closed rather than stripping it and
+  continuing, since no absence of side effect could be proven.
+
+Provider Git manipulation cannot redefine authority: the baseline stays
+`PreparedCoderWorkspace.baseCommit`, and the patch spans
+`baseCommit -> final staged state` (`git add -A` then
+`git diff --cached --binary <baseCommit>`). A test has the fake CODER commit
+its work and move HEAD, then asserts the change set is still relative to the
+original source HEAD and covers both committed and uncommitted edits.
+
+### Publish-time ownership authority
+
+`SessionManager.withTaskOwnershipAuthority(fence, op)` holds the **existing**
+task-binding lock across validation and the durable write, so a force release
+or rebind cannot interleave between them. No independent lock was introduced,
+and the lock covers only that short commit boundary — never provider execution.
+
+The ownership token is used internally and never persisted: it appears in no
+change-set metadata, CODER work record, MCP output or provider input.
+
+### Ordering and the orphan window
+
+```text
+capture in temp staging
+  -> ownership-authorized immutable change-set publish
+     -> ResultProcessor writes the CODER work record referencing changeSetId
+```
+
+**Residual crash window:** a crash after publish but before the work record
+leaves an orphaned change set. Such a change set is defined as
+**NON-AUTHORITATIVE FOR FUTURE APPLY**: mere directory existence under
+`changes/` never becomes apply authority, and Phase 5C's apply must require a
+valid CODER work-record reference. This ordering is preferred over the reverse,
+which could leave a work record citing a change set that was never fully
+published. Orphan garbage collection is documented debt.
+
+### CODER work record
+
+`changeSet` is a **sibling of `payload`**, not a field inside it, so
+configurable Coder `outputFields` semantics are unchanged and provider output
+cannot forge `changeSetId`, `baseCommit`, `patchHash` or `changedFiles` —
+Synaphex derives all of them from Git state. A staged invocation that changed
+nothing writes a record with `changeSet: null`; no fake patch and no empty
+change-set directory are created.
+
+**Legacy compatibility:** a pre-staging record has **no** `changeSet` field at
+all. It stays readable, is never reinterpreted as a staged change set, and
+keeps its accepted REVIEWER behavior (tested).
+
+### REVIEWER gate
+
+REVIEWER reads the real source, which staged CODER intentionally leaves
+unchanged. Reviewing an unapplied change set would examine a tree without the
+implementation, and a PASS could complete a task on that false basis. So when
+the latest CODER record carries a non-null `changeSet`, REVIEWER is refused
+with `REVIEW_TARGET_NOT_APPLIED` before the provider runs. Phase 5C will refine
+this with exact change-set review/apply semantics.
+
+### MCP surface
+
+`coder` is now in the `synaphex_invoke_agent` agent enum, and the tool count
+stays **21** — no new tool. The result carries a change-set **summary**
+(`id`, `baseCommit`, `patchHash`, `patchBytes`, `changedFiles`) or `null`;
+never the patch itself, the staging path, the isolated Git HOME or an ownership
+token. No change-set read or apply tool exists yet.
+
+The direct and helper surfaces are now **separate sets**:
+
+```text
+MCP_DIRECT_INVOCABLE_AGENTS      = all six, including coder
+MCP_CONTINUATION_HELPER_AGENTS   = the five source-read-only agents
+```
+
+A user may explicitly invoke staged CODER, but an agent must not smuggle CODER
+execution through a helper continuation — that gets its own review later. The
+Phase-3A defence-in-depth assertion became role-specific rather than being
+removed: CODER must resolve `workspace_write`, every other MCP agent must
+resolve `read_only`, and either surprise fails closed.

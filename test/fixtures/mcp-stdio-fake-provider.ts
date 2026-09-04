@@ -43,6 +43,9 @@ function recordingDelegate(label: string): AgentExecutor {
           "utf8",
         );
       }
+      if (input.context.agent === "coder") {
+        return scriptedCoder(input.context.project.sourcePath);
+      }
       return scriptedResult(input.context.agent);
     },
   };
@@ -56,6 +59,23 @@ function recordingDelegate(label: string): AgentExecutor {
  * pre-approved (allow rule) or needs approval; SYNAPHEX_TEST_WANT_NETWORK
  * makes the caller request the network capability instead.
  */
+async function scriptedCoder(workspacePath: string): Promise<unknown> {
+  // Edits go through the execution path the invocation supplied, which is the
+  // isolated staging clone -- never the registered source workspace.
+  if (process.env.SYNAPHEX_TEST_CODER_EDIT === "1") {
+    const { writeFile: write } = await import("node:fs/promises");
+    const { join: joinPath } = await import("node:path");
+    await write(joinPath(workspacePath, "app.txt"), "modified by coder\n", "utf8");
+    await write(joinPath(workspacePath, "coder-new.txt"), "new file\n", "utf8");
+  }
+  return {
+    agent: "coder",
+    outcome: "success",
+    summary: "Implemented the change in staging.",
+    workRecord: { files_changed: ["app.txt"] },
+  };
+}
+
 function scriptedResult(agent: string): unknown {
   if (agent === "planner") {
     // Deliberately laden with natural-language "approval": it must have NO

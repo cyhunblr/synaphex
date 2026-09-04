@@ -13,7 +13,7 @@ import {
   parseTaskId,
 } from "./mcp-input-validation.js";
 import {
-  MCP_INVOCABLE_AGENTS,
+  MCP_DIRECT_INVOCABLE_AGENTS,
   type DirectAgentInvocationPort,
 } from "../operations/direct-agent-invocation.js";
 import type {
@@ -267,9 +267,9 @@ const MAX_INSTRUCTION_LENGTH = 8_000;
  */
 const invokeAgentInputSchema = z.object({
   agent: z
-    .enum(MCP_INVOCABLE_AGENTS)
+    .enum(MCP_DIRECT_INVOCABLE_AGENTS)
     .describe(
-      "Synaphex logical agent to invoke. CODER is not invocable through MCP.",
+      "Synaphex logical agent to invoke. CODER edits an isolated staging clone and produces a proposed change set; the registered source workspace is not modified.",
     ),
   scope: z
     .discriminatedUnion("kind", [
@@ -352,6 +352,27 @@ const invokeAgentOutputSchema = z.object({
    * still appear in the classifications but yield no handle.
    */
   continuationId: z.string().nullable(),
+  /**
+   * Staged-CODER summary. `null` when a CODER invocation changed nothing, and
+   * absent for every other agent. The patch itself is NOT returned here --
+   * Phase 5C adds explicit change-set review tools.
+   */
+  changeSet: z
+    .object({
+      id: z.string(),
+      baseCommit: z.string(),
+      patchHash: z.string(),
+      patchBytes: z.number(),
+      changedFiles: z.array(
+        z.object({
+          path: z.string(),
+          change: z.string(),
+          binary: z.boolean(),
+        }),
+      ),
+    })
+    .nullable()
+    .optional(),
 });
 
 /**
@@ -389,6 +410,27 @@ const continuationOutputSchema = z.object({
   invocation: z.record(z.string(), z.unknown()),
   callerResumeReady: z.boolean(),
   continuationId: z.string().nullable(),
+  /**
+   * Staged-CODER summary. `null` when a CODER invocation changed nothing, and
+   * absent for every other agent. The patch itself is NOT returned here --
+   * Phase 5C adds explicit change-set review tools.
+   */
+  changeSet: z
+    .object({
+      id: z.string(),
+      baseCommit: z.string(),
+      patchHash: z.string(),
+      patchBytes: z.number(),
+      changedFiles: z.array(
+        z.object({
+          path: z.string(),
+          change: z.string(),
+          binary: z.boolean(),
+        }),
+      ),
+    })
+    .nullable()
+    .optional(),
 });
 
 const registerProjectInputSchema = z.object({
@@ -1270,6 +1312,11 @@ function presentInvocationResult(
       currentInvocationId: result.lineage.currentInvocationId,
       parentInvocationId: result.lineage.parentInvocationId,
     },
+    // Authoritative staged-CODER change-set summary, system-derived. Never
+    // the staging path, ownership token or Git temp HOME.
+    ...(coderChangeSetSummary(result) === undefined
+      ? {}
+      : { changeSet: coderChangeSetSummary(result) }),
     result: {
       warnings: [...processedResult.warnings],
       persistedArtifacts: processedResult.persistedArtifacts.map(
@@ -1333,6 +1380,25 @@ async function run<T>(
       isError: true,
     };
   }
+}
+
+/**
+ * Extracts the change-set summary from a staged CODER result's persisted work
+ * record reference. Returns `undefined` for non-CODER agents.
+ */
+function coderChangeSetSummary(
+  result: AnyAgentInvocationResult,
+): Record<string, unknown> | null | undefined {
+  if (result.agent !== "coder") {
+    return undefined;
+  }
+  const reference = (
+    result.processedResult as { coderChangeSet?: unknown }
+  ).coderChangeSet;
+  if (reference === undefined) {
+    return undefined;
+  }
+  return reference as Record<string, unknown> | null;
 }
 
 function defaultDiagnostic(message: string): void {

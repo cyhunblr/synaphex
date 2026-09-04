@@ -6,6 +6,16 @@ import { ContextBuilder } from "./context-builder.js";
 import { PlanManager } from "./plan-manager.js";
 import { ProjectManager } from "./project-manager.js";
 import { ProviderRouter } from "./provider-router.js";
+import type { AgentContext } from "../domain/agent-context.js";
+import type { TaskId } from "../domain/task.js";
+import type { ExecutionRoute } from "../domain/provider-routing.js";
+import type { TaskOwnershipFence } from "./session-manager.js";
+import { CoderChangeSetManager } from "./coder-change-set-manager.js";
+import {
+  CoderStagingCoordinator,
+  type StagedCoderExecutionResult,
+} from "./coder-staging-coordinator.js";
+import { CoderWorkspaceStager } from "./coder-workspace-stager.js";
 import { ResultProcessor } from "./result-processor.js";
 import {
   CODER_PLANNER_CALL_PURPOSES,
@@ -75,6 +85,7 @@ import {
   TaskSessionOwnershipLostError,
   NoTaskBoundError,
   PlanDraftPendingError,
+  ReviewTargetNotAppliedError,
   ReviewTargetNotAvailableError,
   SynaphexError,
   TaskArchivedError,
@@ -97,6 +108,12 @@ import { StateStore } from "../infrastructure/state-store.js";
 export interface AgentInvocationServiceOptions {
   readonly executor: AgentExecutor;
   readonly runtimeAvailability: RuntimeAvailability;
+  /**
+   * Staged-CODER coordinator. Explicitly injected so tests can supply a
+   * controlled stager; when omitted, a filesystem-backed one is composed from
+   * the same state root.
+   */
+  readonly coderStaging?: CoderStagingCoordinator;
   readonly synaphexRoot?: string;
   readonly homeDirectory?: string;
 }
@@ -130,6 +147,7 @@ export class AgentInvocationService {
   private readonly contextBuilder: ContextBuilder;
   private readonly router: ProviderRouter;
   private readonly resultProcessor: ResultProcessor;
+  private readonly coderStaging: CoderStagingCoordinator;
   private readonly roleContracts: RoleContractRegistry;
   private readonly rules: RuleResolver;
   private readonly actionRegistry = new ActionRegistry();
@@ -168,6 +186,13 @@ export class AgentInvocationService {
         ? {}
         : { homeDirectory: options.homeDirectory }),
     });
+    this.coderStaging =
+      options.coderStaging ??
+      new CoderStagingCoordinator({
+        stager: new CoderWorkspaceStager(),
+        changeSets: new CoderChangeSetManager(store, this.tasks),
+        sessions: this.sessions,
+      });
     this.roleContracts = new RoleContractRegistry();
     this.rules = new RuleResolver(
       store,
@@ -548,13 +573,84 @@ export class AgentInvocationService {
       );
     }
 
-    let rawResult: unknown;
+    // Staged CODER: the provider edits an isolated staging clone, never the
+    // registered source workspace. This applies to EVERY AgentInvocationService
+    // CODER path, whatever transport the caller used.
+    const stagedCoder =
+      invocation.agent === "coder" && invocation.scope.task !== null
+        ? await this.coderStaging.execute({
+            sessionId: invocation.sessionId,
+            project: invocation.scope.project,
+            taskId: invocation.scope.task.id,
+            ownershipFence: requireOwnershipFence(
+              ownershipFence,
+              invocation.scope.task.id,
+              invocation.sessionId,
+            ),
+            context,
+            execute: async (executionContext) => {
+              try {
+                return await this.executor.execute({
+                  route,
+                  context: executionContext,
+                  executionPolicy,
+                });
+              } catch (error) {
+                // Tag the provider failure so it still surfaces as
+                // AGENT_EXECUTION_FAILED after staging unwinds, rather than
+                // leaking as a raw staging-path error.
+                throw new AgentExecutionFailedError(
+                  invocation.agent,
+                  route.provider,
+                  route.effectiveSurface,
+                  { cause: error },
+                );
+              }
+            },
+          })
+        : null;
+
     try {
-      rawResult = await this.executor.execute({
+      return await this.completeInvocation({
+        invocation,
         route,
         context,
         executionPolicy,
+        ownershipFence,
+        stagedCoder,
       });
+    } finally {
+      // Single lifecycle owner: the temp workspace and its isolated Git HOME
+      // are removed on provider success, provider error, invalid AgentResult,
+      // ownership loss, capture error, unsafe output, publication error and
+      // ResultProcessor error alike. A published change set is durable task
+      // state and is never removed by this cleanup.
+      if (stagedCoder !== null) {
+        await stagedCoder.dispose();
+      }
+    }
+  }
+
+  private async completeInvocation<TAgent extends AgentName>(input: {
+    readonly invocation: PreparedInvocation<TAgent>;
+    readonly route: ExecutionRoute;
+    readonly context: AgentContext;
+    readonly executionPolicy: ExecutionPolicy;
+    readonly ownershipFence: TaskOwnershipFence | null;
+    readonly stagedCoder: StagedCoderExecutionResult | null;
+  }): Promise<AgentInvocationResult<TAgent>> {
+    const { invocation, route, context, executionPolicy, ownershipFence, stagedCoder } =
+      input;
+    let rawResult: unknown;
+    try {
+      rawResult =
+        stagedCoder === null
+          ? await this.executor.execute({
+              route,
+              context,
+              executionPolicy,
+            })
+          : stagedCoder.rawResult;
     } catch (error) {
       // A valid-but-undispatchable route is an infrastructure capability gap,
       // not a provider execution failure: no provider ever ran. Preserve its
@@ -599,11 +695,21 @@ export class AgentInvocationService {
         "commit",
       );
     }
+    // Staged CODER: capture and publish the immutable change set BEFORE the
+    // work record, under the task-binding ownership authority. Ordering is
+    // deliberate -- a work record referencing a change set that was never
+    // fully published would be worse than an orphaned change set, and future
+    // apply authority requires a valid work-record reference, so a bare
+    // directory under `changes/` never becomes apply authority.
+    const changeSet =
+      stagedCoder === null ? undefined : await stagedCoder.publish();
+
     // ResultProcessor deliberately validates again at the mutation boundary.
     const processedResult = await this.resultProcessor.process({
       sessionId: invocation.sessionId,
       expectedAgent: invocation.agent,
       result: validatedResult,
+      ...(changeSet === undefined ? {} : { coderChangeSet: changeSet }),
     });
     return {
       agent: invocation.agent,
@@ -681,16 +787,26 @@ export class AgentInvocationService {
     ) {
       throw new PlanDraftPendingError(task.id);
     }
-    if (
-      agent === "reviewer" &&
-      task !== null &&
-      (await this.artifacts.listCoderWorkRecords({
+    if (agent === "reviewer" && task !== null) {
+      const coderRecords = await this.artifacts.listCoderWorkRecords({
         kind: "task",
         projectId: scope.project.id,
         taskId: task.id,
-      })).length === 0
-    ) {
-      throw new ReviewTargetNotAvailableError(task.id);
+      });
+      if (coderRecords.length === 0) {
+        throw new ReviewTargetNotAvailableError(task.id);
+      }
+      // Staged CODER leaves the registered source unchanged, so REVIEWER must
+      // not review (or PASS-complete) a task whose implementation exists only
+      // as an unapplied change set. A legacy record has no `changeSet` field
+      // at all and keeps its accepted behavior.
+      const latest = coderRecords[coderRecords.length - 1]!;
+      if ("changeSet" in latest && latest.changeSet !== null) {
+        throw new ReviewTargetNotAppliedError(
+          task.id,
+          latest.changeSet?.id ?? null,
+        );
+      }
     }
     return scope;
   }
@@ -1024,6 +1140,21 @@ function assertInvocationScope(
       "current session scope does not match the originating invocation",
     );
   }
+}
+
+/**
+ * A task-bound CODER invocation must always have captured an ownership fence.
+ * Missing one is a Core defect, so fail closed rather than stage unfenced.
+ */
+function requireOwnershipFence(
+  fence: TaskOwnershipFence | null,
+  taskId: TaskId,
+  sessionId: SessionId,
+): TaskOwnershipFence {
+  if (fence === null) {
+    throw new TaskSessionOwnershipLostError(taskId, sessionId, "preflight");
+  }
+  return fence;
 }
 
 function assertActionContinuationAllowed(

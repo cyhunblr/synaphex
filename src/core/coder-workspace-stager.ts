@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, normalize, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import {
   CoderStagingFailedError,
   CoderStagingRequiresGitError,
@@ -78,6 +78,17 @@ export interface PrepareCoderWorkspaceInput {
   readonly sessionId: SessionId;
   /** The registered project's real source path. Never modified. */
   readonly sourcePath: string;
+}
+
+export interface StagedTreeEntry {
+  readonly mode: string;
+  readonly path: string;
+  readonly symlinkTarget?: string;
+}
+
+export interface StagedTreeInspection {
+  readonly entries: readonly StagedTreeEntry[];
+  readonly remotes: readonly string[];
 }
 
 const GITLINK_MODE = "160000";
@@ -205,6 +216,57 @@ export class CoderWorkspaceStager {
   }
 
   /**
+   * Inspects the FINAL staged tree and remote list after provider execution.
+   *
+   * Phase-5A validated the source snapshot before execution; this covers what
+   * CODER may have created while working. Reads the index (already refreshed
+   * by `captureChanges`'s `git add -A`), so a provider-created nested Git
+   * repository appears as a gitlink here.
+   */
+  async inspectStagedTree(
+    prepared: PreparedCoderWorkspace,
+  ): Promise<StagedTreeInspection> {
+    const listed = await this.git(
+      prepared,
+      ["ls-files", "-s", "-z"],
+      "staged tree inspection",
+    );
+    const entries: StagedTreeEntry[] = [];
+    for (const record of listed.stdout.split("\0")) {
+      if (record.length === 0) {
+        continue;
+      }
+      const tabIndex = record.indexOf("\t");
+      if (tabIndex === -1) {
+        continue;
+      }
+      const mode = record.slice(0, record.indexOf(" "));
+      const path = record.slice(tabIndex + 1);
+      if (mode === SYMLINK_MODE) {
+        // Read the staged blob so a provider-written symlink is inspected as
+        // it will exist in the change set, not as it was at preparation.
+        const oid = record.slice(record.indexOf(" ") + 1).split(" ")[0] ?? "";
+        const target = await this.git(
+          prepared,
+          ["cat-file", "blob", oid],
+          "staged symlink inspection",
+        );
+        entries.push({ mode, path, symlinkTarget: target.stdout });
+        continue;
+      }
+      entries.push({ mode, path });
+    }
+    const remotes = await this.git(prepared, ["remote"], "remote audit");
+    return {
+      entries,
+      remotes: remotes.stdout
+        .split("\n")
+        .map((remote) => remote.trim())
+        .filter((remote) => remote.length > 0),
+    };
+  }
+
+  /**
    * Removes the staging workspace and its isolated HOME.
    *
    * Callers own this through `finally`, so no orphan temp directory survives a
@@ -212,7 +274,9 @@ export class CoderWorkspaceStager {
    * must happen only after the patch bytes are safely persisted.
    */
   async dispose(prepared: PreparedCoderWorkspace): Promise<void> {
-    await rm(prepared.stagingPath, { recursive: true, force: true });
+    // Remove the whole staging CONTAINER, not just the workspace directory
+    // inside it, so no `synaphex-coder-staging-*` temp root survives.
+    await rm(dirname(prepared.stagingPath), { recursive: true, force: true });
     await rm(prepared.isolatedHome, { recursive: true, force: true });
   }
 

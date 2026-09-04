@@ -7,7 +7,7 @@ import type {
 import { UnsupportedAgentInvocationError } from "../domain/errors.js";
 import type { HostRuntime } from "../domain/provider-routing.js";
 import type { SessionId } from "../domain/session.js";
-import { isMcpInvocableAgent } from "./direct-agent-invocation.js";
+import { isMcpContinuationHelperAgent } from "./direct-agent-invocation.js";
 import {
   ContinuationStateError,
   InvocationContinuationStore,
@@ -170,8 +170,10 @@ export class InvocationContinuationCommands
     // helper. If an agent requests CODER (or any source-mutating role) and the
     // edge somehow classifies allowed, MCP still refuses -- no CODER source
     // mutation through a helper loophole.
+    // The HELPER set, not the direct set: a user may explicitly invoke staged
+    // CODER, but an agent must not smuggle CODER through a continuation.
     if (
-      !isMcpInvocableAgent(target) ||
+      !isMcpContinuationHelperAgent(target) ||
       this.dependencies.roleContracts.canModifySourceCode(target)
     ) {
       throw new UnsupportedAgentInvocationError(

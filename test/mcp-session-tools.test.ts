@@ -480,19 +480,31 @@ test("invoke_agent delegates to the narrow invocation port and returns a safe re
   ]);
 });
 
-test("CODER is rejected by the wire schema before the invocation port", async () => {
+test("CODER is now accepted by the wire schema and reaches the invocation port", async () => {
+  // Phase 5B: staged CODER is a legitimate direct-user invocation.
   const reads = fakeReadDependencies();
   const outcome = await call(reads, "synaphex_invoke_agent", {
     agent: "coder",
     scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
     instruction: "Write the code.",
   });
-  assert.equal(outcome.isError, true);
-  assert.match(outcome.text, /Invalid option/);
-  assert.deepEqual(reads.calls, [], "the invocation port must not be reached");
+  assert.equal(outcome.isError, false, outcome.text);
+  assert.equal(reads.calls[0]?.port, "agentInvocation.invoke");
 });
 
-test("no hidden flag can enable CODER or override the entrypoint", async () => {
+test("an agent outside the direct enum is still rejected by the schema", async () => {
+  const reads = fakeReadDependencies();
+  const outcome = await call(reads, "synaphex_invoke_agent", {
+    agent: "orchestrator",
+    scope: { kind: "task_session", sessionId: "ses_00000000000000000000000000000001" },
+    instruction: "Not an agent.",
+  });
+  assert.equal(outcome.isError, true);
+  assert.match(outcome.text, /Invalid option/);
+  assert.deepEqual(reads.calls, []);
+});
+
+test("no hidden flag can enable an unknown agent or override the entrypoint", async () => {
   for (const extra of [
     { allowCoder: true },
     { unsafe: true },
@@ -503,12 +515,12 @@ test("no hidden flag can enable CODER or override the entrypoint", async () => {
   ]) {
     const reads = fakeReadDependencies();
     const outcome = await call(reads, "synaphex_invoke_agent", {
-      agent: "coder",
+      agent: "orchestrator",
       scope: {
         kind: "task_session",
         sessionId: "ses_00000000000000000000000000000001",
       },
-      instruction: "Write the code.",
+      instruction: "Not an agent.",
       ...extra,
     });
     assert.equal(outcome.isError, true, JSON.stringify(extra));

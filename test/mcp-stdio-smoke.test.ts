@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -149,14 +149,15 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
         properties?: { agent?: { enum?: string[] } };
       })?.properties?.agent?.enum ?? []
     ).slice().sort();
+    // Phase 5B: CODER is present because every CODER path is staged.
     assert.deepEqual(agentEnum, [
+      "coder",
       "examiner",
       "planner",
       "questioner",
       "researcher",
       "reviewer",
     ]);
-    assert.equal(agentEnum.includes("coder"), false, "CODER must be absent");
 
     // 3 + 4: open a task session and capture the returned SessionId.
     const opened = await client.callTool({
@@ -587,12 +588,13 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
     assert.notEqual(invokeTool, undefined);
     assert.equal(tools.length, 21);
 
-    // 5: CODER is absent from the observable enum.
+    // 5: the enum is exactly the six logical agents.
     const agentEnum =
       (invokeTool?.inputSchema as {
         properties?: { agent?: { enum?: string[] } };
       })?.properties?.agent?.enum ?? [];
-    assert.equal(agentEnum.includes("coder"), false);
+    assert.equal(agentEnum.length, 6);
+    assert.equal(agentEnum.includes("coder"), true);
 
     // 6 + 7: fixture project/task were created outside MCP; open a session.
     const opened = await client.callTool({
@@ -1564,10 +1566,16 @@ async function planHarness(
   const sourcePath = join(home, "workspace");
   await mkdir(sourcePath, { recursive: true });
   const store = new StateStore(join(home, ".synaphex"));
-  await new AgentConfigManager(store).setConfigured("planner", {
+  const configs = new AgentConfigManager(store);
+  await configs.setConfigured("planner", {
     provider: "openai",
     surface: "cli",
     model: "planner-model",
+  });
+  await configs.setConfigured("coder", {
+    provider: "openai",
+    surface: "cli",
+    model: "coder-model",
   });
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -1852,7 +1860,7 @@ test("plan tools expose no ownership token, path or archive content", async (t) 
   }
 });
 
-test("CODER stays excluded even after a plan is accepted", async (t) => {
+test("CODER is invocable after a plan is accepted, and stages rather than writing source", async (t) => {
   const h = await planHarness(t);
   try {
     await invokePlanner(h);
@@ -1864,9 +1872,11 @@ test("CODER stays excluded even after a plan is accepted", async (t) => {
         draftRevisionId: state.draft!.revisionId,
       },
     });
-    // An accepted plan clears PLAN_DRAFT_PENDING in Core, but CODER remains
-    // absent from MCP: plan acceptance does not solve transactional source
-    // mutation.
+    // An accepted plan clears PLAN_DRAFT_PENDING, and CODER is now invocable.
+    // The fixture project is not a Git repo, so staging fails closed with the
+    // precise staging error -- proving the staged path runs and that no
+    // provider executed against the real source. Config and lifecycle checks
+    // still come first, so staging never pays for an obvious failure.
     const coder = await h.client.callTool({
       name: "synaphex_invoke_agent",
       arguments: {
@@ -1876,8 +1886,181 @@ test("CODER stays excluded even after a plan is accepted", async (t) => {
       },
     });
     assert.equal(coder.isError, true);
-    assert.match(coder.content ? JSON.stringify(coder.content) : "", /Invalid option/);
+    const code = (coder.structuredContent as { code?: string }).code;
+    assert.equal(code, "CODER_STAGING_REQUIRES_GIT");
+    assert.notEqual(code, "AGENT_EXECUTION_FAILED");
   } finally {
     await h.close();
+  }
+});
+
+test("staged CODER runs through MCP and leaves the real source unchanged", async (t) => {
+  const home = await temporaryStateRoot(t);
+  const sourcePath = join(home, "workspace");
+  await mkdir(sourcePath, { recursive: true });
+  // A clean Git source, required by staged CODER.
+  const gitEnv = {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    HOME: sourcePath,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "Fixture",
+    GIT_AUTHOR_EMAIL: "fixture@localhost",
+    GIT_COMMITTER_NAME: "Fixture",
+    GIT_COMMITTER_EMAIL: "fixture@localhost",
+    LC_ALL: "C",
+  };
+  const { spawnSync } = await import("node:child_process");
+  await writeFile(join(sourcePath, "app.txt"), "original\n", "utf8");
+  for (const args of [
+    ["init", "--quiet"],
+    ["add", "-A"],
+    ["commit", "--quiet", "-m", "baseline"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: sourcePath, env: gitEnv, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  const headBefore = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: sourcePath,
+    env: gitEnv,
+    encoding: "utf8",
+  }).stdout.trim();
+
+  const store = new StateStore(join(home, ".synaphex"));
+  await new AgentConfigManager(store).setConfigured("coder", {
+    provider: "openai",
+    surface: "cli",
+    model: "coder-model",
+  });
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [FAKE_PROVIDER_ENTRYPOINT, ...HOST_ARGS],
+    env: { ...process.env, HOME: home, SYNAPHEX_TEST_CODER_EDIT: "1" },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "coder-smoke", version: "0.0.0" });
+  try {
+    await client.connect(transport);
+    const projectId = (
+      (
+        await client.callTool({
+          name: "synaphex_register_project",
+          arguments: { name: "Coder Project", sourcePath },
+        })
+      ).structuredContent as { id: string }
+    ).id;
+    const taskId = (
+      (
+        await client.callTool({
+          name: "synaphex_create_task",
+          arguments: { projectId, description: "Implement the feature" },
+        })
+      ).structuredContent as { id: string }
+    ).id;
+    const sessionId = (
+      (
+        await client.callTool({
+          name: "synaphex_open_task_session",
+          arguments: { projectId, taskId },
+        })
+      ).structuredContent as { sessionId: string }
+    ).sessionId;
+
+    const invoked = await client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "coder",
+        scope: { kind: "task_session", sessionId },
+        instruction: "Implement it.",
+      },
+    });
+    assert.notEqual(invoked.isError, true, JSON.stringify(invoked.content));
+    const payload = invoked.structuredContent as {
+      agent: string;
+      executionPolicy: { sourceModification: string };
+      changeSet?: {
+        id: string;
+        baseCommit: string;
+        patchHash: string;
+        patchBytes: number;
+        changedFiles: { path: string }[];
+      } | null;
+    };
+    assert.equal(payload.agent, "coder");
+    // CODER keeps workspace_write; it applies to the staging clone.
+    assert.equal(payload.executionPolicy.sourceModification, "workspace_write");
+    // The result carries the change-set SUMMARY, never the patch itself.
+    assert.notEqual(payload.changeSet, null);
+    assert.match(payload.changeSet!.id, /^changeset_/);
+    assert.equal(payload.changeSet!.baseCommit, headBefore);
+    assert.ok(payload.changeSet!.patchBytes > 0);
+    assert.deepEqual(
+      payload.changeSet!.changedFiles.map((file) => file.path).sort(),
+      ["app.txt", "coder-new.txt"],
+    );
+    const serialized = JSON.stringify(invoked);
+    for (const forbidden of [
+      "synaphex-coder-staging",
+      "ownershipToken",
+      "isolatedHome",
+      "GIT binary patch",
+      "@@ -",
+    ]) {
+      assert.equal(serialized.includes(forbidden), false, `leaked ${forbidden}`);
+    }
+
+    // The REAL source is unchanged.
+    assert.equal(
+      spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: sourcePath,
+        env: gitEnv,
+        encoding: "utf8",
+      }).stdout.trim(),
+      headBefore,
+    );
+    assert.equal(
+      spawnSync("git", ["status", "--porcelain"], {
+        cwd: sourcePath,
+        env: gitEnv,
+        encoding: "utf8",
+      }).stdout.trim(),
+      "",
+    );
+    assert.equal(
+      await readFile(join(sourcePath, "app.txt"), "utf8"),
+      "original\n",
+    );
+    assert.equal((await readdir(sourcePath)).includes("coder-new.txt"), false);
+
+    // REVIEWER is blocked while the change set is staged and unapplied.
+    await new AgentConfigManager(store).setConfigured("reviewer", {
+      provider: "openai",
+      surface: "cli",
+      model: "reviewer-model",
+    });
+    const reviewed = await client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "reviewer",
+        scope: { kind: "task_session", sessionId },
+        instruction: "Review it.",
+      },
+    });
+    assert.equal(reviewed.isError, true);
+    assert.equal(
+      (reviewed.structuredContent as { code: string }).code,
+      "REVIEW_TARGET_NOT_APPLIED",
+    );
+    // The task stays active: no PASS could complete it on unchanged source.
+    const task = await client.callTool({
+      name: "synaphex_get_task",
+      arguments: { projectId, taskId },
+    });
+    assert.equal(
+      (task.structuredContent as { status: string }).status,
+      "active",
+    );
+  } finally {
+    await client.close();
   }
 });

@@ -333,6 +333,13 @@ export {
   type PreparedCoderWorkspace,
 } from "./core/coder-workspace-stager.js";
 export {
+  CoderStagingCoordinator,
+  projectExecutionContext,
+  type CoderStagingDependencies,
+  type StagedCoderExecutionInput,
+  type StagedCoderExecutionResult,
+} from "./core/coder-staging-coordinator.js";
+export {
   CoderChangeSetManager,
   type ChangeSetId,
   type ChangeSetMetadata,
@@ -460,8 +467,12 @@ export {
   type InvocationContinuationPort,
 } from "./operations/invocation-continuation-commands.js";
 export {
+  MCP_CONTINUATION_HELPER_AGENTS,
+  MCP_DIRECT_INVOCABLE_AGENTS,
   MCP_INVOCABLE_AGENTS,
   DirectAgentInvocation,
+  isMcpContinuationHelperAgent,
+  isMcpDirectInvocableAgent,
   isMcpInvocableAgent,
   type DirectAgentInvocationDependencies,
   type DirectAgentInvocationPort,

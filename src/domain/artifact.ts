@@ -46,10 +46,39 @@ export type ResearchArtifactRecord = ArtifactRecordBase<
   ArtifactScope
 >;
 
-export type CoderArtifactRecord = ArtifactRecordBase<
-  "coder",
-  TaskArtifactScope
->;
+/**
+ * Authoritative, system-generated reference from a CODER work record to the
+ * immutable change set that invocation produced.
+ *
+ * Deliberately a SIBLING of `payload`, not a field inside it: `payload` holds
+ * configurable provider output, and a provider must never be able to forge a
+ * change-set identity, base commit, patch hash or file manifest. Synaphex
+ * derives every field here from Git state.
+ *
+ * `null` for a successful CODER invocation that produced no filesystem
+ * changes; absent entirely on legacy records written before staging existed.
+ */
+export interface CoderChangeSetReference {
+  readonly id: string;
+  readonly baseCommit: string;
+  readonly patchHash: string;
+  readonly patchBytes: number;
+  readonly changedFiles: readonly {
+    readonly path: string;
+    readonly change: "added" | "modified" | "deleted";
+    readonly binary: boolean;
+  }[];
+}
+
+export interface CoderArtifactRecord
+  extends ArtifactRecordBase<"coder", TaskArtifactScope> {
+  /**
+   * Present on every staged CODER record (possibly `null`). Absent on a
+   * legacy record, which represents historical direct-source execution and is
+   * never reinterpreted as a staged change set.
+   */
+  readonly changeSet?: CoderChangeSetReference | null;
+}
 
 export interface ReviewerLifecycleMetadata {
   readonly status: ReviewerStatus;

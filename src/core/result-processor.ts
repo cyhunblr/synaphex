@@ -34,6 +34,7 @@ import type {
   ProcessedAgentResult,
   ProcessedAgentResultFor,
 } from "../domain/processed-agent-result.js";
+import type { CoderChangeSetReference } from "../domain/artifact.js";
 import type { Project } from "../domain/project.js";
 import type { SessionId } from "../domain/session.js";
 import type { Task } from "../domain/task.js";
@@ -48,6 +49,15 @@ export interface ProcessAgentResultRequest<TAgent extends AgentName> {
   readonly sessionId: SessionId;
   readonly expectedAgent: TAgent;
   readonly result: unknown;
+  /**
+   * SYSTEM-GENERATED staged-CODER change-set reference.
+   *
+   * Supplied by AgentInvocationService from Git state, never by the provider:
+   * the AgentResult schema has no authority over `changeSetId`, `baseCommit`,
+   * `patchHash` or `changedFiles`. `null` means a staged CODER invocation that
+   * changed nothing; omitted means a non-staged (legacy-shaped) write.
+   */
+  readonly coderChangeSet?: CoderChangeSetReference | null;
 }
 
 interface ProcessingScope {
@@ -93,6 +103,7 @@ export class ResultProcessor {
     return (await this.applyValidatedResult(
       result,
       scope,
+      request.coderChangeSet,
     )) as ProcessedAgentResultFor<TAgent>;
   }
 
@@ -215,6 +226,7 @@ export class ResultProcessor {
   private async applyValidatedResult(
     result: AgentResult,
     scope: ProcessingScope,
+    coderChangeSet?: CoderChangeSetReference | null,
   ): Promise<ProcessedAgentResult> {
     const persistedArtifacts: PersistedArtifactReference[] = [];
     const stateEffects: AgentStateEffect[] = [];
@@ -260,14 +272,30 @@ export class ResultProcessor {
         }
         break;
       case "coder": {
+        // The change-set link is a system-generated sibling of the provider
+        // payload, so configurable Coder outputFields semantics are unchanged
+        // and provider output cannot forge change-set authority.
         const artifact = await this.artifacts.saveCoderWorkRecord(
           requireTaskScope(scope),
           result.workRecord,
+          coderChangeSet,
         );
         const reference = toArtifactReference(artifact);
         persistedArtifacts.push(reference);
         stateEffects.push({ kind: "coder_artifact_saved", artifact: reference });
-        break;
+        return {
+          agent: result.agent,
+          outcome: result.outcome,
+          summary: result.summary,
+          warnings: [...(result.warnings ?? [])],
+          persistedArtifacts,
+          requestedCalls: [...(result.requestedCalls ?? [])],
+          requestedActions: [...(result.requestedActions ?? [])],
+          stateEffects,
+          // Staged CODER always carries the field (possibly null); a
+          // non-staged legacy write omits it entirely.
+          ...(coderChangeSet === undefined ? {} : { coderChangeSet }),
+        };
       }
       case "reviewer": {
         const taskScope = requireTaskScope(scope);

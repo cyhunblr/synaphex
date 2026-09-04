@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -130,6 +132,31 @@ interface Fixture {
   readonly otherTask: Task;
 }
 
+/** Minimal clean Git repository for staged-CODER fixtures. */
+function initGitFixture(sourcePath: string): void {
+  const env = {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    HOME: sourcePath,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "Fixture",
+    GIT_AUTHOR_EMAIL: "fixture@localhost",
+    GIT_COMMITTER_NAME: "Fixture",
+    GIT_COMMITTER_EMAIL: "fixture@localhost",
+    LC_ALL: "C",
+  };
+  writeFileSync(join(sourcePath, "source.txt"), "baseline\n", "utf8");
+  for (const args of [
+    ["init", "--quiet"],
+    ["add", "-A"],
+    ["commit", "--quiet", "-m", "baseline"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: sourcePath, env, encoding: "utf8" });
+    if (result.status !== 0) {
+      throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+    }
+  }
+}
+
 async function createFixture(t: TestContext): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), "synaphex-invocation-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -144,6 +171,9 @@ async function createFixture(t: TestContext): Promise<Fixture> {
   const projects = new ProjectManager(store, { homeDirectory });
   const sessions = new SessionManager(store);
   const tasks = new TaskManager(store, projects);
+  // Staged CODER requires a clean Git worktree (Phase 5B hardening), so the
+  // fixture source is a real committed repository.
+  initGitFixture(sourcePath);
   const project = await projects.create("Invocation Project", sourcePath);
   const [task, otherTask] = await Promise.all([
     tasks.create(project.id, "Invoke the configured agent"),

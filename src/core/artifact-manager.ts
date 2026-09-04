@@ -8,6 +8,7 @@ import {
   TaskCompletedError,
 } from "../domain/errors.js";
 import type {
+  CoderChangeSetReference,
   ArtifactId,
   ArtifactPayload,
   ArtifactRecord,
@@ -147,14 +148,24 @@ export class ArtifactManager {
     );
   }
 
+  /**
+   * Persists a CODER work record.
+   *
+   * `changeSet` is SYSTEM-GENERATED: Synaphex derives it from staging Git
+   * state, so provider output cannot forge it. Omit it entirely to write a
+   * legacy-shaped record; pass `null` for a staged invocation that changed
+   * nothing.
+   */
   async saveCoderWorkRecord(
     scope: TaskArtifactScope,
     payload: ArtifactPayload,
+    changeSet?: CoderChangeSetReference | null,
   ): Promise<CoderArtifactRecord> {
     return (await this.saveRunArtifact(
       "coder",
       scope,
       payload,
+      changeSet,
     )) as CoderArtifactRecord;
   }
 
@@ -279,6 +290,7 @@ export class ArtifactManager {
     category: RunArtifactCategory,
     scope: ArtifactScope,
     payload: ArtifactPayload,
+    changeSet?: CoderChangeSetReference | null,
   ): Promise<ArtifactRecord> {
     if (category === "reviewer") {
       throw new InvalidArtifactError(
@@ -297,6 +309,8 @@ export class ArtifactManager {
         scope,
         createdAt: new Date().toISOString(),
         payload: storedPayload,
+        // Only written when supplied, so legacy records keep their exact shape.
+        ...(changeSet === undefined ? {} : { changeSet }),
       } as StoredStandardArtifact;
       const created = await this.stateStore.createJsonAtomicExclusive(
         `${directory}/${artifact.id}.json`,
@@ -753,6 +767,10 @@ function withoutArtifactVersion(artifact: StoredArtifact): ArtifactRecord {
         scope: artifact.scope,
         createdAt: artifact.createdAt,
         payload: artifact.payload,
+        // Preserved only when present, so a legacy CODER record (written
+        // before staging existed) keeps its exact shape and is never
+        // reinterpreted as a staged change set.
+        ...("changeSet" in artifact ? { changeSet: artifact.changeSet } : {}),
       };
 }
 

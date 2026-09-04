@@ -829,3 +829,25 @@ test("an allowed-network continuation cannot run after a helper already progress
     (error: unknown) => error instanceof ContinuationStateError,
   );
 });
+
+test("CODER remains blocked as a helper even though direct CODER is enabled", async () => {
+  // Phase 5B separates the surfaces: a user may explicitly invoke staged
+  // CODER, but an agent must not smuggle CODER through a continuation.
+  for (const method of ["executeAllowedHelper", "approveAndExecuteHelper"] as const) {
+    const status = method === "executeAllowedHelper" ? "allowed" : "approval_required";
+    const h = harness();
+    const record = h.store.issue({
+      host: HOST,
+      sessionId: SESSION,
+      invocation: invocationResult([helperClassification(status, "coder")]),
+    })!;
+    await assert.rejects(
+      h.commands[method](record.id, 0),
+      (error: unknown) =>
+        error instanceof UnsupportedAgentInvocationError &&
+        error.details?.reason === "helper_source_modification_not_permitted",
+      method,
+    );
+    assert.equal(h.invocations.calls.length, 0, method);
+  }
+});

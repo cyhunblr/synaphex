@@ -5,6 +5,7 @@ import {
   SessionAlreadyBoundToTaskError,
   TaskAlreadyBoundError,
   TaskBindingLockTimeoutError,
+  TaskSessionOwnershipLostError,
 } from "../domain/errors.js";
 import type { ProjectId } from "../domain/project.js";
 import type { SessionBinding, SessionId } from "../domain/session.js";
@@ -342,6 +343,35 @@ export class SessionManager {
   }
 
   /**
+   * Runs a short deterministic operation only while an ownership fence is
+   * still current, holding the authoritative task-binding lock throughout.
+   *
+   * This closes the check-then-act race that a bare `isTaskOwnershipCurrent`
+   * followed by a durable write would leave open: a concurrent force release
+   * or rebind cannot interleave between the validation and the operation,
+   * because both take the same single ownership lock.
+   *
+   * It must cover ONLY a brief commit boundary. Never hold it across provider
+   * execution -- the lock is process-wide for the task-binding subsystem, and
+   * a long hold would block session open/close and recovery.
+   */
+  async withTaskOwnershipAuthority<T>(
+    fence: TaskOwnershipFence,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    return this.withTaskBindingLock(async () => {
+      if (!(await this.isTaskOwnershipCurrentWhileLocked(fence))) {
+        throw new TaskSessionOwnershipLostError(
+          fence.taskId,
+          fence.sessionId,
+          "commit",
+        );
+      }
+      return operation();
+    });
+  }
+
+  /**
    * Reports whether an ownership fence still names the current claim instance.
    *
    * False when the task is unclaimed, the session was closed, the task was
@@ -349,27 +379,33 @@ export class SessionManager {
    * NEW claim with a different token (the ABA case the token exists to defeat).
    */
   async isTaskOwnershipCurrent(fence: TaskOwnershipFence): Promise<boolean> {
-    return this.withTaskBindingLock(async () => {
-      const claim = await this.stateStore.readJson<unknown>(
-        taskBindingClaimPath(fence.taskId),
-      );
-      if (
-        !isTaskBindingClaim(claim) ||
-        claim.taskId !== fence.taskId ||
-        claim.projectId !== fence.projectId ||
-        claim.sessionId !== fence.sessionId ||
-        claim.ownershipToken !== fence.ownershipToken
-      ) {
-        return false;
-      }
-      // The claim must still cross-validate against its owner's binding.
-      const binding = await this.find(fence.sessionId);
-      return (
-        binding !== null &&
-        binding.projectId === fence.projectId &&
-        binding.taskId === fence.taskId
-      );
-    });
+    return this.withTaskBindingLock(() =>
+      this.isTaskOwnershipCurrentWhileLocked(fence),
+    );
+  }
+
+  private async isTaskOwnershipCurrentWhileLocked(
+    fence: TaskOwnershipFence,
+  ): Promise<boolean> {
+    const claim = await this.stateStore.readJson<unknown>(
+      taskBindingClaimPath(fence.taskId),
+    );
+    if (
+      !isTaskBindingClaim(claim) ||
+      claim.taskId !== fence.taskId ||
+      claim.projectId !== fence.projectId ||
+      claim.sessionId !== fence.sessionId ||
+      claim.ownershipToken !== fence.ownershipToken
+    ) {
+      return false;
+    }
+    // The claim must still cross-validate against its owner's binding.
+    const binding = await this.find(fence.sessionId);
+    return (
+      binding !== null &&
+      binding.projectId === fence.projectId &&
+      binding.taskId === fence.taskId
+    );
   }
 
   /**

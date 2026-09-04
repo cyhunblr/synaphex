@@ -42,8 +42,10 @@ import { AntigravityCliAgentExecutor } from "../src/providers/antigravity-cli-ag
 import { ProviderDispatchingAgentExecutor } from "../src/providers/provider-dispatching-agent-executor.js";
 import {
   DirectAgentInvocation,
-  MCP_INVOCABLE_AGENTS,
-  isMcpInvocableAgent,
+  MCP_CONTINUATION_HELPER_AGENTS,
+  MCP_DIRECT_INVOCABLE_AGENTS,
+  isMcpContinuationHelperAgent,
+  isMcpDirectInvocableAgent,
   type McpInvocableAgent,
 } from "../src/operations/direct-agent-invocation.js";
 import { SessionCommands } from "../src/operations/session-commands.js";
@@ -157,36 +159,49 @@ function researcherResult() {
 // Allowed agents / CODER exclusion
 // ---------------------------------------------------------------------------
 
-test("exactly the five source-read-only agents are invocable, and CODER is not", () => {
-  assert.deepEqual([...MCP_INVOCABLE_AGENTS].sort(), [
+test("all six agents are directly invocable, but CODER is not helper-invocable", () => {
+  // Phase 5B: a USER may invoke staged CODER directly.
+  assert.deepEqual([...MCP_DIRECT_INVOCABLE_AGENTS].sort(), [
+    "coder",
     "examiner",
     "planner",
     "questioner",
     "researcher",
     "reviewer",
   ]);
-  assert.equal(isMcpInvocableAgent("coder"), false);
-  for (const agent of MCP_INVOCABLE_AGENTS) {
-    assert.equal(isMcpInvocableAgent(agent), true);
-  }
+  assert.equal(isMcpDirectInvocableAgent("coder"), true);
+  // But an AGENT may not smuggle CODER through a helper continuation.
+  assert.deepEqual([...MCP_CONTINUATION_HELPER_AGENTS].sort(), [
+    "examiner",
+    "planner",
+    "questioner",
+    "researcher",
+    "reviewer",
+  ]);
+  assert.equal(isMcpContinuationHelperAgent("coder"), false);
+  // The two surfaces are deliberately different sets.
+  assert.notEqual(
+    MCP_DIRECT_INVOCABLE_AGENTS.length,
+    MCP_CONTINUATION_HELPER_AGENTS.length,
+  );
 });
 
-test("every invocable agent resolves to read_only source modification", () => {
+test("source policy is role-specific: only CODER is workspace_write", () => {
   const contracts = new RoleContractRegistry();
-  for (const agent of MCP_INVOCABLE_AGENTS) {
+  for (const agent of MCP_CONTINUATION_HELPER_AGENTS) {
     assert.equal(
       contracts.canModifySourceCode(agent),
       false,
       `${agent} must not modify source`,
     );
   }
-  // CODER is excluded precisely because it can.
+  // CODER retains workspace_write; the security change is that it applies to
+  // the staging clone, not the registered source workspace.
   assert.equal(contracts.canModifySourceCode("coder"), true);
 });
 
-test("CODER is rejected before the invocation service or provider runs", async (t) => {
+test("an agent outside the direct set is still rejected before any provider", async (t) => {
   const fixture = await createFixture(t);
-  await configure(fixture, "coder", "openai", "cli");
   const opened = await fixture.commands.openTaskSession(
     fixture.project.id,
     fixture.task.id,
@@ -196,13 +211,13 @@ test("CODER is rejected before the invocation service or provider runs", async (
   });
   await assert.rejects(
     invocationPort(fixture, { provider: "openai", surface: "cli" }, executor).invoke({
-      agent: "coder" as McpInvocableAgent,
+      agent: "orchestrator" as unknown as McpInvocableAgent,
       scope: { kind: "task_session", sessionId: opened.sessionId },
-      instruction: "Try to write code.",
+      instruction: "Not a real agent.",
     }),
     (error: unknown) =>
       error instanceof UnsupportedAgentInvocationError &&
-      error.code === "UNSUPPORTED_AGENT_INVOCATION",
+      error.details?.reason === "agent_not_invocable",
   );
   assert.equal(executor.calls.length, 0, "provider must not be invoked");
 });

@@ -788,14 +788,15 @@ test("no apply, merge or commit-to-real-source capability exists", async () => {
   }
 });
 
-test("staging is not exposed through MCP and CODER remains excluded", async () => {
-  const { SYNAPHEX_MCP_TOOLS, MCP_INVOCABLE_AGENTS } = await import(
+test("staging internals are not exposed through MCP, and no apply tool exists", async () => {
+  const { SYNAPHEX_MCP_TOOLS, MCP_DIRECT_INVOCABLE_AGENTS } = await import(
     "../src/index.js"
   );
   assert.equal(SYNAPHEX_MCP_TOOLS.length, 21);
+  // Phase 5B: direct CODER is enabled because every path is staged.
   assert.equal(
-    (MCP_INVOCABLE_AGENTS as readonly string[]).includes("coder"),
-    false,
+    (MCP_DIRECT_INVOCABLE_AGENTS as readonly string[]).includes("coder"),
+    true,
   );
   for (const absent of [
     "synaphex_invoke_coder",
@@ -821,7 +822,7 @@ test("staging is not exposed through MCP and CODER remains excluded", async () =
       "CoderWorkspaceStager",
       "CoderChangeSetManager",
       "stagingPath",
-      "changeSetId",
+      "isolatedHome",
     ]) {
       assert.equal(
         source.includes(forbidden),
