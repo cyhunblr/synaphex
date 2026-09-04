@@ -69,6 +69,7 @@ import {
   HostActionUnavailableError,
   InvalidHostActionAuthorizationError,
   NoProjectBoundError,
+  TaskSessionOwnershipLostError,
   NoTaskBoundError,
   PlanDraftPendingError,
   ReviewTargetNotAvailableError,
@@ -469,6 +470,26 @@ export class AgentInvocationService {
       targetConfig: config,
     });
 
+    // Task-ownership fencing. Captured BEFORE provider execution so the exact
+    // claim instance this invocation is authorized under is pinned; a
+    // project-only invocation (no task binding) has no task authority to fence
+    // and is deliberately left alone.
+    //
+    // Every invocation path -- user, helper, and continuation -- funnels
+    // through invokePrepared, so each captures its OWN current fence rather
+    // than inheriting authority from a caller or an earlier lineage.
+    const ownershipFence =
+      invocation.scope.task === null
+        ? null
+        : await this.sessions.captureTaskOwnership(invocation.sessionId);
+    if (invocation.scope.task !== null && ownershipFence === null) {
+      throw new TaskSessionOwnershipLostError(
+        invocation.scope.task.id,
+        invocation.sessionId,
+        "preflight",
+      );
+    }
+
     let rawResult: unknown;
     try {
       rawResult = await this.executor.execute({
@@ -495,6 +516,24 @@ export class AgentInvocationService {
       validatedResult.requestedActions ?? [],
       invocation.scope,
     );
+    // Last authoritative task-ownership check before ANY mutation. If the
+    // claim was released, force-released or replaced while the provider ran,
+    // the result must not commit: no artifacts, no memory, no plan draft, no
+    // task completion, no Questioner context, no Reviewer lifecycle effects.
+    //
+    // The provider did complete -- this is authority revocation, not provider
+    // failure -- so it surfaces as TASK_SESSION_OWNERSHIP_LOST rather than
+    // AGENT_EXECUTION_FAILED or INTERNAL_ERROR.
+    if (
+      ownershipFence !== null &&
+      !(await this.sessions.isTaskOwnershipCurrent(ownershipFence))
+    ) {
+      throw new TaskSessionOwnershipLostError(
+        ownershipFence.taskId,
+        ownershipFence.sessionId,
+        "commit",
+      );
+    }
     // ResultProcessor deliberately validates again at the mutation boundary.
     const processedResult = await this.resultProcessor.process({
       sessionId: invocation.sessionId,

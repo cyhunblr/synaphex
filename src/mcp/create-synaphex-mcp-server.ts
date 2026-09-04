@@ -1,0 +1,567 @@
+import { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
+import { AGENT_NAMES } from "../domain/agent.js";
+import { RULE_DECISIONS, RULE_SCOPES, formatRuleKey } from "../domain/rule.js";
+import { parseSessionId } from "../domain/session.js";
+import { TASK_STATUSES } from "../domain/task.js";
+import { toMcpToolFailure } from "./mcp-error-mapping.js";
+import {
+  parseAgentName,
+  parseProjectId,
+  parseTaskId,
+} from "./mcp-input-validation.js";
+import type {
+  SessionCommandPort,
+  SessionRecoveryPort,
+} from "../operations/session-commands.js";
+import type { SynaphexMcpReadDependencies } from "./synaphex-read-ports.js";
+
+/**
+ * Synaphex MCP server (Phase 1).
+ *
+ * MCP is a thin transport/interface layer over existing Synaphex Core
+ * services, NOT an orchestrator. The user remains the orchestrator; this
+ * server exposes deterministic read-only domain lookups and nothing else.
+ *
+ * Structural guarantees:
+ * - handlers depend only on the read-only ports in `synaphex-read-ports.ts`,
+ *   so no mutation, approval, host-action or agent-invocation API is reachable;
+ * - no provider executor (Codex/Claude/Antigravity) is imported;
+ * - no filesystem, shell or network primitive is exposed as a tool;
+ * - business logic (including rule precedence) stays in Core.
+ */
+
+export const SYNAPHEX_MCP_SERVER_NAME = "synaphex";
+
+/** Read-only tools accepted in Phase 1. */
+export const SYNAPHEX_MCP_PHASE1_TOOLS = Object.freeze([
+  "synaphex_get_project",
+  "synaphex_get_task",
+  "synaphex_get_session",
+  "synaphex_get_agent_config",
+  "synaphex_get_effective_rules",
+] as const);
+
+/**
+ * Session-lifecycle mutation tools added in Phase 2A.
+ *
+ * These are the ONLY mutating tools: they open and close a logical Synaphex
+ * session binding and nothing else. There is deliberately no
+ * `synaphex_get_current_session` -- session identity is always explicit,
+ * because a provider host or MCP subprocess can restart and a conversation can
+ * reconnect without that redefining domain identity.
+ */
+export const SYNAPHEX_MCP_SESSION_TOOLS = Object.freeze([
+  "synaphex_open_task_session",
+  "synaphex_close_task_session",
+] as const);
+
+/**
+ * Explicit user-driven recovery tools (Phase 2B).
+ *
+ * Synaphex has no lease, heartbeat, PID check or automatic stale-session
+ * expiry. When a provider host crashes or the caller loses a SessionId, the
+ * task claim persists on purpose; the user recovers it explicitly with these.
+ */
+export const SYNAPHEX_MCP_RECOVERY_TOOLS = Object.freeze([
+  "synaphex_get_task_session_owner",
+  "synaphex_force_release_task_session",
+] as const);
+
+/** Every tool this server registers. */
+export const SYNAPHEX_MCP_TOOLS = Object.freeze([
+  ...SYNAPHEX_MCP_PHASE1_TOOLS,
+  ...SYNAPHEX_MCP_SESSION_TOOLS,
+  ...SYNAPHEX_MCP_RECOVERY_TOOLS,
+] as const);
+
+export interface CreateSynaphexMcpServerOptions
+  extends SynaphexMcpReadDependencies {
+  /**
+   * Narrow session-lifecycle command boundary. MCP receives only this port --
+   * never a mutation-capable TaskManager, SessionManager or StateStore.
+   */
+  readonly sessionCommands: SessionCommandPort;
+  /**
+   * Explicit recovery boundary, kept separate from ordinary session commands
+   * so force release can never be reached by accident.
+   */
+  readonly sessionRecovery: SessionRecoveryPort;
+  /** Server version; callers pass the package.json version (never duplicated here). */
+  readonly version: string;
+  /** Diagnostics sink. Defaults to stderr so MCP stdout stays protocol-only. */
+  readonly onDiagnostic?: (message: string) => void;
+}
+
+const projectIdSchema = z
+  .string()
+  .describe("Synaphex project id, e.g. prj_1a2b3c.");
+const taskIdSchema = z.string().describe("Synaphex task id, e.g. task_1a2b3c.");
+
+const projectOutputSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sourcePath: z.string(),
+  createdAt: z.string(),
+});
+
+const taskOutputSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  slug: z.string(),
+  description: z.string(),
+  status: z.enum(TASK_STATUSES),
+  createdAt: z.string(),
+  completedAt: z.string().nullable(),
+  archivedAt: z.string().nullable(),
+});
+
+const sessionOutputSchema = z.object({
+  sessionId: z.string(),
+  bound: z.boolean(),
+  projectId: z.string().nullable(),
+  taskId: z.string().nullable(),
+});
+
+const openTaskSessionOutputSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  bound: z.literal(true),
+});
+
+const closeTaskSessionOutputSchema = z.object({
+  sessionId: z.string(),
+  /** True only when a task claim was actually released. */
+  released: z.boolean(),
+  releasedTaskId: z.string().nullable(),
+  /** A fully closed session retains no binding record. */
+  bound: z.literal(false),
+});
+
+const taskSessionOwnerOutputSchema = z.object({
+  projectId: z.string(),
+  taskId: z.string(),
+  claimed: z.boolean(),
+  sessionId: z.string().nullable(),
+});
+
+const forceReleaseOutputSchema = z.object({
+  projectId: z.string(),
+  taskId: z.string(),
+  /** True only when a claim was actually released; false is a no-op. */
+  released: z.boolean(),
+  previousSessionId: z.string().nullable(),
+});
+
+const agentConfigOutputSchema = z.object({
+  agent: z.enum(AGENT_NAMES),
+  status: z.enum(["configured", "unconfigured", "removed"]),
+  provider: z.string().optional(),
+  surface: z.string().optional(),
+  model: z.string().optional(),
+  settingKeys: z.array(z.string()).optional(),
+  previousProvider: z.string().optional(),
+  reason: z.string().optional(),
+});
+
+const effectiveRulesOutputSchema = z.object({
+  scopeContext: z.object({
+    projectId: z.string().nullable(),
+    taskId: z.string().nullable(),
+  }),
+  rules: z.array(
+    z.object({
+      key: z.string(),
+      kind: z.enum(["agent_call", "action"]),
+      decision: z.enum(RULE_DECISIONS),
+      source: z.enum([...RULE_SCOPES, "default_deny"]),
+    }),
+  ),
+});
+
+export function createSynaphexMcpServer(
+  options: CreateSynaphexMcpServerOptions,
+): McpServer {
+  const {
+    projectReads,
+    taskReads,
+    sessionReads,
+    agentConfigReads,
+    effectiveRuleReads,
+    sessionCommands,
+    sessionRecovery,
+    version,
+    onDiagnostic = defaultDiagnostic,
+  } = options;
+
+  const server = new McpServer(
+    { name: SYNAPHEX_MCP_SERVER_NAME, version },
+    { capabilities: { tools: {} } },
+  );
+
+  const readOnly = {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  } as const;
+
+  server.registerTool(
+    "synaphex_get_project",
+    {
+      title: "Get Synaphex project",
+      description: "Look up a registered Synaphex project by id.",
+      inputSchema: z.object({ projectId: projectIdSchema }),
+      outputSchema: projectOutputSchema,
+      annotations: readOnly,
+    },
+    async ({ projectId }) =>
+      run(onDiagnostic, "synaphex_get_project", async () => {
+        const project = await projectReads.get(parseProjectId(projectId));
+        return {
+          id: project.id,
+          name: project.name,
+          sourcePath: project.sourcePath,
+          createdAt: project.createdAt,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_get_task",
+    {
+      title: "Get Synaphex task",
+      description: "Look up a Synaphex task and its lifecycle status.",
+      inputSchema: z.object({
+        projectId: projectIdSchema,
+        taskId: taskIdSchema,
+      }),
+      outputSchema: taskOutputSchema,
+      annotations: readOnly,
+    },
+    async ({ projectId, taskId }) =>
+      run(onDiagnostic, "synaphex_get_task", async () => {
+        const parsedProjectId = parseProjectId(projectId);
+        const parsedTaskId = parseTaskId(taskId);
+        const task = await taskReads.get(parsedProjectId, parsedTaskId);
+        return {
+          id: task.id,
+          projectId: task.projectId,
+          slug: task.slug,
+          description: task.description,
+          status: task.status,
+          createdAt: task.createdAt,
+          completedAt: task.completedAt,
+          archivedAt: task.archivedAt,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_get_session",
+    {
+      title: "Get Synaphex session binding",
+      description:
+        "Read the current project/task binding for a Synaphex session. An unknown or unbound session reports bound: false.",
+      inputSchema: z.object({
+        sessionId: z.string().describe("Synaphex session id."),
+      }),
+      outputSchema: sessionOutputSchema,
+      annotations: readOnly,
+    },
+    async ({ sessionId }) =>
+      run(onDiagnostic, "synaphex_get_session", async () => {
+        const parsedSessionId = parseSessionId(sessionId);
+        const binding = await sessionReads.find(parsedSessionId);
+        return {
+          sessionId: parsedSessionId,
+          bound: binding !== null && binding.projectId !== null,
+          projectId: binding?.projectId ?? null,
+          taskId: binding?.taskId ?? null,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_get_agent_config",
+    {
+      title: "Get Synaphex agent configuration",
+      description:
+        "Read the configuration status of one Synaphex logical agent. Credentials are never exposed; only setting keys are reported.",
+      inputSchema: z.object({
+        agent: z
+          .enum(AGENT_NAMES)
+          .describe("One of the six Synaphex logical agents."),
+      }),
+      outputSchema: agentConfigOutputSchema,
+      annotations: readOnly,
+    },
+    async ({ agent }) =>
+      run(onDiagnostic, "synaphex_get_agent_config", async () => {
+        const parsedAgent = parseAgentName(agent);
+        const config = await agentConfigReads.getConfig(parsedAgent);
+        if (config.status === "configured") {
+          return {
+            agent: parsedAgent,
+            status: config.status,
+            provider: config.provider,
+            surface: config.surface,
+            model: config.model,
+            // Values may carry provider-specific data; only keys are exposed.
+            settingKeys: Object.keys(config.settings ?? {}).sort(),
+          };
+        }
+        if (config.status === "removed") {
+          return {
+            agent: parsedAgent,
+            status: config.status,
+            reason: config.reason,
+            previousProvider: config.previousProvider,
+          };
+        }
+        return { agent: parsedAgent, status: config.status };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_get_effective_rules",
+    {
+      title: "Get Synaphex effective rules",
+      description:
+        "List effective Synaphex rules. Precedence (task > project > global, then default deny) is resolved by Synaphex Core, not by MCP.",
+      inputSchema: z.object({
+        projectId: projectIdSchema.optional(),
+        taskId: taskIdSchema.optional(),
+      }),
+      outputSchema: effectiveRulesOutputSchema,
+      annotations: readOnly,
+    },
+    async ({ projectId, taskId }) =>
+      run(onDiagnostic, "synaphex_get_effective_rules", async () => {
+        const parsedProjectId =
+          projectId === undefined ? undefined : parseProjectId(projectId);
+        const parsedTaskId =
+          taskId === undefined ? undefined : parseTaskId(taskId);
+        const rules = await effectiveRuleReads.listEffectiveRulesReadOnly({
+          ...(parsedProjectId === undefined ? {} : { projectId: parsedProjectId }),
+          ...(parsedTaskId === undefined ? {} : { taskId: parsedTaskId }),
+        });
+        return {
+          scopeContext: {
+            projectId: parsedProjectId ?? null,
+            taskId: parsedTaskId ?? null,
+          },
+          rules: rules.map((rule) => ({
+            key: formatRuleKey(rule.key),
+            kind: rule.key.kind,
+            decision: rule.decision,
+            source: rule.source,
+          })),
+        };
+      }),
+  );
+
+  // --- Session-lifecycle mutation -----------------------------------------
+  //
+  // All mutating tools set `readOnlyHint: false` and `openWorldHint: false`.
+  //
+  // `openTaskSession` is NOT idempotent: each successful call mints a new
+  // SessionId, so repeating it is not equivalent to calling it once. It is not
+  // destructive -- it creates state rather than removing any.
+  const openingAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  } as const;
+
+  // `closeTaskSession` IS idempotent: repeating it on an already-closed
+  // session is a deterministic no-op reporting `released: false`. It removes
+  // only the caller's own session state, so it is not destructive.
+  const closingAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  } as const;
+
+  // `forceReleaseTaskSession` is idempotent (a repeated call is a no-op) but
+  // IS marked destructive: it terminates ANOTHER logical session's ownership
+  // and deletes that session's binding record. Marking it destructive is the
+  // conservative choice so hosts can gate it behind confirmation.
+  const recoveryAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  } as const;
+
+  server.registerTool(
+    "synaphex_open_task_session",
+    {
+      title: "Open Synaphex task session",
+      description:
+        "Open a new logical Synaphex session bound to an existing active task, returning its explicit sessionId. Enforces one writable session per task; an already-claimed task is refused rather than stolen.",
+      inputSchema: z.object({
+        projectId: projectIdSchema,
+        taskId: taskIdSchema,
+      }),
+      outputSchema: openTaskSessionOutputSchema,
+      annotations: openingAnnotations,
+    },
+    async ({ projectId, taskId }) =>
+      run(onDiagnostic, "synaphex_open_task_session", async () => {
+        const parsedProjectId = parseProjectId(projectId);
+        const parsedTaskId = parseTaskId(taskId);
+        const binding = await sessionCommands.openTaskSession(
+          parsedProjectId,
+          parsedTaskId,
+        );
+        if (binding.projectId === null || binding.taskId === null) {
+          // Core guarantees a bound result on success; refuse to report
+          // a half-open session rather than inventing one.
+          throw new Error("openTaskSession returned an unbound binding");
+        }
+        return {
+          sessionId: binding.sessionId,
+          projectId: binding.projectId,
+          taskId: binding.taskId,
+          bound: true as const,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_close_task_session",
+    {
+      title: "Close Synaphex task session",
+      description:
+        "Fully close a Synaphex session: release its task claim (if any) and delete its binding record. Reports released: false when nothing was claimed, so a repeat call is a deterministic no-op. This is not task completion -- task status, plans, memory and artifacts are unchanged.",
+      inputSchema: z.object({
+        sessionId: z.string().describe("Synaphex session id."),
+      }),
+      outputSchema: closeTaskSessionOutputSchema,
+      annotations: closingAnnotations,
+    },
+    async ({ sessionId }) =>
+      run(onDiagnostic, "synaphex_close_task_session", async () => {
+        const parsedSessionId = parseSessionId(sessionId);
+        const result = await sessionCommands.closeTaskSession(parsedSessionId);
+        return {
+          sessionId: result.sessionId,
+          // Never claims success where nothing changed.
+          released: result.released,
+          releasedTaskId: result.releasedTaskId,
+          bound: false as const,
+        };
+      }),
+  );
+
+  // --- Phase 2B: explicit user-driven recovery -----------------------------
+
+  server.registerTool(
+    "synaphex_get_task_session_owner",
+    {
+      title: "Get Synaphex task session owner",
+      description:
+        "Read which Synaphex session, if any, currently holds the writable claim on a task. Use this to discover a lost session before recovering it.",
+      inputSchema: z.object({
+        projectId: projectIdSchema,
+        taskId: taskIdSchema,
+      }),
+      outputSchema: taskSessionOwnerOutputSchema,
+      annotations: readOnly,
+    },
+    async ({ projectId, taskId }) =>
+      run(onDiagnostic, "synaphex_get_task_session_owner", async () => {
+        const parsedProjectId = parseProjectId(projectId);
+        const parsedTaskId = parseTaskId(taskId);
+        const owner = await sessionRecovery.getTaskSessionOwner(
+          parsedProjectId,
+          parsedTaskId,
+        );
+        return {
+          projectId: owner.projectId,
+          taskId: owner.taskId,
+          claimed: owner.claimed,
+          // Disclosed deliberately: recovery needs a discoverable owner on a
+          // local, user-orchestrated stdio system.
+          sessionId: owner.claimed ? owner.sessionId : null,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_force_release_task_session",
+    {
+      title: "Force release Synaphex task session",
+      description:
+        "User recovery: release the writable claim on a task without knowing the owning sessionId, and delete that session's binding record. Calling this tool is itself the explicit recovery action. Never happens automatically -- a normal open against a claimed task still fails with TASK_ALREADY_BOUND. Task status, plans, memory and artifacts are unchanged.",
+      inputSchema: z.object({
+        projectId: projectIdSchema,
+        taskId: taskIdSchema,
+      }),
+      outputSchema: forceReleaseOutputSchema,
+      annotations: recoveryAnnotations,
+    },
+    async ({ projectId, taskId }) =>
+      run(onDiagnostic, "synaphex_force_release_task_session", async () => {
+        const parsedProjectId = parseProjectId(projectId);
+        const parsedTaskId = parseTaskId(taskId);
+        const result = await sessionRecovery.forceReleaseTaskSession(
+          parsedProjectId,
+          parsedTaskId,
+        );
+        return {
+          projectId: parsedProjectId,
+          taskId: result.taskId,
+          // An unclaimed task is a successful no-op, not a failure.
+          released: result.released,
+          previousSessionId: result.previousSessionId,
+        };
+      }),
+  );
+
+  return server;
+}
+
+/**
+ * Runs a read handler, returning structured content on success and a stable
+ * `{ code, message }` payload with `isError` on failure. Raw errors, stack
+ * traces and `cause` chains never reach the client; the full diagnostic goes
+ * to the diagnostics sink (stderr) instead.
+ */
+async function run<T>(
+  onDiagnostic: (message: string) => void,
+  tool: string,
+  handler: () => Promise<T>,
+): Promise<{
+  content: { type: "text"; text: string }[];
+  structuredContent: Record<string, unknown>;
+  isError?: true;
+}> {
+  try {
+    const output = await handler();
+    return {
+      content: [{ type: "text", text: JSON.stringify(output) }],
+      structuredContent: output as Record<string, unknown>,
+    };
+  } catch (error) {
+    const failure = toMcpToolFailure(error);
+    onDiagnostic(
+      `[synaphex-mcp] ${tool} failed: ${failure.code}: ${
+        error instanceof Error ? error.message : "non-error thrown"
+      }`,
+    );
+    return {
+      content: [{ type: "text", text: `${failure.code}: ${failure.message}` }],
+      structuredContent: { ...failure },
+      isError: true,
+    };
+  }
+}
+
+function defaultDiagnostic(message: string): void {
+  process.stderr.write(`${message}\n`);
+}

@@ -29,6 +29,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "PROJECT_NOT_FOUND",
   "AMBIGUOUS_PROJECT_REFERENCE",
   "INVALID_PROJECT_PATH",
+  "INVALID_SESSION_ID",
   "SESSION_ALREADY_BOUND_TO_TASK",
   "INVALID_TASK_DESCRIPTION",
   "TASK_NOT_FOUND",
@@ -36,6 +37,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "TASK_COMPLETED",
   "TASK_ARCHIVED",
   "TASK_ALREADY_BOUND",
+  "TASK_SESSION_OWNERSHIP_LOST",
   "INVALID_TASK_TRANSITION",
   "NO_PROJECT_BOUND",
   "TASK_BINDING_LOCK_TIMEOUT",
@@ -164,6 +166,12 @@ export class InvalidProjectPathError extends SynaphexError<"INVALID_PROJECT_PATH
   }
 }
 
+export class InvalidSessionIdError extends SynaphexError<"INVALID_SESSION_ID"> {
+  constructor(reason: string) {
+    super("INVALID_SESSION_ID", `Invalid session id: ${reason}`, { reason });
+  }
+}
+
 export class SessionAlreadyBoundToTaskError extends SynaphexError<"SESSION_ALREADY_BOUND_TO_TASK"> {
   constructor(sessionId: SessionId, taskId: TaskId) {
     super(
@@ -231,6 +239,26 @@ export class TaskAlreadyBoundError extends SynaphexError<"TASK_ALREADY_BOUND"> {
       "TASK_ALREADY_BOUND",
       `Task ${taskId} is already bound to another writable session`,
       { taskId, ownerSessionId },
+    );
+  }
+}
+
+/**
+ * Raised when a task-bound operation's ownership fence is no longer current:
+ * the claim was released, force-released, or replaced by a new claim instance.
+ *
+ * Distinct from `TASK_ALREADY_BOUND`, which reports that a task cannot be
+ * claimed. This reports that authority already held has been revoked, so a
+ * completed provider result must not commit.
+ *
+ * The replacement owner's SessionId is deliberately NOT included.
+ */
+export class TaskSessionOwnershipLostError extends SynaphexError<"TASK_SESSION_OWNERSHIP_LOST"> {
+  constructor(taskId: TaskId, sessionId: SessionId, phase: "preflight" | "commit") {
+    super(
+      "TASK_SESSION_OWNERSHIP_LOST",
+      `Task session ownership was lost before ${phase}: ${taskId}`,
+      { taskId, sessionId, phase },
     );
   }
 }

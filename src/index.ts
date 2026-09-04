@@ -353,7 +353,15 @@ export {
   type RuleViewScope,
   type ScopedRule,
 } from "./domain/rule.js";
-export type { SessionBinding, SessionId } from "./domain/session.js";
+export {
+  SESSION_ID_PREFIX,
+  generateSessionId,
+  isCanonicalSessionId,
+  isSessionId,
+  parseSessionId,
+  type SessionBinding,
+  type SessionId,
+} from "./domain/session.js";
 export {
   TASK_STATUSES,
   type Task,
@@ -389,3 +397,39 @@ export {
   TaskOperations,
   type TaskOperationsOptions,
 } from "./operations/task-operations.js";
+export {
+  SYNAPHEX_MCP_PHASE1_TOOLS,
+  SYNAPHEX_MCP_RECOVERY_TOOLS,
+  SYNAPHEX_MCP_SERVER_NAME,
+  SYNAPHEX_MCP_SESSION_TOOLS,
+  SYNAPHEX_MCP_TOOLS,
+  createSynaphexMcpServer,
+  type CreateSynaphexMcpServerOptions,
+} from "./mcp/create-synaphex-mcp-server.js";
+export type {
+  SessionCloseResult,
+  TaskClaimReleaseResult,
+  TaskOwnershipFence,
+} from "./core/session-manager.js";
+export {
+  SessionCommands,
+  type SessionCommandPort,
+  type SessionCommandsDependencies,
+  type SessionRecoveryPort,
+  type TaskSessionOwner,
+} from "./operations/session-commands.js";
+export {
+  MCP_EXPOSED_ERROR_CODES,
+  MCP_INTERNAL_ERROR_CODE,
+  McpInvalidInputError,
+  toMcpToolFailure,
+  type McpToolFailure,
+} from "./mcp/mcp-error-mapping.js";
+export type {
+  AgentConfigReadPort,
+  EffectiveRuleReadPort,
+  ProjectReadPort,
+  SessionReadPort,
+  SynaphexMcpReadDependencies,
+  TaskReadPort,
+} from "./mcp/synaphex-read-ports.js";
