@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AGENT_NAMES } from "../domain/agent.js";
 import { RULE_DECISIONS, RULE_SCOPES, formatRuleKey } from "../domain/rule.js";
 import type { AnyAgentInvocationResult } from "../domain/agent-invocation.js";
+import type { PlanDraftRevisionId } from "../domain/plan.js";
 import { parseSessionId } from "../domain/session.js";
 import { TASK_STATUSES } from "../domain/task.js";
 import { toMcpToolFailure } from "./mcp-error-mapping.js";
@@ -24,6 +25,10 @@ import type {
   ProjectSessionCommandPort,
   TaskCommandPort,
 } from "../operations/project-task-commands.js";
+import type {
+  PlanDecisionPort,
+  PlanReadPort,
+} from "../operations/plan-decision-commands.js";
 import type {
   SessionCommandPort,
   SessionRecoveryPort,
@@ -84,6 +89,19 @@ export const SYNAPHEX_MCP_BOOTSTRAP_TOOLS = Object.freeze([
 ] as const);
 
 /**
+ * Plan review and deterministic decisions (Phase 4B).
+ *
+ * Plan authority changes ONLY through these tools. Natural-language approval
+ * in a Planner result has no authority, and decisions are bound to the exact
+ * draft revision the user reviewed.
+ */
+export const SYNAPHEX_MCP_PLAN_TOOLS = Object.freeze([
+  "synaphex_get_plan_state",
+  "synaphex_accept_plan_draft",
+  "synaphex_reject_plan_draft",
+] as const);
+
+/**
  * Explicit user-driven recovery tools (Phase 2B).
  *
  * Synaphex has no lease, heartbeat, PID check or automatic stale-session
@@ -125,6 +143,7 @@ export const SYNAPHEX_MCP_CONTINUATION_TOOLS = Object.freeze([
 export const SYNAPHEX_MCP_TOOLS = Object.freeze([
   ...SYNAPHEX_MCP_PHASE1_TOOLS,
   ...SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
+  ...SYNAPHEX_MCP_PLAN_TOOLS,
   ...SYNAPHEX_MCP_SESSION_TOOLS,
   ...SYNAPHEX_MCP_RECOVERY_TOOLS,
   ...SYNAPHEX_MCP_INVOCATION_TOOLS,
@@ -162,6 +181,11 @@ export interface CreateSynaphexMcpServerOptions
   readonly projectTaskCommands: ProjectCommandPort &
     TaskCommandPort &
     ProjectSessionCommandPort;
+  /**
+   * Narrow plan review/decision boundary. MCP never receives a
+   * mutation-capable PlanManager.
+   */
+  readonly planCommands: PlanReadPort & PlanDecisionPort;
   /** Server version; callers pass the package.json version (never duplicated here). */
   readonly version: string;
   /** Diagnostics sink. Defaults to stderr so MCP stdout stays protocol-only. */
@@ -399,6 +423,44 @@ const projectSessionOutputSchema = z.object({
   bound: z.literal(true),
 });
 
+const planSessionSchema = z.object({
+  sessionId: z
+    .string()
+    .describe("Task-bound Synaphex session id. Project-only sessions cannot review or decide task plans."),
+});
+
+const planDecisionInputSchema = z.object({
+  sessionId: z
+    .string()
+    .describe("Task-bound Synaphex session id."),
+  draftRevisionId: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe(
+      "The exact draft revision returned by synaphex_get_plan_state. A decision applies only to that reviewed draft instance.",
+    ),
+});
+
+const planStateOutputSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  draft: z
+    .object({ revisionId: z.string(), content: z.string() })
+    .nullable(),
+  current: z.object({ content: z.string() }).nullable(),
+});
+
+const planDecisionOutputSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  draftRevisionId: z.string(),
+  draft: z.null(),
+  currentContent: z.string().nullable(),
+});
+
 const agentConfigOutputSchema = z.object({
   agent: z.enum(AGENT_NAMES),
   status: z.enum(["configured", "unconfigured", "removed"]),
@@ -439,6 +501,7 @@ export function createSynaphexMcpServer(
     agentInvocation,
     agentContinuation,
     projectTaskCommands,
+    planCommands,
     version,
     onDiagnostic = defaultDiagnostic,
   } = options;
@@ -606,6 +669,111 @@ export function createSynaphexMcpServer(
             decision: rule.decision,
             source: rule.source,
           })),
+        };
+      }),
+  );
+
+  // --- Phase 4B: plan review and deterministic decisions -------------------
+  //
+  // Deterministic local state operations: no model, network, shell or provider
+  // execution, so openWorldHint is false. None of these is a continuation
+  // handle -- revision identity is persisted with the plan, so a user may read
+  // a draft, restart the MCP process, and still decide about it.
+  server.registerTool(
+    "synaphex_get_plan_state",
+    {
+      title: "Get Synaphex plan state",
+      description:
+        "Read the reviewable plan state for a task-bound session: the current draft (with the revision id required to decide about it) and the accepted current plan. This is the authoritative way to obtain a draftRevisionId before accepting or rejecting.",
+      inputSchema: planSessionSchema,
+      outputSchema: planStateOutputSchema,
+      // readOnlyHint stays true: no plan CONTENT and no plan authority ever
+      // change here. A legacy or crash-mismatched draft does get revision
+      // metadata written, but that is an internal consistency migration --
+      // it assigns identity to a draft that already exists, and the plan the
+      // user reviews is byte-identical before and after.
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId }) =>
+      run(onDiagnostic, "synaphex_get_plan_state", async () => {
+        const state = await planCommands.getPlanReviewState(
+          parseSessionId(sessionId),
+        );
+        return {
+          sessionId: state.sessionId,
+          projectId: state.projectId,
+          taskId: state.taskId,
+          draft: state.draft,
+          current: state.current,
+        };
+      }),
+  );
+
+  // Both decisions change authoritative plan state, so destructiveHint is
+  // true: acceptance archives and replaces the current plan, and rejection
+  // deletes the proposed draft.
+  const planDecisionAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+  } as const;
+
+  server.registerTool(
+    "synaphex_accept_plan_draft",
+    {
+      title: "Accept Synaphex plan draft",
+      description:
+        "Deterministically accept exactly the reviewed draft: any existing current plan is archived and the draft becomes current. Requires the draft revision from synaphex_get_plan_state; a stale revision changes nothing. Natural-language approval has no authority.",
+      inputSchema: planDecisionInputSchema,
+      outputSchema: planDecisionOutputSchema,
+      annotations: planDecisionAnnotations,
+    },
+    async ({ sessionId, draftRevisionId }) =>
+      run(onDiagnostic, "synaphex_accept_plan_draft", async () => {
+        const result = await planCommands.acceptPlanDraft(
+          parseSessionId(sessionId),
+          draftRevisionId as PlanDraftRevisionId,
+        );
+        return {
+          sessionId: result.sessionId,
+          projectId: result.projectId,
+          taskId: result.taskId,
+          draftRevisionId: result.draftRevisionId,
+          draft: null,
+          currentContent: result.currentContent ?? null,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_reject_plan_draft",
+    {
+      title: "Reject Synaphex plan draft",
+      description:
+        "Deterministically reject exactly the reviewed draft, deleting it. The accepted current plan and the task lifecycle are unchanged. Requires the draft revision from synaphex_get_plan_state.",
+      inputSchema: planDecisionInputSchema,
+      outputSchema: planDecisionOutputSchema,
+      annotations: planDecisionAnnotations,
+    },
+    async ({ sessionId, draftRevisionId }) =>
+      run(onDiagnostic, "synaphex_reject_plan_draft", async () => {
+        const result = await planCommands.rejectPlanDraft(
+          parseSessionId(sessionId),
+          draftRevisionId as PlanDraftRevisionId,
+        );
+        return {
+          sessionId: result.sessionId,
+          projectId: result.projectId,
+          taskId: result.taskId,
+          draftRevisionId: result.draftRevisionId,
+          draft: null,
+          currentContent: null,
         };
       }),
   );

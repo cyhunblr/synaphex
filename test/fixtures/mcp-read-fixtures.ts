@@ -22,6 +22,10 @@ import type {
   TaskCommandPort,
 } from "../../src/operations/project-task-commands.js";
 import type {
+  PlanDecisionPort,
+  PlanReadPort,
+} from "../../src/operations/plan-decision-commands.js";
+import type {
   SessionCommandPort,
   SessionRecoveryPort,
 } from "../../src/operations/session-commands.js";
@@ -128,6 +132,55 @@ export class FakeReads {
   invokeError: Error | null = null;
   continuationId: string | null = null;
   projectTaskError: Error | null = null;
+  planError: Error | null = null;
+  planDraft: { revisionId: string; content: string } | null = {
+    revisionId: "planrev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    content: "# Draft plan\n",
+  };
+  planCurrent: { content: string } | null = null;
+
+  /** Narrow plan review/decision fake; owns no business logic. */
+  get planCommands(): PlanReadPort & PlanDecisionPort {
+    const guard = (port: string, args: readonly unknown[]) => {
+      this.calls.push({ port, args });
+      if (this.planError !== null) {
+        throw this.planError;
+      }
+    };
+    const scope = {
+      sessionId: "ses_00000000000000000000000000000001",
+      projectId: FAKE_PROJECT.id,
+      taskId: FAKE_TASK.id,
+    };
+    return {
+      getPlanReviewState: async (sessionId) => {
+        guard("planCommands.getPlanReviewState", [sessionId]);
+        return {
+          ...scope,
+          sessionId,
+          draft: this.planDraft as never,
+          current: this.planCurrent,
+        };
+      },
+      acceptPlanDraft: async (sessionId, draftRevisionId) => {
+        guard("planCommands.acceptPlanDraft", [sessionId, draftRevisionId]);
+        return {
+          ...scope,
+          sessionId,
+          draftRevisionId: draftRevisionId as never,
+          currentContent: "# Draft plan\n",
+        };
+      },
+      rejectPlanDraft: async (sessionId, draftRevisionId) => {
+        guard("planCommands.rejectPlanDraft", [sessionId, draftRevisionId]);
+        return {
+          ...scope,
+          sessionId,
+          draftRevisionId: draftRevisionId as never,
+        };
+      },
+    };
+  }
 
   /** Narrow bootstrap fake; owns no business logic. */
   get projectTaskCommands(): ProjectCommandPort &
@@ -358,6 +411,7 @@ export async function connectedClient(
     agentInvocation: reads.agentInvocation,
     agentContinuation: reads.agentContinuation,
     projectTaskCommands: reads.projectTaskCommands,
+    planCommands: reads.planCommands,
     version: "0.0.0-test",
     onDiagnostic: (message) => {
       reads.diagnostics.push(message);

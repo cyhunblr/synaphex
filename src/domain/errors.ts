@@ -48,6 +48,8 @@ export const SYNAPHEX_ERROR_CODES = [
   "INVALID_PLAN_CONTENT",
   "NO_PLAN_DRAFT",
   "PLAN_ALREADY_ACCEPTED",
+  "PLAN_DRAFT_REVISION_MISMATCH",
+  "PLAN_MUTATION_LOCK_TIMEOUT",
   "MEMORY_SOURCE_NOT_FOUND",
   "MEMORY_ALREADY_LOADED",
   "MEMORY_NOT_LOADED",
@@ -344,6 +346,34 @@ export class PlanAlreadyAcceptedError extends SynaphexError<"PLAN_ALREADY_ACCEPT
       "PLAN_ALREADY_ACCEPTED",
       `Task already has an accepted plan and no pending revision: ${taskId}`,
       { taskId },
+    );
+  }
+}
+
+/**
+ * Raised when a plan decision names a draft revision that is not the current
+ * persisted draft instance.
+ *
+ * This is the stale-review and same-content-ABA fence: the user decided about
+ * a specific draft instance, and that instance is gone or was replaced. The
+ * current draft content is deliberately NOT included -- the user must call the
+ * plan-read tool again and review the new draft explicitly.
+ */
+export class PlanDraftRevisionMismatchError extends SynaphexError<"PLAN_DRAFT_REVISION_MISMATCH"> {
+  constructor(taskId: TaskId, suppliedRevisionId: string) {
+    super(
+      "PLAN_DRAFT_REVISION_MISMATCH",
+      `The supplied plan draft revision is not the current draft for task ${taskId}`,
+      { taskId, suppliedRevisionId },
+    );
+  }
+}
+
+export class PlanMutationLockTimeoutError extends SynaphexError<"PLAN_MUTATION_LOCK_TIMEOUT"> {
+  constructor() {
+    super(
+      "PLAN_MUTATION_LOCK_TIMEOUT",
+      "Timed out waiting to update plan state",
     );
   }
 }

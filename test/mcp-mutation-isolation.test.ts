@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
+  SYNAPHEX_MCP_PLAN_TOOLS,
   SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_INVOCATION_TOOLS,
   SYNAPHEX_MCP_PHASE1_TOOLS,
@@ -58,7 +59,8 @@ test("MCP handler modules never import a broad mutation, invocation or provider 
           specifier.endsWith("session-commands.js") ||
             specifier.endsWith("direct-agent-invocation.js") ||
             specifier.endsWith("invocation-continuation-commands.js") ||
-            specifier.endsWith("project-task-commands.js"),
+            specifier.endsWith("project-task-commands.js") ||
+            specifier.endsWith("plan-decision-commands.js"),
           `${name} may only import narrow operations ports (${specifier})`,
         );
       }
@@ -189,7 +191,8 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
         SYNAPHEX_MCP_RECOVERY_TOOLS.length +
         SYNAPHEX_MCP_INVOCATION_TOOLS.length +
         SYNAPHEX_MCP_CONTINUATION_TOOLS.length +
-        SYNAPHEX_MCP_BOOTSTRAP_TOOLS.length,
+        SYNAPHEX_MCP_BOOTSTRAP_TOOLS.length +
+        SYNAPHEX_MCP_PLAN_TOOLS.length,
     );
     const mutating = tools
       .filter((tool) => tool.annotations?.readOnlyHint !== true)
@@ -198,6 +201,7 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
     // Exactly four mutating tools. No helper-execution, action-approval,
     // cancellation or invocation-status tool exists yet.
     assert.deepEqual(mutating, [
+      "synaphex_accept_plan_draft",
       "synaphex_approve_and_execute_helper",
       "synaphex_approve_network_action",
       "synaphex_close_session",
@@ -209,6 +213,7 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
       "synaphex_open_project_session",
       "synaphex_open_task_session",
       "synaphex_register_project",
+      "synaphex_reject_plan_draft",
       "synaphex_resume_caller",
     ]);
     // Host actions, cancellation, status and plan acceptance stay absent:
@@ -221,6 +226,9 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
       "synaphex_abort_invocation",
       "synaphex_get_invocation",
       "synaphex_accept_plan",
+      "synaphex_archive_plan",
+      "synaphex_restore_plan",
+      "synaphex_delete_plan_archive",
     ]) {
       assert.equal(
         tools.some((tool) => tool.name === absent),
@@ -391,4 +399,68 @@ test("creating a project, task or session invokes no agent", async () => {
       "projectTaskCommands.openProjectSession",
     ],
   );
+});
+
+test("plan decision commands invoke no provider and touch no unrelated state", async () => {
+  const source = stripComments(
+    await readFile(
+      join(process.cwd(), "src", "operations", "plan-decision-commands.ts"),
+      "utf8",
+    ),
+  );
+  for (const forbidden of [
+    "providers/",
+    "AgentInvocationService",
+    "invokeUserAgent",
+    "ProviderRouter",
+    "ProviderDispatchingAgentExecutor",
+    "child_process",
+    "spawn(",
+    "fetch(",
+    // No rule mutation, no action approval, no task lifecycle change.
+    "setRule",
+    "removeRule",
+    "approvedActions",
+    "markCompleted",
+    ".archive(",
+    "executeHostAction",
+    // No source workspace access.
+    "sourcePath",
+    "writeFile",
+    // Plan decisions are not continuation state.
+    "InvocationContinuationStore",
+    "continuationId",
+    // The ownership token stays internal.
+    "ownershipToken",
+  ]) {
+    assert.equal(
+      source.includes(forbidden),
+      false,
+      `plan-decision-commands must not reference ${forbidden}`,
+    );
+  }
+  // It reuses the Phase-2C fencing primitives rather than inventing another.
+  assert.ok(source.includes("captureTaskOwnership"));
+  assert.ok(source.includes("isTaskOwnershipCurrent"));
+});
+
+test("only PlanManager owns the plan mutation lock, and there is exactly one", async () => {
+  const planManager = await readFile(
+    join(process.cwd(), "src", "core", "plan-manager.ts"),
+    "utf8",
+  );
+  assert.ok(planManager.includes("PLAN_MUTATION_LOCK_PATH"));
+  // Every mutating plan path serializes through the same boundary.
+  const lockedCalls = planManager.match(/withPlanMutationLock/g) ?? [];
+  assert.ok(lockedCalls.length >= 6, "all plan mutation paths must be locked");
+
+  // No MCP-only or application-only plan lock exists.
+  for (const file of [
+    join(process.cwd(), "src", "operations", "plan-decision-commands.ts"),
+    join(process.cwd(), "src", "mcp", "create-synaphex-mcp-server.ts"),
+  ]) {
+    const source = await readFile(file, "utf8");
+    assert.equal(source.includes("mutation-lock"), false, file);
+    assert.equal(source.includes("MutationLock"), false, file);
+  }
 });

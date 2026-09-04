@@ -337,6 +337,7 @@ export type {
   DraftPlan,
   Plan,
   PlanAvailability,
+  PlanDraftRevisionId,
   PlanStatus,
 } from "./domain/plan.js";
 export {
@@ -402,6 +403,14 @@ export {
   type ProviderDispatchingAgentExecutorDelegates,
 } from "./providers/provider-dispatching-agent-executor.js";
 export {
+  PlanDecisionCommands,
+  type PlanDecisionDependencies,
+  type PlanDecisionPort,
+  type PlanDecisionResult,
+  type PlanReadPort,
+  type PlanReviewState,
+} from "./operations/plan-decision-commands.js";
+export {
   ProjectTaskCommands,
   type ProjectCommandPort,
   type ProjectSessionCommandPort,
@@ -448,6 +457,7 @@ export {
   SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_INVOCATION_TOOLS,
   SYNAPHEX_MCP_PHASE1_TOOLS,
+  SYNAPHEX_MCP_PLAN_TOOLS,
   SYNAPHEX_MCP_RECOVERY_TOOLS,
   SYNAPHEX_MCP_SERVER_NAME,
   SYNAPHEX_MCP_SESSION_TOOLS,

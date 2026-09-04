@@ -888,7 +888,7 @@ test("host actions have no approval tool", async () => {
     ]) {
       assert.equal(names.includes(absent), false, `${absent} must not exist`);
     }
-    assert.equal(names.length, 18);
+    assert.equal(names.length, 21);
   } finally {
     await close();
   }

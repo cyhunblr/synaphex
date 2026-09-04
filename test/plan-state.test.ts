@@ -128,11 +128,12 @@ test("saveDraft creates a human-readable Markdown draft", async (t) => {
 
   const draft = await fixture.plans.saveDraft(fixture.task.id, content);
 
-  assert.deepEqual(draft, {
-    taskId: fixture.task.id,
-    status: "draft",
-    content,
-  });
+  assert.equal(draft.taskId, fixture.task.id);
+  assert.equal(draft.status, "draft");
+  assert.equal(draft.content, content);
+  // Every draft write instance carries an opaque revision identity.
+  assert.match(draft.revisionId, /^planrev_[0-9a-f]{32}$/);
+  // The plan itself stays human-readable Markdown.
   assert.equal(
     await readFile(join(plansDirectory(fixture), "draft.md"), "utf8"),
     content,

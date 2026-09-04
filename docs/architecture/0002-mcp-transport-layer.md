@@ -983,3 +983,127 @@ session invokes no agent — a test asserts only bootstrap ports are touched.
 Role contracts are unbroadened: `PLANNER` with project scope still fails with
 Core's `NO_TASK_BOUND`. No plan is created or accepted by task creation, and no
 host-action tool exists.
+
+## Phase 4B: versioned plan review and deterministic decisions
+
+```text
+Plan draft decisions are revision-bound.
+A user accepts/rejects exactly the draft instance they reviewed.
+Natural-language approval has no authority.
+```
+
+```text
+draftRevisionId prevents stale-review and same-content ABA decisions.
+```
+
+### Why a revision id, not a content hash
+
+A content hash alone permits ABA: draft A with content X is reviewed, replaced,
+and later draft B appears with the same content X — the hash matches and a
+stale decision would apply to a draft the user never saw. Every draft WRITE
+INSTANCE therefore mints an opaque `planrev_<32 hex>` identity, independent of
+content. Two byte-identical drafts have different revisions, and a Planner
+invocation always proposes a new instance even when the text is unchanged.
+
+`draftRevisionId` is an optimistic-concurrency/identity token safe to return to
+a client. It is not a SessionId, not the Phase-2C ownership token, and not an
+authentication credential.
+
+### Persistence
+
+Plans stay human-readable Markdown (`draft.md`, `current.md`, `archive/`). The
+only addition is `draft.meta.json`:
+
+```json
+{ "version": 1, "revisionId": "planrev_…", "contentHash": "…", "createdAt": "…" }
+```
+
+`contentHash` exists purely to detect mismatched metadata; it is never the
+revision identity. On read, metadata is usable only when its hash matches the
+actual draft bytes — otherwise it is discarded and a fresh revision is minted.
+That is what stops a crash between the content write and the metadata write
+from letting new bytes inherit an old identity.
+
+### Legacy and lazy hydration
+
+A pre-existing `draft.md` with no metadata stays readable. It is upgraded
+lazily, under the plan mutation lock, the first time it is read through the
+revision-aware API: a fresh revision is minted and persisted. No revision is
+ever synthesized deterministically from content, and no project is migrated
+eagerly. Until hydrated, `getDraft` reports a placeholder revision that can
+never match a decision, so an un-hydrated draft is readable but not decidable.
+
+### One plan mutation lock
+
+`PlanManager` now owns a single serialization boundary at
+`state/plans/.mutation-lock.json`, following the existing task-binding and
+memory lock conventions. Every path touching draft, draft metadata, current or
+archive goes through it: Planner persistence via ResultProcessor, accept,
+reject, metadata hydration, and archive/promotion. There is no MCP-only lock
+and no separate accept-vs-write lock (asserted by test). Stale-lock recovery is
+**not** implemented — the same deferred debt as the other two locks.
+
+### Decision authority
+
+Decisions are keyed by the session's **current task ownership**, never by
+taskId alone. `PlanDecisionCommands` resolves the task from the SessionId
+(a project-only session is refused with `NO_TASK_BOUND`), validates task
+lifecycle, then reuses the Phase-2C fencing primitives — capture, then
+revalidate — before delegating. A force-released or replaced session cannot
+decide on the new owner's behalf; it fails with `NO_TASK_BOUND` (its binding
+record is deleted by force release) or `TASK_SESSION_OWNERSHIP_LOST` when only
+the claim was taken.
+
+Accept: verify exact revision → archive any existing current → rename draft to
+current → remove draft metadata. Reject: verify exact revision → delete
+metadata → delete draft; the current plan and task lifecycle are untouched, and
+rejected drafts are deleted rather than archived.
+
+A revision mismatch mutates nothing and deliberately does **not** return the
+current draft content — the user must call `synaphex_get_plan_state` again.
+
+### Crash ordering and residual windows
+
+No filesystem transaction exists, so ordering is chosen to fail safely:
+
+- **Draft write:** content, then metadata. A crash between them leaves metadata
+  whose hash cannot match, so the draft re-hydrates to a fresh revision.
+- **Accept:** archive current (exclusive create), then `rename` draft → current
+  (atomic promotion), then remove draft metadata. A crash after the rename
+  leaves orphaned draft metadata whose hash matches nothing, which is ignored.
+  **Residual window:** a crash after archiving but before the rename leaves a
+  duplicate archive copy of a plan that is still current.
+- **Reject:** metadata, then content. A crash between them leaves a draft with
+  no usable metadata, which re-hydrates to a *fresh* revision — so the rejected
+  revision can never be decided again.
+
+No partial state grants ambiguous authority.
+
+### MCP tools and annotations
+
+| Tool | readOnly | idempotent | destructive |
+|---|---|---|---|
+| `synaphex_get_plan_state` | **true** | true | false |
+| `synaphex_accept_plan_draft` | false | false | **true** |
+| `synaphex_reject_plan_draft` | false | false | **true** |
+
+All three are `openWorldHint: false` — deterministic local state, no model,
+network, shell or provider execution.
+
+`get_plan_state` keeps `readOnlyHint: true` honestly: no plan **content** and
+no plan **authority** ever change there. Legacy hydration does write revision
+metadata, but that assigns identity to a draft which already exists, and the
+plan the user reviews is byte-identical before and after. Both decisions are
+destructive because acceptance archives and replaces the current plan and
+rejection deletes the proposed draft.
+
+Plan state is **not** continuation state: revision identity is persisted with
+the plan, so a user may read a draft, restart the MCP process, and still decide
+about it. No archive mutation tool was added.
+
+### CODER still blocked
+
+Accepting a plan clears `PLAN_DRAFT_PENDING` in Core, but CODER remains absent
+from `MCP_INVOCABLE_AGENTS`. Plan acceptance does not solve transactional
+source mutation, and a protocol test confirms CODER is still refused after an
+acceptance.

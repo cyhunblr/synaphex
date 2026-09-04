@@ -56,6 +56,12 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "PROJECT_PATH_ALREADY_REGISTERED",
     "INVALID_PROJECT_PATH",
     "INVALID_TASK_DESCRIPTION",
+    // Phase 4B plan decisions.
+    "NO_PLAN_DRAFT",
+    "PLAN_ALREADY_ACCEPTED",
+    "PLAN_DRAFT_REVISION_MISMATCH",
+    "PLAN_MUTATION_LOCK_TIMEOUT",
+    "INVALID_PLAN_CONTENT",
   ] as const satisfies readonly SynaphexErrorCode[]);
 
 export interface McpToolFailure {
@@ -104,6 +110,14 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   INVALID_PROJECT_PATH:
     "The project source path is not a usable directory.",
   INVALID_TASK_DESCRIPTION: "Task description must not be empty.",
+  NO_PLAN_DRAFT: "The task has no plan draft.",
+  PLAN_ALREADY_ACCEPTED: "The task already has an accepted plan.",
+  // Deliberately does not include the current draft: the user must read the
+  // plan state again and review the new draft explicitly.
+  PLAN_DRAFT_REVISION_MISMATCH:
+    "That plan draft revision is not the current draft; read the plan state again before deciding.",
+  PLAN_MUTATION_LOCK_TIMEOUT: "Timed out waiting to update plan state.",
+  INVALID_PLAN_CONTENT: "Plan content must not be empty.",
   [MCP_INTERNAL_ERROR_CODE]: "Internal Synaphex error.",
 });
 

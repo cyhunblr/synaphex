@@ -117,6 +117,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
 
     const tools = (await client.listTools()).tools.map((tool) => tool.name).sort();
     assert.deepEqual(tools, [
+      "synaphex_accept_plan_draft",
       "synaphex_approve_and_execute_helper",
       "synaphex_approve_network_action",
       "synaphex_close_session",
@@ -129,11 +130,13 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_get_project",
       "synaphex_get_session",
       "synaphex_get_task",
+      "synaphex_get_plan_state",
       "synaphex_get_task_session_owner",
       "synaphex_invoke_agent",
       "synaphex_open_project_session",
       "synaphex_open_task_session",
       "synaphex_register_project",
+      "synaphex_reject_plan_draft",
       "synaphex_resume_caller",
     ].sort());
 
@@ -582,7 +585,7 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
       (candidate) => candidate.name === "synaphex_invoke_agent",
     );
     assert.notEqual(invokeTool, undefined);
-    assert.equal(tools.length, 18);
+    assert.equal(tools.length, 21);
 
     // 5: CODER is absent from the observable enum.
     const agentEnum =
@@ -1540,5 +1543,341 @@ test("bootstrap tools grant no generic filesystem introspection", async (t) => {
     assert.equal(serialized.includes("sensitive"), false);
   } finally {
     await client.close();
+  }
+});
+
+// --- Phase 4B: plan review and deterministic decisions --------------------
+
+interface PlanHarness {
+  readonly client: Client;
+  readonly projectId: string;
+  readonly taskId: string;
+  readonly sessionId: string;
+  close(): Promise<void>;
+}
+
+async function planHarness(
+  t: TestContext,
+  planMarkdown?: string,
+): Promise<PlanHarness> {
+  const home = await temporaryStateRoot(t);
+  const sourcePath = join(home, "workspace");
+  await mkdir(sourcePath, { recursive: true });
+  const store = new StateStore(join(home, ".synaphex"));
+  await new AgentConfigManager(store).setConfigured("planner", {
+    provider: "openai",
+    surface: "cli",
+    model: "planner-model",
+  });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [FAKE_PROVIDER_ENTRYPOINT, ...HOST_ARGS],
+    env: {
+      ...process.env,
+      HOME: home,
+      ...(planMarkdown === undefined
+        ? {}
+        : { SYNAPHEX_TEST_PLAN_MARKDOWN: planMarkdown }),
+    },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "plan-smoke", version: "0.0.0" });
+  await client.connect(transport);
+  const projectId = (
+    (
+      await client.callTool({
+        name: "synaphex_register_project",
+        arguments: { name: "Plan Project", sourcePath },
+      })
+    ).structuredContent as { id: string }
+  ).id;
+  const taskId = (
+    (
+      await client.callTool({
+        name: "synaphex_create_task",
+        arguments: { projectId, description: "Plan the work" },
+      })
+    ).structuredContent as { id: string }
+  ).id;
+  const sessionId = (
+    (
+      await client.callTool({
+        name: "synaphex_open_task_session",
+        arguments: { projectId, taskId },
+      })
+    ).structuredContent as { sessionId: string }
+  ).sessionId;
+  return { client, projectId, taskId, sessionId, close: () => client.close() };
+}
+
+async function invokePlanner(h: PlanHarness): Promise<void> {
+  const invoked = await h.client.callTool({
+    name: "synaphex_invoke_agent",
+    arguments: {
+      agent: "planner",
+      scope: { kind: "task_session", sessionId: h.sessionId },
+      instruction: "Draft a plan.",
+    },
+  });
+  assert.notEqual(invoked.isError, true, JSON.stringify(invoked.content));
+}
+
+async function planState(h: PlanHarness): Promise<{
+  draft: { revisionId: string; content: string } | null;
+  current: { content: string } | null;
+}> {
+  const state = await h.client.callTool({
+    name: "synaphex_get_plan_state",
+    arguments: { sessionId: h.sessionId },
+  });
+  assert.notEqual(state.isError, true, JSON.stringify(state.content));
+  return state.structuredContent as never;
+}
+
+test("A: Planner draft can be read and accepted by exact revision", async (t) => {
+  const h = await planHarness(t);
+  try {
+    await invokePlanner(h);
+    const before = await planState(h);
+    assert.notEqual(before.draft, null);
+    assert.match(before.draft!.revisionId, /^planrev_[0-9a-f]{32}$/);
+    assert.equal(before.current, null);
+    // Natural-language "approval" in the Planner result promoted nothing.
+    assert.match(before.draft!.content, /Approved: build it/);
+
+    const accepted = await h.client.callTool({
+      name: "synaphex_accept_plan_draft",
+      arguments: {
+        sessionId: h.sessionId,
+        draftRevisionId: before.draft!.revisionId,
+      },
+    });
+    assert.notEqual(accepted.isError, true, JSON.stringify(accepted.content));
+
+    const after = await planState(h);
+    assert.equal(after.draft, null);
+    assert.equal(after.current?.content, before.draft!.content);
+  } finally {
+    await h.close();
+  }
+});
+
+test("B: a stale revision is refused and the latest draft survives", async (t) => {
+  const h = await planHarness(t);
+  try {
+    await invokePlanner(h);
+    const first = await planState(h);
+    const staleRevision = first.draft!.revisionId;
+
+    // A second Planner invocation replaces the draft instance.
+    await invokePlanner(h);
+    const second = await planState(h);
+    assert.notEqual(second.draft!.revisionId, staleRevision);
+
+    const refused = await h.client.callTool({
+      name: "synaphex_accept_plan_draft",
+      arguments: { sessionId: h.sessionId, draftRevisionId: staleRevision },
+    });
+    assert.equal(refused.isError, true);
+    assert.equal(
+      (refused.structuredContent as { code: string }).code,
+      "PLAN_DRAFT_REVISION_MISMATCH",
+    );
+    // The stale error must not carry the new draft content.
+    assert.equal(JSON.stringify(refused).includes("Approved: build it"), false);
+
+    // The latest draft remains, unpromoted.
+    const unchanged = await planState(h);
+    assert.equal(unchanged.draft!.revisionId, second.draft!.revisionId);
+    assert.equal(unchanged.current, null);
+  } finally {
+    await h.close();
+  }
+});
+
+test("C: two identical-content Planner drafts get different revisions", async (t) => {
+  const h = await planHarness(t, "# Identical plan\n\n1. Same bytes.\n");
+  try {
+    await invokePlanner(h);
+    const first = await planState(h);
+    await invokePlanner(h);
+    const second = await planState(h);
+
+    // Byte-identical content, distinct instance identity: same-content ABA is
+    // impossible over the wire too.
+    assert.equal(second.draft!.content, first.draft!.content);
+    assert.notEqual(second.draft!.revisionId, first.draft!.revisionId);
+
+    const stale = await h.client.callTool({
+      name: "synaphex_accept_plan_draft",
+      arguments: {
+        sessionId: h.sessionId,
+        draftRevisionId: first.draft!.revisionId,
+      },
+    });
+    assert.equal(stale.isError, true);
+    assert.equal(
+      (stale.structuredContent as { code: string }).code,
+      "PLAN_DRAFT_REVISION_MISMATCH",
+    );
+  } finally {
+    await h.close();
+  }
+});
+
+test("D: rejecting an exact revision deletes the draft and leaves current alone", async (t) => {
+  const h = await planHarness(t);
+  try {
+    // Establish an accepted current plan first.
+    await invokePlanner(h);
+    const accepted = await planState(h);
+    await h.client.callTool({
+      name: "synaphex_accept_plan_draft",
+      arguments: {
+        sessionId: h.sessionId,
+        draftRevisionId: accepted.draft!.revisionId,
+      },
+    });
+    const currentContent = (await planState(h)).current!.content;
+
+    // A new proposal is rejected.
+    await invokePlanner(h);
+    const proposal = await planState(h);
+    const rejected = await h.client.callTool({
+      name: "synaphex_reject_plan_draft",
+      arguments: {
+        sessionId: h.sessionId,
+        draftRevisionId: proposal.draft!.revisionId,
+      },
+    });
+    assert.notEqual(rejected.isError, true, JSON.stringify(rejected.content));
+
+    const after = await planState(h);
+    assert.equal(after.draft, null);
+    assert.equal(after.current?.content, currentContent);
+
+    // Deciding the same revision again is refused.
+    for (const tool of [
+      "synaphex_accept_plan_draft",
+      "synaphex_reject_plan_draft",
+    ]) {
+      const again = await h.client.callTool({
+        name: tool,
+        arguments: {
+          sessionId: h.sessionId,
+          draftRevisionId: proposal.draft!.revisionId,
+        },
+      });
+      assert.equal(again.isError, true, tool);
+    }
+
+    // The task lifecycle never changed.
+    const task = await h.client.callTool({
+      name: "synaphex_get_task",
+      arguments: { projectId: h.projectId, taskId: h.taskId },
+    });
+    assert.equal(
+      (task.structuredContent as { status: string }).status,
+      "active",
+    );
+  } finally {
+    await h.close();
+  }
+});
+
+test("E: a project-only session cannot use any plan tool", async (t) => {
+  const h = await planHarness(t);
+  try {
+    const projectSession = (
+      (
+        await h.client.callTool({
+          name: "synaphex_open_project_session",
+          arguments: { projectId: h.projectId },
+        })
+      ).structuredContent as { sessionId: string }
+    ).sessionId;
+
+    for (const [tool, args] of [
+      ["synaphex_get_plan_state", { sessionId: projectSession }],
+      [
+        "synaphex_accept_plan_draft",
+        {
+          sessionId: projectSession,
+          draftRevisionId: "planrev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        },
+      ],
+      [
+        "synaphex_reject_plan_draft",
+        {
+          sessionId: projectSession,
+          draftRevisionId: "planrev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        },
+      ],
+    ] as const) {
+      const outcome = await h.client.callTool({ name: tool, arguments: args });
+      assert.equal(outcome.isError, true, tool);
+      assert.equal(
+        (outcome.structuredContent as { code: string }).code,
+        "NO_TASK_BOUND",
+        tool,
+      );
+    }
+  } finally {
+    await h.close();
+  }
+});
+
+test("plan tools expose no ownership token, path or archive content", async (t) => {
+  const h = await planHarness(t);
+  try {
+    await invokePlanner(h);
+    const state = await h.client.callTool({
+      name: "synaphex_get_plan_state",
+      arguments: { sessionId: h.sessionId },
+    });
+    const serialized = JSON.stringify(state);
+    for (const forbidden of [
+      "ownershipToken",
+      "TaskOwnershipFence",
+      "draft.md",
+      "draft.meta.json",
+      "/plans",
+      "archive",
+      "contentHash",
+    ]) {
+      assert.equal(serialized.includes(forbidden), false, `leaked ${forbidden}`);
+    }
+  } finally {
+    await h.close();
+  }
+});
+
+test("CODER stays excluded even after a plan is accepted", async (t) => {
+  const h = await planHarness(t);
+  try {
+    await invokePlanner(h);
+    const state = await planState(h);
+    await h.client.callTool({
+      name: "synaphex_accept_plan_draft",
+      arguments: {
+        sessionId: h.sessionId,
+        draftRevisionId: state.draft!.revisionId,
+      },
+    });
+    // An accepted plan clears PLAN_DRAFT_PENDING in Core, but CODER remains
+    // absent from MCP: plan acceptance does not solve transactional source
+    // mutation.
+    const coder = await h.client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "coder",
+        scope: { kind: "task_session", sessionId: h.sessionId },
+        instruction: "Implement the accepted plan.",
+      },
+    });
+    assert.equal(coder.isError, true);
+    assert.match(coder.content ? JSON.stringify(coder.content) : "", /Invalid option/);
+  } finally {
+    await h.close();
   }
 });

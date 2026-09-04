@@ -26,7 +26,7 @@ test("the server registers exactly the accepted tool surface", async () => {
     for (const phase1Tool of SYNAPHEX_MCP_PHASE1_TOOLS) {
       assert.ok(names.includes(phase1Tool), `${phase1Tool} must remain`);
     }
-    assert.equal(names.length, 18);
+    assert.equal(names.length, 21);
   } finally {
     await close();
   }
@@ -93,6 +93,8 @@ test("annotations describe each tool honestly and are closed-world throughout", 
       // session) and anything that consumes provider quota or a one-time
       // continuation transition. Only reads and close_session are idempotent.
       const nonIdempotent = [
+        "synaphex_accept_plan_draft",
+        "synaphex_reject_plan_draft",
         "synaphex_register_project",
         "synaphex_create_task",
         "synaphex_open_project_session",
@@ -113,6 +115,10 @@ test("annotations describe each tool honestly and are closed-world throughout", 
           "synaphex_invoke_agent",
           "synaphex_approve_and_execute_helper",
           "synaphex_approve_network_action",
+          // Plan decisions change authoritative plan state: acceptance
+          // archives/replaces current, rejection deletes the draft.
+          "synaphex_accept_plan_draft",
+          "synaphex_reject_plan_draft",
         ].includes(tool.name),
         `${tool.name} destructiveHint`,
       );
@@ -137,6 +143,7 @@ test("server identity uses the package name and the injected package version", a
     sessionRecovery: reads.sessionRecovery,
     agentInvocation: reads.agentInvocation,
     agentContinuation: reads.agentContinuation,
+    planCommands: reads.planCommands,
     projectTaskCommands: reads.projectTaskCommands,
     version: "9.9.9-test",
   });
