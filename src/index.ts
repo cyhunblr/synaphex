@@ -398,6 +398,10 @@ export {
   type TaskOperationsOptions,
 } from "./operations/task-operations.js";
 export {
+  ProviderDispatchingAgentExecutor,
+  type ProviderDispatchingAgentExecutorDelegates,
+} from "./providers/provider-dispatching-agent-executor.js";
+export {
   MCP_INVOCABLE_AGENTS,
   DirectAgentInvocation,
   isMcpInvocableAgent,

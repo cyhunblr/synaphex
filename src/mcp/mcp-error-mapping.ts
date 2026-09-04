@@ -45,6 +45,7 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "AGENT_CONFIGURATION_REMOVED",
     "INVALID_PROVIDER_ROUTE",
     "PROVIDER_CLI_UNAVAILABLE",
+    "NATIVE_HOST_EXECUTION_UNAVAILABLE",
     "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
     "AGENT_EXECUTION_FAILED",
     "INVALID_AGENT_RESULT",
@@ -81,6 +82,8 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   INVALID_PROVIDER_ROUTE:
     "The configured agent cannot be reached from this host.",
   PROVIDER_CLI_UNAVAILABLE: "The provider CLI runtime is unavailable.",
+  NATIVE_HOST_EXECUTION_UNAVAILABLE:
+    "The route is valid but native host execution is not available; configure the target agent for CLI execution.",
   PROVIDER_EXECUTION_POLICY_UNSUPPORTED:
     "The provider cannot safely enforce the required execution policy.",
   // Deliberately generic: provider stderr, command arguments, environment and

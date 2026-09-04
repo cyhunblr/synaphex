@@ -67,6 +67,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "UNSUPPORTED_AGENT_BEHAVIOR",
   "INVALID_PROVIDER_ROUTE",
   "PROVIDER_CLI_UNAVAILABLE",
+  "NATIVE_HOST_EXECUTION_UNAVAILABLE",
   "INVALID_AGENT_CONTEXT",
   "INVALID_AGENT_HANDOFF",
   "INVALID_AGENT_RESULT",
@@ -552,6 +553,31 @@ export class ProviderCliUnavailableError extends SynaphexError<"PROVIDER_CLI_UNA
         configuredSurface,
         effectiveSurface: "cli",
       },
+    );
+  }
+}
+
+/**
+ * Raised when a resolved ExecutionRoute is VALID but Synaphex has no callable
+ * bridge for it -- specifically a `same_provider_native` route whose
+ * `effectiveSurface` is `vscode`.
+ *
+ * Deliberately distinct from `INVALID_PROVIDER_ROUTE` (the router rejected the
+ * route itself) and from `PROVIDER_CLI_UNAVAILABLE` (a CLI runtime is missing).
+ * Here the route is legitimate and execution support is simply absent, so the
+ * dispatcher fails closed rather than silently spawning a provider CLI and
+ * reporting it as native VS Code execution.
+ */
+export class NativeHostExecutionUnavailableError extends SynaphexError<"NATIVE_HOST_EXECUTION_UNAVAILABLE"> {
+  constructor(
+    provider: AgentProvider,
+    surface: AgentSurface,
+    agent: AgentName,
+  ) {
+    super(
+      "NATIVE_HOST_EXECUTION_UNAVAILABLE",
+      `Native host execution is not available for ${provider}/${surface}`,
+      { provider, surface, agent },
     );
   }
 }

@@ -552,3 +552,104 @@ building one inside MCP (which would couple MCP to provider adapters), the
 stdio entrypoint accepts an injected executor and runtime availability. Absent
 one, invocation fails closed instead of guessing a provider. Wiring real
 provider dispatch belongs with the installer work.
+
+## Phase 3B: provider executor dispatch
+
+```text
+ProviderRouter decides the route.
+ProviderDispatchingAgentExecutor executes callable routes.
+```
+
+`ProviderDispatchingAgentExecutor` implements the existing `AgentExecutor`
+interface and receives an already-resolved `ExecutionRoute`. The route is
+authoritative: the dispatcher resolves no routing, rules or ExecutionPolicy,
+chooses no model, re-reads no agent configuration, does not touch HostContext,
+and performs no fallback. It selects a delegate and forwards the identical
+`AgentExecutionInput`, so each adapter's sandbox, network, structured-output,
+authentication and process semantics stay untouched.
+
+```text
+openai    + cli    -> CodexCliAgentExecutor
+anthropic + cli    -> ClaudeCliAgentExecutor
+google    + cli    -> AntigravityCliAgentExecutor
+any provider + vscode -> NATIVE_HOST_EXECUTION_UNAVAILABLE (fail closed)
+unknown provider      -> INVALID_PROVIDER_ROUTE (never substituted)
+```
+
+### No fallback, ever
+
+There is no "Claude unavailable → try Codex", no "CLI missing → try another
+provider", and no "Antigravity unsupported → use another Google runtime".
+Failure is preferred over silently changing execution identity. A delegate
+throwing does not cause any other delegate to run (tested).
+
+Runtime availability probing stays separate from execution: the dispatcher
+never probes, and there is no pre-flight executable fallback. `ProviderRouter`
+alone consults availability when deciding whether to return a CLI route.
+
+### VS Code is a host surface, not a callable runtime
+
+```text
+VS Code is a host surface, not an externally callable provider runtime.
+Valid same-provider-native routes currently fail closed until a native bridge exists.
+```
+
+`same_provider_native` (host and target both the same provider on `vscode`) is
+a legitimate routing outcome, but Synaphex has no bridge from the MCP
+subprocess into an active VS Code extension. It therefore fails with
+`NATIVE_HOST_EXECUTION_UNAVAILABLE` rather than being downgraded to the
+provider CLI — reporting a CLI run as native VS Code execution would
+misrepresent what executed.
+
+That code is deliberately distinct from `INVALID_PROVIDER_ROUTE` (the router
+rejected the route) and `PROVIDER_CLI_UNAVAILABLE` (a CLI runtime is missing):
+here the route is valid and only execution support is absent. A future native
+bridge may need provider-native skill/command integration, a host-mediated
+callback/handoff, or another explicit native-host protocol. That mechanism is
+not designed here.
+
+### Composition
+
+`stdio-main` is the composition root and the only module permitted to construct
+concrete provider adapters. It builds all three accepted CLI executors over one
+shared `SpawnProcessRunner` (stateless per call; every adapter passes its own
+capture limits and timeouts per invocation, and `shell: false` is preserved),
+wraps them in the dispatcher, and injects that single provider-independent
+executor into `AgentInvocationService`.
+
+```text
+stdio-main (composition root)
+    -> provider dispatcher
+        -> provider adapters
+```
+
+MCP tool handlers hold only the narrow invocation port; a test asserts no MCP
+module outside the composition root references any concrete provider executor
+or the `providers/` directory at all.
+
+### Antigravity through the dispatcher
+
+Dispatch to the Antigravity adapter succeeds, and the adapter then applies its
+own accepted security resolver — which still fails closed for every
+ExecutionPolicy combination, before any model spawn. This is not special-cased
+in the dispatcher. A test wires the real adapter with a process runner that
+throws if `agy` is ever spawned, and confirms the refusal arrives as
+`unsupported_execution_policy` with no spawn.
+
+### Project-only invocation usability
+
+`{kind: "project", sessionId}` takes a SessionId rather than a ProjectId
+because Core's invocation entrypoint resolves scope from the authoritative
+session binding; a ProjectId would reintroduce the mismatched-identity problem
+Phase 3A removed. The wire shape is unchanged.
+
+However:
+
+```text
+project-only agent invocation is implemented
+but is not yet self-service through MCP
+```
+
+`synaphex_open_task_session` is the only session-creating tool and it always
+binds a task, so a project-only session must currently be created outside MCP.
+No tool was added for this in this slice.

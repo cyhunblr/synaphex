@@ -21,7 +21,10 @@ import type {
   AgentExecutor,
 } from "../src/domain/agent-invocation.js";
 import {
+  AgentExecutionFailedError,
+  AntigravityCliExecutionError,
   InvalidProviderRouteError,
+  NativeHostExecutionUnavailableError,
   NoTaskBoundError,
   TaskSessionOwnershipLostError,
   UnsupportedAgentInvocationError,
@@ -32,7 +35,10 @@ import type {
   RuntimeAvailability,
 } from "../src/domain/provider-routing.js";
 import type { Task } from "../src/domain/task.js";
+import type { ProcessRunner } from "../src/infrastructure/process-runner.js";
 import { StateStore } from "../src/infrastructure/state-store.js";
+import { AntigravityCliAgentExecutor } from "../src/providers/antigravity-cli-agent-executor.js";
+import { ProviderDispatchingAgentExecutor } from "../src/providers/provider-dispatching-agent-executor.js";
 import {
   DirectAgentInvocation,
   MCP_INVOCABLE_AGENTS,
@@ -652,5 +658,186 @@ test("the resolved execution policy for every invocable agent is read_only", asy
   assert.equal(
     executor.calls[0]?.executionPolicy.sourceModification,
     "read_only",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3B: provider dispatch through the real invocation pipeline
+// ---------------------------------------------------------------------------
+
+class ProviderSpy implements AgentExecutor {
+  readonly calls: AgentExecutionInput[] = [];
+  constructor(private readonly label: string) {}
+  async execute(input: AgentExecutionInput): Promise<unknown> {
+    this.calls.push(input);
+    return {
+      agent: input.context.agent,
+      outcome: "success",
+      summary: `${this.label} executed.`,
+      researchArtifact: { findings: [this.label] },
+    };
+  }
+}
+
+interface DispatchSpies {
+  readonly openaiCli: ProviderSpy;
+  readonly anthropicCli: ProviderSpy;
+  readonly googleCli: ProviderSpy;
+  readonly executor: ProviderDispatchingAgentExecutor;
+}
+
+function dispatchSpies(): DispatchSpies {
+  const openaiCli = new ProviderSpy("codex");
+  const anthropicCli = new ProviderSpy("claude");
+  const googleCli = new ProviderSpy("antigravity");
+  return {
+    openaiCli,
+    anthropicCli,
+    googleCli,
+    executor: new ProviderDispatchingAgentExecutor({
+      openaiCli,
+      anthropicCli,
+      googleCli,
+    }),
+  };
+}
+
+test("case A: anthropic/vscode host with openai/cli target reaches the Codex delegate", async (t) => {
+  const fixture = await createFixture(t);
+  await configure(fixture, "researcher", "openai", "cli");
+  const opened = await fixture.commands.openTaskSession(
+    fixture.project.id,
+    fixture.task.id,
+  );
+  const spies = dispatchSpies();
+  const result = await invocationPort(
+    fixture,
+    { provider: "anthropic", surface: "vscode" },
+    spies.executor,
+  ).invoke({
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: opened.sessionId },
+    instruction: "Research it.",
+  });
+  assert.equal(result.processedResult.outcome, "success");
+  assert.equal(spies.openaiCli.calls.length, 1);
+  assert.equal(spies.anthropicCli.calls.length, 0);
+  assert.equal(spies.googleCli.calls.length, 0);
+  assert.equal(spies.openaiCli.calls[0]?.route.routingReason, "cross_provider_cli");
+});
+
+test("case B: openai/cli host with anthropic/cli target reaches the Claude delegate", async (t) => {
+  const fixture = await createFixture(t);
+  await configure(fixture, "researcher", "anthropic", "cli");
+  const opened = await fixture.commands.openTaskSession(
+    fixture.project.id,
+    fixture.task.id,
+  );
+  const spies = dispatchSpies();
+  await invocationPort(
+    fixture,
+    { provider: "openai", surface: "cli" },
+    spies.executor,
+  ).invoke({
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: opened.sessionId },
+    instruction: "Research it.",
+  });
+  assert.equal(spies.anthropicCli.calls.length, 1);
+  assert.equal(spies.openaiCli.calls.length, 0);
+  assert.equal(spies.googleCli.calls.length, 0);
+});
+
+test("case C: a native same-provider VS Code route fails closed with no CLI delegate run", async (t) => {
+  const fixture = await createFixture(t);
+  await configure(fixture, "researcher", "anthropic", "vscode");
+  const opened = await fixture.commands.openTaskSession(
+    fixture.project.id,
+    fixture.task.id,
+  );
+  const spies = dispatchSpies();
+  await assert.rejects(
+    invocationPort(
+      fixture,
+      { provider: "anthropic", surface: "vscode" },
+      spies.executor,
+    ).invoke({
+      agent: "researcher",
+      scope: { kind: "task_session", sessionId: opened.sessionId },
+      instruction: "Research it.",
+    }),
+    // Wrapped by the invocation service's provider-failure boundary; the
+    // underlying cause is the typed native-host error.
+    (error: unknown) =>
+      error instanceof AgentExecutionFailedError &&
+      (error as { cause?: unknown }).cause instanceof
+        NativeHostExecutionUnavailableError,
+  );
+  assert.equal(spies.openaiCli.calls.length, 0);
+  assert.equal(spies.anthropicCli.calls.length, 0);
+  assert.equal(spies.googleCli.calls.length, 0);
+});
+
+test("case D: a google/cli target reaches the Antigravity delegate, not another provider", async (t) => {
+  const fixture = await createFixture(t);
+  await configure(fixture, "researcher", "google", "cli");
+  const opened = await fixture.commands.openTaskSession(
+    fixture.project.id,
+    fixture.task.id,
+  );
+  const spies = dispatchSpies();
+  await invocationPort(
+    fixture,
+    { provider: "anthropic", surface: "vscode" },
+    spies.executor,
+  ).invoke({
+    agent: "researcher",
+    scope: { kind: "task_session", sessionId: opened.sessionId },
+    instruction: "Research it.",
+  });
+  assert.equal(spies.googleCli.calls.length, 1);
+  assert.equal(spies.openaiCli.calls.length, 0);
+  assert.equal(spies.anthropicCli.calls.length, 0);
+});
+
+test("the real Antigravity adapter still fails closed through the dispatcher", async (t) => {
+  const fixture = await createFixture(t);
+  await configure(fixture, "researcher", "google", "cli");
+  const opened = await fixture.commands.openTaskSession(
+    fixture.project.id,
+    fixture.task.id,
+  );
+  // A process runner that would fail loudly if `agy` were ever spawned: the
+  // accepted security resolver must refuse before any model spawn.
+  const forbiddenRunner: ProcessRunner = {
+    async run() {
+      throw new Error("agy must never be spawned");
+    },
+  };
+  const executor = new ProviderDispatchingAgentExecutor({
+    openaiCli: new ProviderSpy("codex"),
+    anthropicCli: new ProviderSpy("claude"),
+    googleCli: new AntigravityCliAgentExecutor({
+      processRunner: forbiddenRunner,
+    }),
+  });
+  await assert.rejects(
+    invocationPort(
+      fixture,
+      { provider: "anthropic", surface: "vscode" },
+      executor,
+    ).invoke({
+      agent: "researcher",
+      scope: { kind: "task_session", sessionId: opened.sessionId },
+      instruction: "Research it.",
+    }),
+    (error: unknown) => {
+      const cause = (error as { cause?: unknown }).cause;
+      return (
+        error instanceof AgentExecutionFailedError &&
+        cause instanceof AntigravityCliExecutionError &&
+        cause.details?.reason === "unsupported_execution_policy"
+      );
+    },
   );
 });

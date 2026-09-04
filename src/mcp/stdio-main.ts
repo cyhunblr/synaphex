@@ -6,10 +6,16 @@ import { RuleResolver } from "../core/rule-resolver.js";
 import { SessionManager } from "../core/session-manager.js";
 import { TaskManager } from "../core/task-manager.js";
 import { AgentInvocationService } from "../core/agent-invocation-service.js";
-import type {
-  AgentExecutor,
-} from "../domain/agent-invocation.js";
+import type { AgentExecutor } from "../domain/agent-invocation.js";
 import type { RuntimeAvailability } from "../domain/provider-routing.js";
+import { SpawnProcessRunner } from "../infrastructure/process-runner.js";
+import { AntigravityCliAgentExecutor } from "../providers/antigravity-cli-agent-executor.js";
+import { AntigravityCliRuntimeAvailability } from "../providers/antigravity-cli-runtime-availability.js";
+import { ClaudeCliAgentExecutor } from "../providers/claude-cli-agent-executor.js";
+import { ClaudeCliRuntimeAvailability } from "../providers/claude-cli-runtime-availability.js";
+import { CodexCliAgentExecutor } from "../providers/codex-cli-agent-executor.js";
+import { CodexCliRuntimeAvailability } from "../providers/codex-cli-runtime-availability.js";
+import { ProviderDispatchingAgentExecutor } from "../providers/provider-dispatching-agent-executor.js";
 import { RoleContractRegistry } from "../core/role-contract-registry.js";
 import { StateStore } from "../infrastructure/state-store.js";
 import { DirectAgentInvocation } from "../operations/direct-agent-invocation.js";
@@ -35,21 +41,53 @@ import { readSynaphexVersion } from "./synaphex-mcp-version.js";
  */
 
 /**
- * Placeholder dispatch used when no executor is supplied. It fails closed
- * rather than pretending a provider ran; provider composition arrives with the
- * installer work.
+ * Production provider dispatch.
+ *
+ * This is the composition root -- the ONE place allowed to construct concrete
+ * provider adapters. MCP tool handlers never see them; they only ever hold the
+ * narrow invocation port.
+ *
+ * A single `SpawnProcessRunner` is shared: it holds no per-call state and every
+ * adapter passes its own capture limits and timeouts per invocation, so reuse
+ * changes no adapter behavior. `shell: false` is preserved throughout.
+ *
+ * Runtime availability probing is deliberately NOT consulted here. Probing is
+ * distinct from execution: an adapter fails normally if its runtime cannot
+ * execute, and there is no pre-flight executable fallback.
  */
-const unconfiguredExecutor: AgentExecutor = {
-  async execute() {
-    throw new Error("no provider executor is configured for this MCP process");
-  },
-};
+function createProviderDispatchingExecutor(): AgentExecutor {
+  const processRunner = new SpawnProcessRunner();
+  return new ProviderDispatchingAgentExecutor({
+    openaiCli: new CodexCliAgentExecutor({ processRunner }),
+    anthropicCli: new ClaudeCliAgentExecutor({ processRunner }),
+    googleCli: new AntigravityCliAgentExecutor({ processRunner }),
+  });
+}
 
-const unconfiguredRuntimeAvailability: RuntimeAvailability = {
-  async isAvailable() {
-    return false;
-  },
-};
+/**
+ * Availability is only consulted by ProviderRouter, which asks whether the
+ * target runtime exists before returning a CLI route. Each provider owns its
+ * own probe, so this composes them by provider/surface without any fallback.
+ */
+function createRuntimeAvailability(): RuntimeAvailability {
+  return {
+    async isAvailable(provider, surface) {
+      if (surface !== "cli") {
+        // Native host surfaces are not callable runtimes; the router treats an
+        // active native vscode route separately and the dispatcher fails closed.
+        return false;
+      }
+      const probes = {
+        openai: () => new CodexCliRuntimeAvailability().isAvailable(provider, surface),
+        anthropic: () =>
+          new ClaudeCliRuntimeAvailability().isAvailable(provider, surface),
+        google: () =>
+          new AntigravityCliRuntimeAvailability().isAvailable(provider, surface),
+      } as const;
+      return probes[provider]();
+    },
+  };
+}
 
 function diagnostic(message: string): void {
   process.stderr.write(`${message}\n`);
@@ -57,13 +95,11 @@ function diagnostic(message: string): void {
 
 export interface StdioMainOptions {
   /**
-   * Provider dispatch for agent execution.
+   * Provider dispatch override, for tests only.
    *
-   * Injected rather than constructed here: MCP must not depend on provider
-   * adapters (Codex/Claude/Antigravity) directly, and Synaphex has no
-   * composite provider-dispatching executor yet. Until one exists, the
-   * composition root that launches this process supplies it. When absent,
-   * invocation fails deterministically instead of guessing a provider.
+   * Production defaults to the real provider-dispatching executor built from
+   * the accepted CLI adapters; tests inject a fake so no real provider process
+   * is spawned.
    */
   readonly executor?: AgentExecutor;
   readonly runtimeAvailability?: RuntimeAvailability;
@@ -92,9 +128,9 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
   const agentInvocation = new DirectAgentInvocation({
     host,
     invocations: new AgentInvocationService({
-      executor: options.executor ?? unconfiguredExecutor,
+      executor: options.executor ?? createProviderDispatchingExecutor(),
       runtimeAvailability:
-        options.runtimeAvailability ?? unconfiguredRuntimeAvailability,
+        options.runtimeAvailability ?? createRuntimeAvailability(),
     }),
     sessions,
     roleContracts: new RoleContractRegistry(),

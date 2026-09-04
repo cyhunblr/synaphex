@@ -620,6 +620,10 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
     // 10: the backend received the immutable process host context, and the
     // cross-provider CLI route was resolved from it.
     const observedRoute = JSON.parse(await readFile(routeSink, "utf8"));
+    // The REAL ProviderDispatchingAgentExecutor selected the openai/cli
+    // delegate from the resolved route: the full production dispatch path ran,
+    // with only the leaf provider adapter faked.
+    assert.equal(observedRoute.delegate, "codex");
     assert.deepEqual(observedRoute.host, {
       provider: "anthropic",
       surface: "vscode",
@@ -662,6 +666,56 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
     assert.equal(coder.isError, true);
   } finally {
     // 12: shut down cleanly.
+    await client.close();
+  }
+});
+
+test("a native VS Code target fails closed through the production dispatch path", async (t) => {
+  // host = anthropic/vscode, target = anthropic/vscode -> same_provider_native.
+  // The dispatcher must refuse rather than silently running a provider CLI.
+  const home = await temporaryStateRoot(t);
+  const { projectId, taskId } = await fixtureProjectAndTask(home);
+  const routeSink = join(home, "route.json");
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [FAKE_PROVIDER_ENTRYPOINT, ...HOST_ARGS],
+    env: { ...process.env, HOME: home, SYNAPHEX_TEST_ROUTE_SINK: routeSink },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "synaphex-native-smoke", version: "0.0.0" });
+  try {
+    await client.connect(transport);
+    const opened = await client.callTool({
+      name: "synaphex_open_task_session",
+      arguments: { projectId, taskId },
+    });
+    const sessionId = (opened.structuredContent as { sessionId: string })
+      .sessionId;
+
+    const store = new StateStore(join(home, ".synaphex"));
+    // Same provider as the host, VS Code surface -> native route.
+    await new AgentConfigManager(store).setConfigured("researcher", {
+      provider: "anthropic",
+      surface: "vscode",
+      model: "researcher-model",
+    });
+
+    const invoked = await client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId },
+        instruction: "Research over a native route.",
+      },
+    });
+    assert.equal(invoked.isError, true);
+    // Safe mapping: a stable code, no stack traces or provider internals.
+    const serialized = JSON.stringify(invoked);
+    assert.equal(/\n\s+at /.test(serialized), false, "no stack frames");
+    // No delegate ran, so no route was ever recorded.
+    await assert.rejects(readFile(routeSink, "utf8"));
+  } finally {
     await client.close();
   }
 });
