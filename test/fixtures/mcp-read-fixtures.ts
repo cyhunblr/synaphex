@@ -26,6 +26,10 @@ import type {
   ChangeSetReadPort,
 } from "../../src/operations/change-set-commands.js";
 import type {
+  TaskArchivePort,
+  TaskCompletionPort,
+} from "../../src/operations/task-lifecycle-commands.js";
+import type {
   PlanDecisionPort,
   PlanReadPort,
 } from "../../src/operations/plan-decision-commands.js";
@@ -246,6 +250,41 @@ export class FakeReads {
           data: slice.toString("base64"),
         };
       },
+      async getApplyRecoveryState(sessionId, changeSetId) {
+        guard("changeSetCommands.getApplyRecoveryState", [
+          sessionId,
+          changeSetId,
+        ]);
+        return {
+          ...scope,
+          sessionId,
+          changeSetId,
+          state: "applying_interrupted" as const,
+          observedSourceState: "base_clean" as const,
+          reconciliationAvailable: true,
+          diagnostics: {
+            headMatchesBase: true,
+            indexMatchesBase: true,
+            indexMatchesResult: false,
+            worktreeMatchesIndex: true,
+            hasUntracked: false,
+          },
+        };
+      },
+      async reconcileInterruptedApply(sessionId, changeSetId) {
+        guard("changeSetCommands.reconcileInterruptedApply", [
+          sessionId,
+          changeSetId,
+        ]);
+        return {
+          ...scope,
+          sessionId,
+          changeSetId,
+          previousState: "applying_interrupted" as const,
+          observedSourceState: "base_clean" as const,
+          resultingState: "pending" as const,
+        };
+      },
       async applyChangeSet(sessionId, changeSetId) {
         guard("changeSetCommands.applyChangeSet", [sessionId, changeSetId]);
         return {
@@ -266,6 +305,43 @@ export class FakeReads {
           state: "rejected" as const,
           decidedAt: "2026-02-01T00:00:00.000Z",
           resultTree: null,
+        };
+      },
+    };
+  }
+
+  lifecycleError: Error | null = null;
+
+  /** Narrow lifecycle fake; owns no business logic. */
+  get taskLifecycleCommands(): TaskCompletionPort & TaskArchivePort {
+    const guard = (port: string, args: readonly unknown[]) => {
+      this.calls.push({ port, args });
+      if (this.lifecycleError !== null) {
+        throw this.lifecycleError;
+      }
+    };
+    return {
+      completeTask: async (sessionId) => {
+        guard("taskLifecycleCommands.completeTask", [sessionId]);
+        return {
+          sessionId,
+          projectId: FAKE_PROJECT.id,
+          taskId: FAKE_TASK.id,
+          status: "completed" as const,
+          completedAt: "2026-03-01T00:00:00.000Z",
+          archivedAt: null,
+          sessionRetained: true,
+        };
+      },
+      archiveTask: async (projectId, taskId) => {
+        guard("taskLifecycleCommands.archiveTask", [projectId, taskId]);
+        return {
+          projectId,
+          taskId,
+          status: "archived" as const,
+          completedAt: "2026-03-01T00:00:00.000Z",
+          archivedAt: "2026-03-02T00:00:00.000Z",
+          releasedTaskSession: true,
         };
       },
     };
@@ -502,6 +578,7 @@ export async function connectedClient(
     projectTaskCommands: reads.projectTaskCommands,
     planCommands: reads.planCommands,
     changeSetCommands: reads.changeSetCommands,
+    taskLifecycleCommands: reads.taskLifecycleCommands,
     version: "0.0.0-test",
     onDiagnostic: (message) => {
       reads.diagnostics.push(message);

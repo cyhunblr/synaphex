@@ -3,6 +3,8 @@ import type {
   ChangeSetApplyManager,
   ChangeSetDecisionRecord,
   ChangeSetState,
+  ObservedSourceState,
+  SourceObservation,
 } from "../core/change-set-apply-manager.js";
 import type {
   ChangeSetMetadata,
@@ -66,6 +68,34 @@ export interface ChangeSetDecisionOutcome {
   readonly resultTree: string | null;
 }
 
+/**
+ * Read-only view of an interrupted apply.
+ *
+ * Carries no absolute source path, no ownership token, no lock owner metadata
+ * and no Git stderr -- only the classification and the safe diagnostics that
+ * explain it.
+ */
+export interface ApplyRecoveryState {
+  readonly sessionId: SessionId;
+  readonly projectId: ProjectId;
+  readonly taskId: TaskId;
+  readonly changeSetId: string;
+  readonly state: ChangeSetState;
+  readonly observedSourceState: ObservedSourceState | null;
+  readonly reconciliationAvailable: boolean;
+  readonly diagnostics: Omit<SourceObservation, "observedSourceState"> | null;
+}
+
+export interface ChangeSetReconciliationOutcome {
+  readonly sessionId: SessionId;
+  readonly projectId: ProjectId;
+  readonly taskId: TaskId;
+  readonly changeSetId: string;
+  readonly previousState: ChangeSetState;
+  readonly observedSourceState: ObservedSourceState;
+  readonly resultingState: ChangeSetState;
+}
+
 export interface ChangeSetReadPort {
   getChangeSet(
     sessionId: SessionId,
@@ -77,6 +107,10 @@ export interface ChangeSetReadPort {
     offset: number,
     maxBytes: number,
   ): Promise<ChangeSetPatchChunk>;
+  getApplyRecoveryState(
+    sessionId: SessionId,
+    changeSetId: string,
+  ): Promise<ApplyRecoveryState>;
 }
 
 export interface ChangeSetDecisionPort {
@@ -88,6 +122,10 @@ export interface ChangeSetDecisionPort {
     sessionId: SessionId,
     changeSetId: string,
   ): Promise<ChangeSetDecisionOutcome>;
+  reconcileInterruptedApply(
+    sessionId: SessionId,
+    changeSetId: string,
+  ): Promise<ChangeSetReconciliationOutcome>;
 }
 
 export interface ChangeSetCommandDependencies {
@@ -97,7 +135,12 @@ export interface ChangeSetCommandDependencies {
   readonly changeSets: Pick<CoderChangeSetManager, "get">;
   readonly applyManager: Pick<
     ChangeSetApplyManager,
-    "status" | "apply" | "reject" | "withSourceMutationLock"
+    | "status"
+    | "apply"
+    | "reject"
+    | "withSourceMutationLock"
+    | "observeSource"
+    | "reconcileInterruptedApply"
   >;
   readonly sessions: Pick<
     SessionManager,
@@ -210,6 +253,97 @@ export class ChangeSetCommands
         ),
     );
     return this.toOutcome(resolved, receipt, "applied");
+  }
+
+  /**
+   * Reports whether an interrupted apply can be reconciled, and why.
+   *
+   * Read-only: it observes Git identity and never mutates domain state. In
+   * particular it does NOT clean up a stale intent left behind a terminal
+   * receipt -- a read tool performing surprising domain cleanup would be worse
+   * than the small GC debt. Such a target simply reports its terminal state
+   * with `reconciliationAvailable: false`.
+   */
+  async getApplyRecoveryState(
+    sessionId: SessionId,
+    changeSetId: string,
+  ): Promise<ApplyRecoveryState> {
+    const resolved = await this.resolveCurrentTarget(sessionId, changeSetId);
+    const status = await this.dependencies.applyManager.status(
+      resolved.taskId,
+      changeSetId,
+    );
+    const base = {
+      sessionId: resolved.sessionId,
+      projectId: resolved.projectId,
+      taskId: resolved.taskId,
+      changeSetId,
+      state: status.state,
+    };
+    if (status.state !== "applying_interrupted") {
+      // A terminal receipt outranks a stale intent (Phase 5C), so an applied
+      // target is never reported as needing recovery.
+      return {
+        ...base,
+        observedSourceState: null,
+        reconciliationAvailable: false,
+        diagnostics: null,
+      };
+    }
+    const { observedSourceState, ...diagnostics } =
+      await this.dependencies.applyManager.observeSource(
+        resolved.project,
+        resolved.metadata,
+        resolved.patch,
+      );
+    return {
+      ...base,
+      observedSourceState,
+      // Only a provably exact source permits a transition.
+      reconciliationAvailable: observedSourceState !== "divergent",
+      diagnostics,
+    };
+  }
+
+  /**
+   * Reconciles an interrupted apply.
+   *
+   * The caller supplies only "reconcile this one" -- no mode, no force, no
+   * assumed outcome. Synaphex observes the real source inside the same
+   * authority boundary that apply and reject use, and performs the single
+   * transition that is provably consistent with the persisted change set.
+   */
+  async reconcileInterruptedApply(
+    sessionId: SessionId,
+    changeSetId: string,
+  ): Promise<ChangeSetReconciliationOutcome> {
+    const resolved = await this.resolveCurrentTarget(sessionId, changeSetId);
+    const fence = await this.requireOwnership(resolved);
+
+    const reconciliation =
+      await this.dependencies.applyManager.withSourceMutationLock(
+        resolved.projectId,
+        async () =>
+          this.dependencies.sessions.withTaskOwnershipAuthority(
+            fence,
+            async () =>
+              this.dependencies.applyManager.reconcileInterruptedApply({
+                project: resolved.project,
+                taskId: resolved.taskId,
+                metadata: resolved.metadata,
+                patch: resolved.patch,
+              }),
+          ),
+      );
+    return {
+      sessionId: resolved.sessionId,
+      projectId: resolved.projectId,
+      taskId: resolved.taskId,
+      changeSetId: reconciliation.changeSetId,
+      previousState: reconciliation.previousState,
+      observedSourceState: reconciliation.observedSourceState,
+      resultingState: reconciliation.resultingState,
+    };
   }
 
   /**

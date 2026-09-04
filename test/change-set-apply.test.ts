@@ -34,6 +34,7 @@ import {
   ChangeSetCorruptError,
   ChangeSetNotAuthorizedError,
   ChangeSetNotCurrentTargetError,
+  ChangeSetNotInterruptedError,
   ChangeSetSourceDirtyError,
   ChangeSetSourceHeadChangedError,
   ReviewTargetApplyInterruptedError,
@@ -1214,4 +1215,702 @@ test("source-lock recovery does not touch the source workspace or task state", a
   // The session still owns the task: no logical session was closed.
   const binding = await f.sessions.getCurrentBinding(f.sessionId);
   assert.equal(binding.taskId, f.task.id);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5E: explicit interrupted-apply reconciliation
+// ---------------------------------------------------------------------------
+
+/**
+ * Produces a genuinely interrupted apply: the intent is written and then the
+ * process "dies" before any source mutation. The source is therefore an exact
+ * clean base, which each test then shapes as it needs.
+ */
+async function interrupt(f: Fixture, changeSetId: string): Promise<void> {
+  const target = await f.changeSets.get(f.task.id, changeSetId);
+  await assert.rejects(
+    () =>
+      applyManager(f, {
+        beforeSourceMutation: async () => {
+          throw new Error("process died mid-apply");
+        },
+      }).apply({
+        project: f.project,
+        taskId: f.task.id,
+        metadata: target.metadata,
+        patch: target.patch,
+      }),
+    /process died mid-apply/,
+  );
+  assert.equal(
+    (await applyManager(f).status(f.task.id, changeSetId)).state,
+    "applying_interrupted",
+  );
+}
+
+test("an exact clean base reconciles back to pending without touching the source", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const snapshotBefore = await sourceSnapshot(f.sourcePath);
+  const headBefore = git(f.sourcePath, "rev-parse", "HEAD").trim();
+  await interrupt(f, changeSetId);
+
+  const commands = commandsFor(f);
+  const state = await commands.getApplyRecoveryState(f.sessionId, changeSetId);
+  assert.equal(state.state, "applying_interrupted");
+  assert.equal(state.observedSourceState, "base_clean");
+  assert.equal(state.reconciliationAvailable, true);
+  assert.deepEqual(state.diagnostics, {
+    headMatchesBase: true,
+    indexMatchesBase: true,
+    indexMatchesResult: false,
+    worktreeMatchesIndex: true,
+    hasUntracked: false,
+  });
+
+  const outcome = await commands.reconcileInterruptedApply(f.sessionId, changeSetId);
+  assert.equal(outcome.previousState, "applying_interrupted");
+  assert.equal(outcome.observedSourceState, "base_clean");
+  assert.equal(outcome.resultingState, "pending");
+
+  // No receipt was written, and the source is untouched.
+  const status = await applyManager(f).status(f.task.id, changeSetId);
+  assert.equal(status.state, "pending");
+  assert.equal(status.decision, null);
+  assert.equal(status.intent, null);
+  assert.equal(git(f.sourcePath, "rev-parse", "HEAD").trim(), headBefore);
+  assert.deepEqual(await sourceSnapshot(f.sourcePath), snapshotBefore);
+
+  // Apply and reject work normally again.
+  const applied = await commands.applyChangeSet(f.sessionId, changeSetId);
+  assert.equal(applied.state, "applied");
+});
+
+test("an exact applied result finalizes the receipt without re-applying the patch", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const stored = await f.changeSets.get(f.task.id, changeSetId);
+  await interrupt(f, changeSetId);
+
+  // Reproduce a crash AFTER git apply fully succeeded: stage the exact result.
+  const patchFile = join(f.root, "exact.patch");
+  await writeFile(patchFile, stored.patch);
+  git(f.sourcePath, "apply", "--index", "--binary", patchFile);
+  assert.equal(
+    git(f.sourcePath, "write-tree").trim(),
+    stored.metadata.resultTree,
+  );
+  const snapshotBefore = await sourceSnapshot(f.sourcePath);
+  const headBefore = git(f.sourcePath, "rev-parse", "HEAD").trim();
+
+  const commands = commandsFor(f);
+  const state = await commands.getApplyRecoveryState(f.sessionId, changeSetId);
+  assert.equal(state.observedSourceState, "exact_applied");
+  assert.equal(state.reconciliationAvailable, true);
+
+  const outcome = await commands.reconcileInterruptedApply(f.sessionId, changeSetId);
+  assert.equal(outcome.observedSourceState, "exact_applied");
+  assert.equal(outcome.resultingState, "applied");
+
+  // Terminal receipt written from persisted authority; source untouched.
+  const status = await applyManager(f).status(f.task.id, changeSetId);
+  assert.equal(status.state, "applied");
+  assert.equal(status.intent, null);
+  assert.equal(status.decision?.resultTree, stored.metadata.resultTree);
+  assert.equal(status.decision?.patchHash, stored.metadata.patchHash);
+  assert.equal(status.decision?.baseCommit, stored.metadata.baseCommit);
+  // System-generated provenance marks this as observed, not live-applied.
+  assert.equal(status.decision?.reconciliation?.mode, "observed_exact_result");
+  assert.equal(git(f.sourcePath, "rev-parse", "HEAD").trim(), headBefore);
+  assert.deepEqual(await sourceSnapshot(f.sourcePath), snapshotBefore);
+
+  // Terminally decided: apply and reject both refuse.
+  await assert.rejects(
+    () => commands.applyChangeSet(f.sessionId, changeSetId),
+    ChangeSetAlreadyDecidedError,
+  );
+  await assert.rejects(
+    () => commands.rejectChangeSet(f.sessionId, changeSetId),
+    ChangeSetAlreadyDecidedError,
+  );
+});
+
+test("every divergent shape is refused and mutates nothing", async (t) => {
+  const shapes: readonly [string, (f: Fixture, patch: string) => Promise<void>][] = [
+    [
+      "partial apply",
+      async (f) => {
+        await writeFile(join(f.sourcePath, "keep.txt"), "modified by coder\n", "utf8");
+        git(f.sourcePath, "add", "keep.txt");
+      },
+    ],
+    [
+      "unstaged edit on top of the exact result",
+      async (f, patch) => {
+        git(f.sourcePath, "apply", "--index", "--binary", patch);
+        await writeFile(join(f.sourcePath, "keep.txt"), "edited after\n", "utf8");
+      },
+    ],
+    [
+      "untracked file on an otherwise clean base",
+      async (f) => {
+        await writeFile(join(f.sourcePath, "scratch.txt"), "user file\n", "utf8");
+      },
+    ],
+    [
+      "user committed",
+      async (f) => {
+        await writeFile(join(f.sourcePath, "other.txt"), "user work\n", "utf8");
+        git(f.sourcePath, "add", "-A");
+        git(f.sourcePath, "commit", "--quiet", "-m", "user commit");
+      },
+    ],
+  ];
+
+  for (const [label, shape] of shapes) {
+    const f = await createFixture(t);
+    const changeSetId = await stageChangeSet(f);
+    const stored = await f.changeSets.get(f.task.id, changeSetId);
+    await interrupt(f, changeSetId);
+    const patchFile = join(f.root, "d.patch");
+    await writeFile(patchFile, stored.patch);
+    await shape(f, patchFile);
+
+    const snapshotBefore = await sourceSnapshot(f.sourcePath);
+    const headBefore = git(f.sourcePath, "rev-parse", "HEAD").trim();
+    const commands = commandsFor(f);
+
+    const state = await commands.getApplyRecoveryState(f.sessionId, changeSetId);
+    assert.equal(state.observedSourceState, "divergent", label);
+    assert.equal(state.reconciliationAvailable, false, label);
+
+    await assert.rejects(
+      () => commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+      ChangeSetApplyRecoveryRequiredError,
+      label,
+    );
+
+    // Nothing changed: not the source, not the intent, not a receipt.
+    assert.deepEqual(await sourceSnapshot(f.sourcePath), snapshotBefore, label);
+    assert.equal(git(f.sourcePath, "rev-parse", "HEAD").trim(), headBefore, label);
+    const status = await applyManager(f).status(f.task.id, changeSetId);
+    assert.equal(status.state, "applying_interrupted", label);
+    assert.equal(status.decision, null, label);
+    assert.notEqual(status.intent, null, label);
+  }
+});
+
+test("a user commit of the applied result is divergent, not exact_applied", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const stored = await f.changeSets.get(f.task.id, changeSetId);
+  await interrupt(f, changeSetId);
+
+  // The user finishes the apply themselves AND commits it. The index tree now
+  // equals resultTree and the worktree is spotless -- only HEAD betrays that
+  // the recorded baseline no longer describes this repository.
+  const patchFile = join(f.root, "committed.patch");
+  await writeFile(patchFile, stored.patch);
+  git(f.sourcePath, "apply", "--index", "--binary", patchFile);
+  git(f.sourcePath, "commit", "--quiet", "-m", "user commits the applied change");
+  assert.equal(git(f.sourcePath, "write-tree").trim(), stored.metadata.resultTree);
+  assert.equal(git(f.sourcePath, "status", "--porcelain").trim(), "");
+  assert.notEqual(
+    git(f.sourcePath, "rev-parse", "HEAD").trim(),
+    stored.metadata.baseCommit,
+  );
+
+  const commands = commandsFor(f);
+  const state = await commands.getApplyRecoveryState(f.sessionId, changeSetId);
+  // Finalizing here would mint a receipt whose baseCommit no longer matches
+  // the repository, so it must be refused.
+  assert.equal(state.observedSourceState, "divergent");
+  assert.equal(state.diagnostics?.headMatchesBase, false);
+  assert.equal(state.diagnostics?.indexMatchesResult, true);
+  assert.equal(state.reconciliationAvailable, false);
+
+  await assert.rejects(
+    () => commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+    ChangeSetApplyRecoveryRequiredError,
+  );
+  const status = await applyManager(f).status(f.task.id, changeSetId);
+  assert.equal(status.state, "applying_interrupted");
+  assert.equal(status.decision, null);
+});
+
+test("an external user edit survives a refused reconciliation byte-for-byte", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  await interrupt(f, changeSetId);
+
+  // The user does unrelated work after the crash.
+  const userContent = "precious user work\nline two\n";
+  await writeFile(join(f.sourcePath, "user-notes.txt"), userContent, "utf8");
+  await writeFile(join(f.sourcePath, "keep.txt"), "user edited this\n", "utf8");
+
+  await assert.rejects(
+    () => commandsFor(f).reconcileInterruptedApply(f.sessionId, changeSetId),
+    ChangeSetApplyRecoveryRequiredError,
+  );
+
+  // No reset, no clean, no checkout touched any of it.
+  assert.equal(
+    await readFile(join(f.sourcePath, "user-notes.txt"), "utf8"),
+    userContent,
+  );
+  assert.equal(
+    await readFile(join(f.sourcePath, "keep.txt"), "utf8"),
+    "user edited this\n",
+  );
+  assert.equal(git(f.sourcePath, "stash", "list").trim(), "");
+});
+
+test("manual restoration to an exact base makes reconciliation available again", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  await interrupt(f, changeSetId);
+  await writeFile(join(f.sourcePath, "keep.txt"), "half-applied\n", "utf8");
+
+  const commands = commandsFor(f);
+  assert.equal(
+    (await commands.getApplyRecoveryState(f.sessionId, changeSetId))
+      .observedSourceState,
+    "divergent",
+  );
+  await assert.rejects(
+    () => commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+    ChangeSetApplyRecoveryRequiredError,
+  );
+
+  // The USER restores the repository by hand -- Synaphex never does this.
+  git(f.sourcePath, "checkout", "--", "keep.txt");
+
+  assert.equal(
+    (await commands.getApplyRecoveryState(f.sessionId, changeSetId))
+      .observedSourceState,
+    "base_clean",
+  );
+  const outcome = await commands.reconcileInterruptedApply(f.sessionId, changeSetId);
+  assert.equal(outcome.resultingState, "pending");
+});
+
+test("manual restoration to the exact result finalizes as applied", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const stored = await f.changeSets.get(f.task.id, changeSetId);
+  await interrupt(f, changeSetId);
+  await writeFile(join(f.sourcePath, "keep.txt"), "half-applied\n", "utf8");
+
+  const commands = commandsFor(f);
+  await assert.rejects(
+    () => commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+    ChangeSetApplyRecoveryRequiredError,
+  );
+
+  // The user restores the exact expected staged result themselves.
+  git(f.sourcePath, "checkout", "--", "keep.txt");
+  const patchFile = join(f.root, "restore.patch");
+  await writeFile(patchFile, stored.patch);
+  git(f.sourcePath, "apply", "--index", "--binary", patchFile);
+
+  const outcome = await commands.reconcileInterruptedApply(f.sessionId, changeSetId);
+  assert.equal(outcome.observedSourceState, "exact_applied");
+  assert.equal(outcome.resultingState, "applied");
+});
+
+test("apply and reject stay refused while an apply is interrupted", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  await interrupt(f, changeSetId);
+  const commands = commandsFor(f);
+
+  await assert.rejects(
+    () => commands.applyChangeSet(f.sessionId, changeSetId),
+    ChangeSetApplyInterruptedError,
+  );
+  await assert.rejects(
+    () => commands.rejectChangeSet(f.sessionId, changeSetId),
+    ChangeSetApplyInterruptedError,
+  );
+
+  // After base reconciliation both work again.
+  await commands.reconcileInterruptedApply(f.sessionId, changeSetId);
+  const rejected = await commands.rejectChangeSet(f.sessionId, changeSetId);
+  assert.equal(rejected.state, "rejected");
+});
+
+test("reconciliation is refused for a target that is not interrupted", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const commands = commandsFor(f);
+
+  // Pending: nothing to reconcile.
+  await assert.rejects(
+    () => commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+    ChangeSetNotInterruptedError,
+  );
+  const pendingState = await commands.getApplyRecoveryState(f.sessionId, changeSetId);
+  assert.equal(pendingState.state, "pending");
+  assert.equal(pendingState.observedSourceState, null);
+  assert.equal(pendingState.reconciliationAvailable, false);
+
+  // Applied: still nothing to reconcile.
+  await commands.applyChangeSet(f.sessionId, changeSetId);
+  await assert.rejects(
+    () => commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+    ChangeSetNotInterruptedError,
+  );
+});
+
+test("a stale intent behind a terminal receipt does not look like recovery work", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const commands = commandsFor(f);
+  await commands.applyChangeSet(f.sessionId, changeSetId);
+
+  // Simulate a crash between writing the receipt and removing the intent.
+  const stored = await f.changeSets.get(f.task.id, changeSetId);
+  await f.store.writeJson(
+    `${await f.tasks.getStateDirectoryByTaskId(f.task.id)}/changes/apply-intents/${changeSetId}.json`,
+    {
+      version: 1,
+      changeSetId,
+      projectId: f.project.id,
+      taskId: f.task.id,
+      baseCommit: stored.metadata.baseCommit,
+      expectedResultTree: stored.metadata.resultTree,
+      patchHash: stored.metadata.patchHash,
+      startedAt: new Date().toISOString(),
+    },
+  );
+
+  // The terminal receipt outranks the stale intent (Phase 5C), so this is NOT
+  // reported as needing recovery.
+  const state = await commands.getApplyRecoveryState(f.sessionId, changeSetId);
+  assert.equal(state.state, "applied");
+  assert.equal(state.reconciliationAvailable, false);
+  assert.equal(state.observedSourceState, null);
+  // The read performed no surprising cleanup: stale-intent GC stays debt.
+  assert.notEqual(
+    (await applyManager(f).status(f.task.id, changeSetId)).intent,
+    null,
+  );
+});
+
+test("a legacy change set without resultTree still classifies correctly", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const metadataPath = join(await changesDirectory(f), changeSetId, "metadata.json");
+  const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+  const expectedTree = metadata.resultTree;
+  delete metadata.resultTree;
+  await writeFile(metadataPath, JSON.stringify(metadata), "utf8");
+  await interrupt(f, changeSetId);
+
+  const commands = commandsFor(f);
+  // Clean base is recognised for a legacy change set.
+  assert.equal(
+    (await commands.getApplyRecoveryState(f.sessionId, changeSetId))
+      .observedSourceState,
+    "base_clean",
+  );
+
+  // And so is the exact result, via the Phase-5C isolated derivation.
+  const stored = await f.changeSets.get(f.task.id, changeSetId);
+  const patchFile = join(f.root, "legacy.patch");
+  await writeFile(patchFile, stored.patch);
+  git(f.sourcePath, "apply", "--index", "--binary", patchFile);
+  const state = await commands.getApplyRecoveryState(f.sessionId, changeSetId);
+  assert.equal(state.observedSourceState, "exact_applied");
+
+  const outcome = await commands.reconcileInterruptedApply(f.sessionId, changeSetId);
+  assert.equal(outcome.resultingState, "applied");
+  assert.equal(
+    (await applyManager(f).status(f.task.id, changeSetId)).decision?.resultTree,
+    expectedTree,
+  );
+  // Immutable legacy metadata was not rewritten.
+  assert.equal("resultTree" in JSON.parse(await readFile(metadataPath, "utf8")), false);
+});
+
+test("two concurrent reconciliations of an exact result write one receipt", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const stored = await f.changeSets.get(f.task.id, changeSetId);
+  await interrupt(f, changeSetId);
+  const patchFile = join(f.root, "c.patch");
+  await writeFile(patchFile, stored.patch);
+  git(f.sourcePath, "apply", "--index", "--binary", patchFile);
+
+  const manager = applyManager(f);
+  const commands = commandsFor(f, manager);
+  const outcomes = await Promise.allSettled([
+    commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+    commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+  ]);
+
+  const fulfilled = outcomes.filter((o) => o.status === "fulfilled");
+  assert.equal(fulfilled.length, 1, "exactly one reconciliation may finalize");
+  const loser = outcomes.find((o) => o.status === "rejected");
+  assert.ok(loser?.status === "rejected");
+  // The loser sees the terminal state deterministically -- never a duplicate
+  // receipt and never a corrupt half-state.
+  assert.ok(loser.reason instanceof ChangeSetNotInterruptedError);
+
+  const status = await manager.status(f.task.id, changeSetId);
+  assert.equal(status.state, "applied");
+  assert.equal(status.intent, null);
+  assert.equal(status.decision?.resultTree, stored.metadata.resultTree);
+});
+
+test("two concurrent reconciliations of a clean base leave a single pending target", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  await interrupt(f, changeSetId);
+
+  const manager = applyManager(f);
+  const commands = commandsFor(f, manager);
+  const outcomes = await Promise.allSettled([
+    commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+    commands.reconcileInterruptedApply(f.sessionId, changeSetId),
+  ]);
+  assert.equal(outcomes.filter((o) => o.status === "fulfilled").length, 1);
+  const loser = outcomes.find((o) => o.status === "rejected");
+  assert.ok(loser?.status === "rejected");
+  assert.ok(loser.reason instanceof ChangeSetNotInterruptedError);
+
+  const status = await manager.status(f.task.id, changeSetId);
+  assert.equal(status.state, "pending");
+  assert.equal(status.decision, null);
+  assert.equal(status.intent, null);
+});
+
+test("a force release during reconciliation aborts before any mutation", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const stored = await f.changeSets.get(f.task.id, changeSetId);
+  await interrupt(f, changeSetId);
+  // An exact result, so ONLY the ownership check can stop the finalization.
+  const patchFile = join(f.root, "fr.patch");
+  await writeFile(patchFile, stored.patch);
+  git(f.sourcePath, "apply", "--index", "--binary", patchFile);
+  const snapshotBefore = await sourceSnapshot(f.sourcePath);
+
+  // Barrier: fire the force release after ownership is captured but before the
+  // authority boundary is entered. It must run OUTSIDE the task-binding lock,
+  // which `withTaskOwnershipAuthority` holds -- doing it inside would
+  // self-deadlock, which is precisely the interleaving the guard prevents.
+  let released = false;
+  const manager = applyManager(f, {
+    lock: new RecoverableProcessLock(f.store, {
+      retryCount: 50,
+      retryDelayMs: 1,
+      afterAcquire: async () => {
+        if (released) {
+          return;
+        }
+        released = true;
+        await f.sessions.forceReleaseTaskClaim(f.task.id);
+        await f.commands.openTaskSession(f.project.id, f.task.id);
+      },
+    }),
+  });
+
+  await assert.rejects(
+    () => commandsFor(f, manager).reconcileInterruptedApply(f.sessionId, changeSetId),
+    TaskSessionOwnershipLostError,
+  );
+
+  // Nothing was mutated: no receipt, intent kept, source identical.
+  const status = await applyManager(f).status(f.task.id, changeSetId);
+  assert.equal(status.state, "applying_interrupted");
+  assert.equal(status.decision, null);
+  assert.notEqual(status.intent, null);
+  assert.deepEqual(await sourceSnapshot(f.sourcePath), snapshotBefore);
+});
+
+// ---------------------------------------------------------------------------
+// REVIEWER after each recovery outcome
+// ---------------------------------------------------------------------------
+
+test("REVIEWER runs after an exact-result reconciliation, with no drift bypass", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const stored = await f.changeSets.get(f.task.id, changeSetId);
+  await interrupt(f, changeSetId);
+  const patchFile = join(f.root, "rv.patch");
+  await writeFile(patchFile, stored.patch);
+  git(f.sourcePath, "apply", "--index", "--binary", patchFile);
+
+  const invoke = () =>
+    service(f, new FixedResultExecutor(reviewerResult())).invokeUserAgent({
+      sessionId: f.sessionId,
+      agent: "reviewer",
+      host: { provider: "openai", surface: "cli" },
+      instruction: "Review it.",
+    });
+
+  // Interrupted: refused.
+  await assert.rejects(invoke, ReviewTargetApplyInterruptedError);
+
+  await commandsFor(f).reconcileInterruptedApply(f.sessionId, changeSetId);
+  const reviewed = await invoke();
+  assert.equal(reviewed.processedResult.agent, "reviewer");
+
+  // A recovered receipt gets no special treatment: drift still blocks review.
+  await writeFile(join(f.sourcePath, "keep.txt"), "edited after review\n", "utf8");
+  await assert.rejects(invoke, ReviewTargetChangedError);
+});
+
+test("REVIEWER is refused after a clean-base reconciliation returns to pending", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  await interrupt(f, changeSetId);
+  const outcome = await commandsFor(f).reconcileInterruptedApply(
+    f.sessionId,
+    changeSetId,
+  );
+  assert.equal(outcome.resultingState, "pending");
+
+  await assert.rejects(
+    () =>
+      service(f, new FixedResultExecutor(reviewerResult())).invokeUserAgent({
+        sessionId: f.sessionId,
+        agent: "reviewer",
+        host: { provider: "openai", surface: "cli" },
+        instruction: "Review it.",
+      }),
+    ReviewTargetNotAppliedError,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Authority and security
+// ---------------------------------------------------------------------------
+
+test("recovery inspection and reconciliation obey change-set authority", async (t) => {
+  const f = await createFixture(t);
+  // An orphan: published directly, never referenced by a work record.
+  const stager = new CoderWorkspaceStager({ temporaryRoot: f.root });
+  const prepared = await stager.prepare({
+    projectId: f.project.id,
+    taskId: f.task.id,
+    sessionId: f.sessionId,
+    sourcePath: f.sourcePath,
+  });
+  await writeFile(join(prepared.stagingPath, "keep.txt"), "orphan\n", "utf8");
+  const published = await f.changeSets.publish(await stager.captureChanges(prepared));
+  await stager.dispose(prepared);
+  assert.ok(published);
+  const commands = commandsFor(f);
+  for (const attempt of [
+    () => commands.getApplyRecoveryState(f.sessionId, published.metadata.changeSetId),
+    () =>
+      commands.reconcileInterruptedApply(
+        f.sessionId,
+        published.metadata.changeSetId,
+      ),
+  ]) {
+    await assert.rejects(attempt, ChangeSetNotAuthorizedError);
+  }
+
+  // A superseded target is refused too.
+  const first = await stageChangeSet(f, async (workspace) => {
+    await writeFile(join(workspace, "keep.txt"), "first\n", "utf8");
+  });
+  await stageChangeSet(f, async (workspace) => {
+    await writeFile(join(workspace, "keep.txt"), "second\n", "utf8");
+  });
+  await assert.rejects(
+    () => commands.getApplyRecoveryState(f.sessionId, first),
+    ChangeSetNotCurrentTargetError,
+  );
+  await assert.rejects(
+    () => commands.reconcileInterruptedApply(f.sessionId, first),
+    ChangeSetNotCurrentTargetError,
+  );
+
+  // A corrupt change set is refused before any observation.
+  const current = await stageChangeSet(f, async (workspace) => {
+    await writeFile(join(workspace, "keep.txt"), "third\n", "utf8");
+  });
+  const patchPath = join(await changesDirectory(f), current, "changes.patch");
+  await writeFile(
+    patchPath,
+    Buffer.concat([await readFile(patchPath), Buffer.from("tamper\n")]),
+  );
+  await assert.rejects(
+    () => commands.getApplyRecoveryState(f.sessionId, current),
+    ChangeSetCorruptError,
+  );
+});
+
+test("recovery output leaks no path, token or lock metadata", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  await interrupt(f, changeSetId);
+  const state = await commandsFor(f).getApplyRecoveryState(f.sessionId, changeSetId);
+  const serialized = JSON.stringify(state);
+  for (const forbidden of [
+    "ownershipToken",
+    "isolatedHome",
+    "stagingPath",
+    "ownerId",
+    "lock_",
+    "stderr",
+    "fatal:",
+    f.sourcePath,
+    f.root,
+    f.stateRoot,
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `leaks ${forbidden}`);
+  }
+});
+
+test("the reconciliation path never runs a destructive git verb on the real source", async () => {
+  const source = await readFile(
+    join(process.cwd(), "src/core/change-set-apply-manager.ts"),
+    "utf8",
+  );
+  const code = source
+    .replaceAll(/\/\*[\s\S]*?\*\//g, "")
+    .replaceAll(/\/\/.*$/gm, "");
+  // Isolate the reconciliation implementation.
+  const start = code.indexOf("async observeSource");
+  const end = code.indexOf("private async verifyApplied");
+  assert.ok(start > 0 && end > start);
+  const segment = code.slice(start, end);
+
+  // Every git call in this region, with the working directory it targets.
+  const calls = [
+    ...segment.matchAll(/this\.git\(\s*\[([\s\S]*?)\],\s*(\w+)/g),
+  ].map((match) => ({
+    verb: /"([a-z-]+)"/.exec(match[1]!)?.[1] ?? "",
+    cwd: match[2]!,
+  }));
+  assert.ok(calls.length > 0, "expected git calls in the reconciliation path");
+
+  for (const call of calls) {
+    if (["apply", "checkout", "clone", "reset", "clean", "merge"].includes(call.verb)) {
+      // These may appear ONLY inside the isolated legacy-tree derivation,
+      // which operates on a throwaway clone -- never the user's workspace.
+      assert.notEqual(
+        call.cwd,
+        "project.sourcePath",
+        `${call.verb} must never target the real source during reconciliation`,
+      );
+      assert.ok(
+        ["clonePath", "derivationRoot"].includes(call.cwd),
+        `${call.verb} ran against unexpected cwd ${call.cwd}`,
+      );
+      continue;
+    }
+    // Everything else must be a pure read/identity operation.
+    assert.ok(
+      ["rev-parse", "write-tree", "diff", "ls-files", "status"].includes(call.verb),
+      `unexpected git verb in reconciliation: ${call.verb}`,
+    );
+  }
+  // And no shell is ever involved.
+  assert.equal(segment.includes("shell: true"), false);
 });

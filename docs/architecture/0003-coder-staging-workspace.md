@@ -434,10 +434,10 @@ it would be worse than failing. If the exact clean baseline is not restored,
 the intent is **kept** and `CHANGE_SET_APPLY_RECOVERY_REQUIRED` is raised.
 After a genuine crash, Synaphex never auto-resets the source — edits made in
 the meantime could be destroyed — so `applying_interrupted` blocks further
-decisions until recovery becomes explicit (deferred to Phase 5E). Note that
-since Phase 5D the *mutex* is no longer part of that problem: a dead process's
-source-mutation lock is reclaimed automatically, while the apply intent it left
-behind survives untouched. See ADR 0004.
+decisions until recovery becomes explicit. Note that since Phase 5D the *mutex*
+is no longer part of that problem: a dead process's source-mutation lock is
+reclaimed automatically, while the apply intent it left behind survives
+untouched (ADR 0004). Phase 5E adds the explicit reconciliation itself, below.
 
 ### Locks
 
@@ -495,3 +495,166 @@ synaphex_reject_change_set       destructive  (irreversible task-state decision)
 All four are `openWorldHint: false` — none reaches a provider or the network.
 Still absent, deliberately: commit, push, merge, staging-path and
 arbitrary-source-read tools.
+
+
+## Phase 5E: explicit interrupted-apply reconciliation
+
+### Two different recoveries, deliberately not connected
+
+```text
+recoverable process mutex   !=   interrupted source-state recovery
+```
+
+Phase 5D made a *mutex* self-healing: a dead process's lock is reclaimed
+automatically, because a dead process cannot legitimately hold one. That says
+nothing about the user's files. Reconciling an interrupted apply is a **domain**
+decision about the real source workspace, and it stays explicit and
+user-triggered. Recovering the mutex never advances it.
+
+### Synaphex never resets the source after a restart
+
+After a crash Synaphex cannot know whether differences it now observes were
+written by its own interrupted apply, by the user, by an editor, or by another
+process. A `reset --hard` on restart could therefore destroy legitimate work.
+
+Automatic rollback stays forbidden. Reconciliation is **observational**: it looks
+at Git object identity and performs only a transition that is provably consistent
+with the exact persisted change set.
+
+### The caller does not choose the outcome
+
+There is no `action`, `mode`, `force`, `assumeApplied` or path input anywhere on
+this surface. The user's explicit action is only *"reconcile this interrupted
+apply"*; the server derives the truth from Git.
+
+### Three observations, four conditions each
+
+```text
+base_clean     HEAD == baseCommit
+               index tree == tree(baseCommit)
+               worktree == index
+               no untracked files
+
+exact_applied  HEAD == baseCommit
+               index tree == resultTree
+               worktree == index
+               no untracked files
+
+divergent      anything not provably one of the above
+```
+
+All four conditions are load-bearing, and each was confirmed by mutation-testing
+the classifier. Two cases are worth naming, because a `git status` check alone
+would get them wrong:
+
+- an index matching `resultTree` **with an unstaged edit on top** is not an
+  applied state;
+- an index matching `tree(baseCommit)` **with an untracked file present** is not
+  a clean base.
+
+The subtlest is a user who applies the change themselves *and commits it*: the
+index tree then equals `resultTree` and the worktree is spotless, yet HEAD has
+moved off the recorded baseline. Finalizing there would mint a receipt whose
+`baseCommit` no longer describes the repository, so the HEAD check refuses it.
+
+Full object ids are used throughout; branch names are irrelevant.
+
+### Transitions
+
+```text
+base_clean     -> remove the intent            -> pending
+exact_applied  -> write applied receipt, then
+                  remove the intent            -> applied
+divergent      -> mutate NOTHING               -> CHANGE_SET_APPLY_RECOVERY_REQUIRED
+```
+
+`base_clean` writes **no** receipt: the change set simply becomes decidable
+again, and apply/reject work normally. `exact_applied` writes the terminal
+receipt from **persisted** authority only (`changeSetId`, `projectId`, `taskId`,
+`baseCommit`, `resultTree`, `patchHash`) — the patch is never re-applied and not
+one source file is touched.
+
+### No destructive Git in the reconciliation path
+
+Reconciliation runs only `rev-parse`, `write-tree`, `diff` and `ls-files` against
+the real source. `write-tree` writes unreferenced tree objects; it changes no
+file, index entry or ref.
+
+`apply`, `checkout` and `clone` *do* appear in the path — but exclusively inside
+the Phase-5C legacy `resultTree` derivation, which operates on a throwaway clone
+under a temporary HOME. An audit test parses the implementation, extracts every
+Git call with its working directory, and asserts that no mutating verb ever
+targets `project.sourcePath`.
+
+### Crash ordering
+
+Base path: the only durable mutation is resolving the intent. A crash before it
+leaves `applying_interrupted`; after it, `pending`. Both are safe, and no source
+mutation occurs either way.
+
+Applied path: receipt **then** intent removal, never reversed — the same order
+Phase 5C uses. A crash between them leaves a terminal receipt that outranks the
+stale intent, so the state is `applied`. Leftover intents are stale cleanup debt,
+not ambiguous authority.
+
+### Reads perform no cleanup
+
+`synaphex_get_apply_recovery_state` reports an already-decided target as its
+terminal state with `reconciliationAvailable: false`. It deliberately does *not*
+sweep a stale intent: a read tool performing surprising domain mutation would be
+worse than the small GC debt, which is documented and left.
+
+### Authority
+
+Reconciliation reuses the accepted Phase-5C authority model exactly — task-bound
+session, current ownership, latest CODER work-record reference, exact
+`changeSetId`, patch integrity — plus `state == applying_interrupted`. Directory
+existence is never authority, so an orphan or superseded change set cannot be
+reconciled. Locks keep the fixed order:
+
+```text
+source-mutation lock  ->  withTaskOwnershipAuthority(...)
+```
+
+and every input — work record, integrity, receipt, intent, Git state — is
+re-read *inside* that boundary, so no decision rests on a stale observation.
+
+### Receipt provenance
+
+A reconciled receipt carries a system-generated marker:
+
+```json
+{ "reconciliation": { "mode": "observed_exact_result", "reconciledAt": "..." } }
+```
+
+No provider or caller can supply or override it, and legacy receipts without it
+stay readable. It distinguishes a receipt finalized by observation from one
+written by a live apply.
+
+### Manual recovery for divergent state
+
+Synaphex will not guess. The user restores the repository by hand to *either*
+exact clean base *or* exact expected result, then reconciles again. Both paths
+are tested, as is the guarantee that a refused reconciliation leaves unrelated
+user files byte-identical.
+
+### REVIEWER gets no special case
+
+After `exact_applied -> applied`, REVIEWER runs subject to the ordinary
+Phase-5C drift verification — a recovered receipt earns no bypass, and a later
+edit still raises `REVIEW_TARGET_CHANGED`. After `base_clean -> pending`,
+REVIEWER is refused with `REVIEW_TARGET_NOT_APPLIED`.
+
+### Tool surface
+
+```text
+synaphex_get_apply_recovery_state       readOnly, idempotent
+synaphex_reconcile_interrupted_apply    destructive, non-idempotent
+```
+
+Both `openWorldHint: false`. Reconciliation is marked destructive because it can
+mint terminal applied authority or return a change set to pending — a real
+one-time domain transition. Acquiring a transient mutex during the read is not
+itself a domain mutation, so the inspection tool stays `readOnlyHint: true`.
+
+Count: **25 -> 27**. No reset, force, unlock or cleanup tool was added.

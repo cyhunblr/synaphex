@@ -27,6 +27,7 @@ import { InvocationContinuationCommands } from "../operations/invocation-continu
 import { InvocationContinuationStore } from "../operations/invocation-continuation-store.js";
 import { ChangeSetCommands } from "../operations/change-set-commands.js";
 import { PlanDecisionCommands } from "../operations/plan-decision-commands.js";
+import { TaskLifecycleCommands } from "../operations/task-lifecycle-commands.js";
 import { ProjectTaskCommands } from "../operations/project-task-commands.js";
 import { SessionCommands } from "../operations/session-commands.js";
 import { createSynaphexMcpServer } from "./create-synaphex-mcp-server.js";
@@ -143,8 +144,17 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
     applyManager: changeSetApply,
     sessions,
   });
+  const plans = new PlanManager(stateStore, tasks);
+  const taskLifecycleCommands = new TaskLifecycleCommands({
+    projects,
+    tasks,
+    plans,
+    artifacts: new ArtifactManager(stateStore, projects, tasks),
+    applyManager: changeSetApply,
+    sessions,
+  });
   const planCommands = new PlanDecisionCommands({
-    plans: new PlanManager(stateStore, tasks),
+    plans,
     tasks,
     sessions,
   });
@@ -186,6 +196,7 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
     projectTaskCommands,
     planCommands,
     changeSetCommands,
+    taskLifecycleCommands,
     onDiagnostic: diagnostic,
   });
 

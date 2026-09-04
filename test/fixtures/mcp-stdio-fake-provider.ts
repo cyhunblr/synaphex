@@ -91,8 +91,18 @@ function scriptedResult(agent: string): unknown {
     };
   }
   if (agent === "reviewer") {
-    // FAIL, not PASS: a PASS would complete the task, ending the session the
-    // protocol test is still driving.
+    if (process.env.SYNAPHEX_TEST_REVIEWER_PASS === "1") {
+      // A PASS completes the task, which the lifecycle test drives on purpose.
+      return {
+        agent: "reviewer",
+        outcome: "success",
+        summary: "Reviewed the applied change.",
+        reviewStatus: "PASS",
+        report: { validation_results: ["all good"] },
+      };
+    }
+    // FAIL by default: a PASS would complete the task, ending the session the
+    // other protocol tests are still driving.
     return {
       agent: "reviewer",
       outcome: "success",

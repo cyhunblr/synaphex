@@ -79,6 +79,10 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "CHANGE_SET_APPLY_CHECK_FAILED",
     "CHANGE_SET_APPLY_INTERRUPTED",
     "CHANGE_SET_APPLY_RECOVERY_REQUIRED",
+    "CHANGE_SET_NOT_INTERRUPTED",
+    // Phase 6A task lifecycle.
+    "TASK_HAS_PENDING_CHANGE_SET",
+    "INVALID_TASK_TRANSITION",
     "SOURCE_MUTATION_LOCK_TIMEOUT",
     "REVIEW_TARGET_REJECTED",
     "REVIEW_TARGET_APPLY_INTERRUPTED",
@@ -164,6 +168,11 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
     "Change set could not be applied cleanly to the source workspace.",
   CHANGE_SET_APPLY_INTERRUPTED:
     "Apply failed and the source was restored to its baseline.",
+  TASK_HAS_PENDING_CHANGE_SET:
+    "This task has an undecided CODER change set; apply, reject or reconcile it first.",
+  INVALID_TASK_TRANSITION: "That task lifecycle transition is not allowed.",
+  CHANGE_SET_NOT_INTERRUPTED:
+    "This change set has no interrupted apply to reconcile.",
   CHANGE_SET_APPLY_RECOVERY_REQUIRED:
     "A previous apply was interrupted and the source must be resolved manually.",
   SOURCE_MUTATION_LOCK_TIMEOUT: "Timed out acquiring the source mutation lock.",

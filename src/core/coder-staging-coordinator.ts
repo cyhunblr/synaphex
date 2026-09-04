@@ -48,15 +48,39 @@ export interface StagedCoderExecutionInput {
   readonly project: Project;
   readonly taskId: `task_${string}`;
   readonly ownershipFence: TaskOwnershipFence;
+  /**
+   * Set when the caller already holds task-ownership authority across the
+   * whole commit boundary. The task-binding lock is not reentrant, so
+   * publication must not re-acquire it in that case.
+   */
+  readonly withinOwnershipAuthority?: boolean;
   readonly context: AgentContext;
   /** Runs the provider against the projected execution context. */
   readonly execute: (executionContext: AgentContext) => Promise<unknown>;
 }
 
+/**
+ * Changes derived from the staging repository, not yet durable.
+ *
+ * Capture is separated from publication so the expensive Git work happens
+ * OUTSIDE the task-binding lock, and only the short durable write happens
+ * inside it.
+ */
+export interface CapturedCoderChanges {
+  readonly candidate: CoderChangeSetCandidate | null;
+}
+
 export interface StagedCoderExecutionResult {
   readonly rawResult: unknown;
-  /** Publishes the captured changes; `null` when nothing changed. */
-  readonly publish: () => Promise<CoderChangeSetReference | null>;
+  /**
+   * Derives the change set from Git state and revalidates the staging
+   * repository. Runs no durable write, so it must NOT hold the task lock.
+   */
+  readonly capture: () => Promise<CapturedCoderChanges>;
+  /** Durably publishes captured changes; `null` when nothing changed. */
+  readonly publish: (
+    captured: CapturedCoderChanges,
+  ) => Promise<CoderChangeSetReference | null>;
   readonly dispose: () => Promise<void>;
 }
 
@@ -118,7 +142,8 @@ export class CoderStagingCoordinator {
 
       return {
         rawResult,
-        publish: async () => this.captureAndPublish(input, prepared),
+        capture: async () => this.capture(input, prepared),
+        publish: async (captured) => this.publish(input, captured),
         dispose: async () => this.dependencies.stager.dispose(prepared),
       };
     } catch (error) {
@@ -135,39 +160,60 @@ export class CoderStagingCoordinator {
    * sufficient, because CODER can create unsafe structures while working. The
    * final staged/index state is therefore revalidated here.
    */
-  private async captureAndPublish(
+  private async capture(
     input: StagedCoderExecutionInput,
     prepared: PreparedCoderWorkspace,
-  ): Promise<CoderChangeSetReference | null> {
+  ): Promise<CapturedCoderChanges> {
     const candidate = await this.dependencies.stager.captureChanges(prepared);
     await this.assertStagingStillSafe(input, prepared);
+    // No fake patch and no empty change-set directory.
+    return {
+      candidate: candidate.changedFiles.length === 0 ? null : candidate,
+    };
+  }
 
-    if (candidate.changedFiles.length === 0) {
-      // No fake patch and no empty change-set directory.
+  private async publish(
+    input: StagedCoderExecutionInput,
+    captured: CapturedCoderChanges,
+  ): Promise<CoderChangeSetReference | null> {
+    const candidate = captured.candidate;
+    if (candidate === null) {
       return null;
     }
 
-    // Publish inside the authoritative task-binding lock so a force-release or
-    // rebind cannot interleave between the ownership check and the durable
-    // write. The lock covers only this short deterministic boundary -- never
-    // provider execution.
+    const write = async (): Promise<CoderChangeSetReference | null> => {
+      const published = await this.dependencies.changeSets.publish(candidate);
+      if (published === null) {
+        return null;
+      }
+      return {
+        id: published.metadata.changeSetId,
+        baseCommit: published.metadata.baseCommit,
+        patchHash: published.metadata.patchHash,
+        patchBytes: published.metadata.patchBytes,
+        changedFiles: published.metadata.changedFiles.map((file) => ({
+          ...file,
+        })),
+      };
+    };
+
+    // Publication must happen under the authoritative task-binding lock, so a
+    // force-release, rebind or completion cannot interleave between the
+    // ownership check and the durable write.
+    //
+    // Phase 6A widened that boundary: the caller now holds it across BOTH the
+    // change-set publication and the Coder work record, so the two cannot be
+    // split by a concurrent completion. When the caller already holds the
+    // authority, re-entering it here would self-deadlock on the same
+    // non-reentrant task-binding lock, so publish directly instead.
+    if (input.withinOwnershipAuthority === true) {
+      return write();
+    }
+    // The lock covers only this short deterministic boundary -- never provider
+    // execution.
     return this.dependencies.sessions.withTaskOwnershipAuthority(
       input.ownershipFence,
-      async () => {
-        const published = await this.dependencies.changeSets.publish(candidate);
-        if (published === null) {
-          return null;
-        }
-        return {
-          id: published.metadata.changeSetId,
-          baseCommit: published.metadata.baseCommit,
-          patchHash: published.metadata.patchHash,
-          patchBytes: published.metadata.patchBytes,
-          changedFiles: published.metadata.changedFiles.map((file) => ({
-            ...file,
-          })),
-        };
-      },
+      write,
     );
   }
 

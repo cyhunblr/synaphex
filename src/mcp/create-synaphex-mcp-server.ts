@@ -34,6 +34,10 @@ import type {
   ChangeSetReadPort,
 } from "../operations/change-set-commands.js";
 import type {
+  TaskArchivePort,
+  TaskCompletionPort,
+} from "../operations/task-lifecycle-commands.js";
+import type {
   SessionCommandPort,
   SessionRecoveryPort,
 } from "../operations/session-commands.js";
@@ -111,6 +115,13 @@ export const SYNAPHEX_MCP_CHANGE_SET_TOOLS = Object.freeze([
   "synaphex_read_change_set_patch",
   "synaphex_apply_change_set",
   "synaphex_reject_change_set",
+  "synaphex_get_apply_recovery_state",
+  "synaphex_reconcile_interrupted_apply",
+] as const);
+
+export const SYNAPHEX_MCP_LIFECYCLE_TOOLS = Object.freeze([
+  "synaphex_complete_task",
+  "synaphex_archive_task",
 ] as const);
 
 export const SYNAPHEX_MCP_PLAN_TOOLS = Object.freeze([
@@ -163,6 +174,7 @@ export const SYNAPHEX_MCP_TOOLS = Object.freeze([
   ...SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
   ...SYNAPHEX_MCP_PLAN_TOOLS,
   ...SYNAPHEX_MCP_CHANGE_SET_TOOLS,
+  ...SYNAPHEX_MCP_LIFECYCLE_TOOLS,
   ...SYNAPHEX_MCP_SESSION_TOOLS,
   ...SYNAPHEX_MCP_RECOVERY_TOOLS,
   ...SYNAPHEX_MCP_INVOCATION_TOOLS,
@@ -207,6 +219,7 @@ export interface CreateSynaphexMcpServerOptions
   readonly planCommands: PlanReadPort & PlanDecisionPort;
   /** Narrow change-set review/decision boundary. */
   readonly changeSetCommands: ChangeSetReadPort & ChangeSetDecisionPort;
+  readonly taskLifecycleCommands: TaskCompletionPort & TaskArchivePort;
   /** Server version; callers pass the package.json version (never duplicated here). */
   readonly version: string;
   /** Diagnostics sink. Defaults to stderr so MCP stdout stays protocol-only. */
@@ -596,6 +609,80 @@ const changeSetDecisionOutputSchema = z.object({
   resultTree: z.string().nullable(),
 });
 
+const changeSetStateEnum = z.enum([
+  "pending",
+  "applying_interrupted",
+  "applied",
+  "rejected",
+]);
+
+const applyRecoveryOutputSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  changeSetId: z.string(),
+  state: changeSetStateEnum,
+  // Null unless the target is actually interrupted.
+  observedSourceState: z
+    .enum(["base_clean", "exact_applied", "divergent"])
+    .nullable(),
+  reconciliationAvailable: z.boolean(),
+  // Safe diagnostics explaining a classification. Never an alternative
+  // authority: the server always re-derives the classification from Git.
+  diagnostics: z
+    .object({
+      headMatchesBase: z.boolean(),
+      indexMatchesBase: z.boolean(),
+      indexMatchesResult: z.boolean(),
+      worktreeMatchesIndex: z.boolean(),
+      hasUntracked: z.boolean(),
+    })
+    .nullable(),
+});
+
+const applyReconciliationOutputSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  changeSetId: z.string(),
+  previousState: changeSetStateEnum,
+  observedSourceState: z.enum(["base_clean", "exact_applied"]),
+  resultingState: changeSetStateEnum,
+});
+
+const completeTaskInputSchema = z.object({
+  // The ONLY authority. No projectId, taskId, status or force input exists, so
+  // a caller cannot complete a task it does not currently own.
+  sessionId: z.string().describe("Task-bound Synaphex session id."),
+});
+
+const archiveTaskInputSchema = z.object({
+  // Administrative addressing: a completed task's session may legitimately be
+  // gone. No force, sessionId or delete input -- any owner is discovered from
+  // authoritative task-binding state.
+  projectId: z.string().describe("Registered Synaphex project id."),
+  taskId: z.string().describe("Completed task to archive."),
+});
+
+const taskCompletionOutputSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  status: z.enum(["active", "completed", "archived"]),
+  completedAt: z.string().nullable(),
+  archivedAt: z.string().nullable(),
+  sessionRetained: z.boolean(),
+});
+
+const taskArchiveOutputSchema = z.object({
+  projectId: z.string(),
+  taskId: z.string(),
+  status: z.enum(["active", "completed", "archived"]),
+  completedAt: z.string().nullable(),
+  archivedAt: z.string().nullable(),
+  releasedTaskSession: z.boolean(),
+});
+
 const agentConfigOutputSchema = z.object({
   agent: z.enum(AGENT_NAMES),
   status: z.enum(["configured", "unconfigured", "removed"]),
@@ -638,6 +725,7 @@ export function createSynaphexMcpServer(
     projectTaskCommands,
     planCommands,
     changeSetCommands,
+    taskLifecycleCommands,
     version,
     onDiagnostic = defaultDiagnostic,
   } = options;
@@ -908,6 +996,117 @@ export function createSynaphexMcpServer(
     async ({ sessionId, changeSetId }) =>
       run(onDiagnostic, "synaphex_reject_change_set", async () =>
         changeSetCommands.rejectChangeSet(
+          parseSessionId(sessionId),
+          changeSetId,
+        ),
+      ),
+  );
+
+  // --- Phase 6A: deterministic user task lifecycle -------------------------
+  //
+  // active -> completed -> archived. No reopen and no un-archive tool exists,
+  // and neither operation touches the source workspace, Git or a provider.
+  server.registerTool(
+    "synaphex_complete_task",
+    {
+      title: "Complete Synaphex task",
+      description:
+        "Mark the session's currently bound task completed. This is an explicit user decision and does not require a REVIEWER pass. Refused while a plan draft is pending or the latest CODER change set is undecided. The task session stays bound until the task is archived.",
+      inputSchema: completeTaskInputSchema,
+      outputSchema: taskCompletionOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        // A second call raises INVALID_TASK_TRANSITION rather than succeeding,
+        // so this is honestly not idempotent -- the end state matching is not
+        // the same thing as a repeatable call.
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId }) =>
+      run(onDiagnostic, "synaphex_complete_task", async () =>
+        taskLifecycleCommands.completeTask(parseSessionId(sessionId)),
+      ),
+  );
+
+  server.registerTool(
+    "synaphex_archive_task",
+    {
+      title: "Archive Synaphex task",
+      description:
+        "Archive a completed task. Terminal: an archived task can never be reopened. Releases any task session still owning the task, and preserves plans, artifacts, change sets and decision receipts. An active task is refused.",
+      inputSchema: archiveTaskInputSchema,
+      outputSchema: taskArchiveOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ projectId, taskId }) =>
+      run(onDiagnostic, "synaphex_archive_task", async () =>
+        taskLifecycleCommands.archiveTask(
+          parseProjectId(projectId),
+          parseTaskId(taskId),
+        ),
+      ),
+  );
+
+  // --- Phase 5E: explicit interrupted-apply reconciliation -----------------
+  //
+  // Recovery is OBSERVATIONAL. The client never selects an outcome: there is
+  // no mode, force, reset or assume-applied input anywhere on this surface.
+  server.registerTool(
+    "synaphex_get_apply_recovery_state",
+    {
+      title: "Get Synaphex apply recovery state",
+      description:
+        "Report whether an interrupted apply can be reconciled. Classifies the registered source against the exact change set as base_clean, exact_applied or divergent, using Git object identity only. Reads state; changes nothing.",
+      inputSchema: changeSetRefSchema,
+      outputSchema: applyRecoveryOutputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId, changeSetId }) =>
+      run(onDiagnostic, "synaphex_get_apply_recovery_state", async () => {
+        const state = await changeSetCommands.getApplyRecoveryState(
+          parseSessionId(sessionId),
+          changeSetId,
+        );
+        return {
+          ...state,
+          diagnostics:
+            state.diagnostics === null ? null : { ...state.diagnostics },
+        };
+      }),
+  );
+
+  server.registerTool(
+    "synaphex_reconcile_interrupted_apply",
+    {
+      title: "Reconcile Synaphex interrupted apply",
+      description:
+        "Resolve an interrupted apply by observing the registered source. An exact clean baseline returns the change set to pending; an exact expected result finalizes the applied receipt. Any other state is refused and nothing is modified. The source workspace is never reset, cleaned or re-patched.",
+      inputSchema: changeSetRefSchema,
+      outputSchema: applyReconciliationOutputSchema,
+      annotations: {
+        // It can mint terminal applied authority or return a change set to
+        // pending, so it is a real domain-state transition -- not a read.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId, changeSetId }) =>
+      run(onDiagnostic, "synaphex_reconcile_interrupted_apply", async () =>
+        changeSetCommands.reconcileInterruptedApply(
           parseSessionId(sessionId),
           changeSetId,
         ),

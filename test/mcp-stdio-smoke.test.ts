@@ -122,12 +122,15 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_apply_change_set",
       "synaphex_approve_and_execute_helper",
       "synaphex_approve_network_action",
+      "synaphex_archive_task",
       "synaphex_close_session",
+      "synaphex_complete_task",
       "synaphex_continue_allowed_network",
       "synaphex_create_task",
       "synaphex_execute_helper",
       "synaphex_force_release_task_session",
       "synaphex_get_agent_config",
+      "synaphex_get_apply_recovery_state",
       "synaphex_get_change_set",
       "synaphex_get_effective_rules",
       "synaphex_get_project",
@@ -139,6 +142,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_open_project_session",
       "synaphex_open_task_session",
       "synaphex_read_change_set_patch",
+      "synaphex_reconcile_interrupted_apply",
       "synaphex_register_project",
       "synaphex_reject_change_set",
       "synaphex_reject_plan_draft",
@@ -591,7 +595,7 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
       (candidate) => candidate.name === "synaphex_invoke_agent",
     );
     assert.notEqual(invokeTool, undefined);
-    assert.equal(tools.length, 25);
+    assert.equal(tools.length, 29);
 
     // 5: the enum is exactly the six logical agents.
     const agentEnum =
@@ -2184,5 +2188,571 @@ test("staged CODER runs through MCP and leaves the real source unchanged", async
     );
   } finally {
     await client.close();
+  }
+});
+
+/**
+ * Phase-5E recovery over real stdio.
+ *
+ * Drives all three observation categories against a real subprocess: an exact
+ * clean base, an exact applied result, and a divergent source. No provider or
+ * network is involved beyond the existing fake CODER/REVIEWER.
+ */
+test("interrupted-apply recovery is explicit and observational over real stdio", async (t) => {
+  const gitEnvFor = (cwd: string) => ({
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    HOME: cwd,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "Fixture",
+    GIT_AUTHOR_EMAIL: "fixture@localhost",
+    GIT_COMMITTER_NAME: "Fixture",
+    GIT_COMMITTER_EMAIL: "fixture@localhost",
+    LC_ALL: "C",
+  });
+  const { spawnSync } = await import("node:child_process");
+
+  /**
+   * Boots a session, runs staged CODER, and returns everything the scenario
+   * needs. Each scenario gets its own isolated HOME and source repository.
+   */
+  async function boot() {
+    const home = await temporaryStateRoot(t);
+    const sourcePath = join(home, "workspace");
+    await mkdir(sourcePath, { recursive: true });
+    const gitEnv = gitEnvFor(sourcePath);
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, {
+        cwd: sourcePath,
+        env: gitEnv,
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, `git ${args.join(" ")}: ${result.stderr}`);
+      return result.stdout;
+    };
+    await writeFile(join(sourcePath, "app.txt"), "original\n", "utf8");
+    git("init", "--quiet");
+    git("add", "-A");
+    git("commit", "--quiet", "-m", "baseline");
+
+    const store = new StateStore(join(home, ".synaphex"));
+    const configs = new AgentConfigManager(store);
+    for (const agent of ["coder", "reviewer"] as const) {
+      await configs.setConfigured(agent, {
+        provider: "openai",
+        surface: "cli",
+        model: `${agent}-model`,
+      });
+    }
+
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [FAKE_PROVIDER_ENTRYPOINT, ...HOST_ARGS],
+      env: { ...process.env, HOME: home, SYNAPHEX_TEST_CODER_EDIT: "1" },
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "recovery-smoke", version: "0.0.0" });
+    await client.connect(transport);
+    const call = async (name: string, args: Record<string, unknown>) =>
+      client.callTool({ name, arguments: args });
+
+    const projectId = (
+      (await call("synaphex_register_project", { name: "P", sourcePath }))
+        .structuredContent as { id: string }
+    ).id;
+    const taskId = (
+      (await call("synaphex_create_task", { projectId, description: "Do it" }))
+        .structuredContent as { id: string }
+    ).id;
+    const sessionId = (
+      (await call("synaphex_open_task_session", { projectId, taskId }))
+        .structuredContent as { sessionId: string }
+    ).sessionId;
+    const invoked = await call("synaphex_invoke_agent", {
+      agent: "coder",
+      scope: { kind: "task_session", sessionId },
+      instruction: "Implement it.",
+    });
+    const changeSetId = (
+      invoked.structuredContent as { changeSet: { id: string } }
+    ).changeSet.id;
+
+    /**
+     * Creates a genuinely interrupted apply by writing the durable intent that
+     * a crashed apply would leave behind, using authoritative persisted values
+     * read back through the read tools.
+     */
+    async function interrupt() {
+      const review = (
+        await call("synaphex_get_change_set", { sessionId, changeSetId })
+      ).structuredContent as {
+        baseCommit: string;
+        resultTree: string;
+        patchHash: string;
+      };
+      const tasks = new TaskManager(
+        store,
+        new ProjectManager(store, { homeDirectory: home }),
+      );
+      const directory = await tasks.getStateDirectoryByTaskId(taskId as never);
+      await store.writeJson(`${directory}/changes/apply-intents/${changeSetId}.json`, {
+        version: 1,
+        changeSetId,
+        projectId,
+        taskId,
+        baseCommit: review.baseCommit,
+        expectedResultTree: review.resultTree,
+        patchHash: review.patchHash,
+        startedAt: new Date().toISOString(),
+      });
+      return review;
+    }
+
+    /** Reassembles the authoritative patch bytes over the wire. */
+    async function fetchPatch(): Promise<Buffer> {
+      const chunks: Buffer[] = [];
+      let offset = 0;
+      for (;;) {
+        const chunk = (
+          await call("synaphex_read_change_set_patch", {
+            sessionId,
+            changeSetId,
+            offset,
+            maxBytes: 65_536,
+          })
+        ).structuredContent as {
+          data: string;
+          nextOffset: number;
+          done: boolean;
+        };
+        chunks.push(Buffer.from(chunk.data, "base64"));
+        offset = chunk.nextOffset;
+        if (chunk.done) {
+          return Buffer.concat(chunks);
+        }
+      }
+    }
+
+    t.after(() => client.close());
+    return { call, git, sourcePath, home, sessionId, changeSetId, interrupt, fetchPatch };
+  }
+
+  // --- A: exact clean base -> pending, and apply works again ---------------
+  {
+    const s = await boot();
+    await s.interrupt();
+    const state = (
+      await s.call("synaphex_get_apply_recovery_state", {
+        sessionId: s.sessionId,
+        changeSetId: s.changeSetId,
+      })
+    ).structuredContent as {
+      state: string;
+      observedSourceState: string;
+      reconciliationAvailable: boolean;
+    };
+    assert.equal(state.state, "applying_interrupted");
+    assert.equal(state.observedSourceState, "base_clean");
+    assert.equal(state.reconciliationAvailable, true);
+
+    const reconciled = await s.call("synaphex_reconcile_interrupted_apply", {
+      sessionId: s.sessionId,
+      changeSetId: s.changeSetId,
+    });
+    assert.notEqual(reconciled.isError, true, JSON.stringify(reconciled.content));
+    assert.deepEqual(
+      {
+        ...(reconciled.structuredContent as Record<string, unknown>),
+        sessionId: undefined,
+        projectId: undefined,
+        taskId: undefined,
+        changeSetId: undefined,
+      },
+      {
+        sessionId: undefined,
+        projectId: undefined,
+        taskId: undefined,
+        changeSetId: undefined,
+        previousState: "applying_interrupted",
+        observedSourceState: "base_clean",
+        resultingState: "pending",
+      },
+    );
+
+    // Normal apply works again after recovery.
+    const applied = await s.call("synaphex_apply_change_set", {
+      sessionId: s.sessionId,
+      changeSetId: s.changeSetId,
+    });
+    assert.notEqual(applied.isError, true, JSON.stringify(applied.content));
+    assert.equal(
+      (applied.structuredContent as { state: string }).state,
+      "applied",
+    );
+  }
+
+  // --- B: exact applied result -> applied, and REVIEWER then runs ----------
+  {
+    const s = await boot();
+    const review = await s.interrupt();
+    // Reproduce a crash after git apply fully succeeded.
+    const patchPath = join(s.home, "exact.patch");
+    await writeFile(patchPath, await s.fetchPatch());
+    s.git("apply", "--index", "--binary", patchPath);
+    assert.equal(s.git("write-tree").trim(), review.resultTree);
+
+    const state = (
+      await s.call("synaphex_get_apply_recovery_state", {
+        sessionId: s.sessionId,
+        changeSetId: s.changeSetId,
+      })
+    ).structuredContent as { observedSourceState: string };
+    assert.equal(state.observedSourceState, "exact_applied");
+
+    const reconciled = await s.call("synaphex_reconcile_interrupted_apply", {
+      sessionId: s.sessionId,
+      changeSetId: s.changeSetId,
+    });
+    assert.notEqual(reconciled.isError, true, JSON.stringify(reconciled.content));
+    assert.equal(
+      (reconciled.structuredContent as { resultingState: string }).resultingState,
+      "applied",
+    );
+    // HEAD never moved: reconciliation committed nothing.
+    assert.equal(s.git("rev-parse", "HEAD").trim(), review.baseCommit);
+
+    // REVIEWER now runs, subject to the ordinary drift verification.
+    const reviewed = await s.call("synaphex_invoke_agent", {
+      agent: "reviewer",
+      scope: { kind: "task_session", sessionId: s.sessionId },
+      instruction: "Review it.",
+    });
+    assert.notEqual(reviewed.isError, true, JSON.stringify(reviewed.content));
+  }
+
+  // --- C: divergent -> refused, source untouched ---------------------------
+  {
+    const s = await boot();
+    await s.interrupt();
+    await writeFile(join(s.sourcePath, "user-file.txt"), "user work\n", "utf8");
+    await writeFile(join(s.sourcePath, "app.txt"), "half applied\n", "utf8");
+    const before = s.git("status", "--porcelain").trim();
+
+    const state = (
+      await s.call("synaphex_get_apply_recovery_state", {
+        sessionId: s.sessionId,
+        changeSetId: s.changeSetId,
+      })
+    ).structuredContent as {
+      observedSourceState: string;
+      reconciliationAvailable: boolean;
+    };
+    assert.equal(state.observedSourceState, "divergent");
+    assert.equal(state.reconciliationAvailable, false);
+
+    const refused = await s.call("synaphex_reconcile_interrupted_apply", {
+      sessionId: s.sessionId,
+      changeSetId: s.changeSetId,
+    });
+    assert.equal(refused.isError, true);
+    assert.equal(
+      (refused.structuredContent as { code: string }).code,
+      "CHANGE_SET_APPLY_RECOVERY_REQUIRED",
+    );
+    // No reset, no clean: the user's files are exactly as they left them.
+    assert.equal(s.git("status", "--porcelain").trim(), before);
+    assert.equal(
+      await readFile(join(s.sourcePath, "user-file.txt"), "utf8"),
+      "user work\n",
+    );
+    assert.equal(
+      await readFile(join(s.sourcePath, "app.txt"), "utf8"),
+      "half applied\n",
+    );
+  }
+});
+
+/**
+ * Phase-6A task lifecycle over real stdio: manual completion, its blockers,
+ * archive, Reviewer-driven completion, and continuation invalidation.
+ */
+test("the task lifecycle is deterministic and one-way over real stdio", async (t) => {
+  const { spawnSync } = await import("node:child_process");
+
+  async function boot(env: Record<string, string> = {}) {
+    const home = await temporaryStateRoot(t);
+    const sourcePath = join(home, "workspace");
+    await mkdir(sourcePath, { recursive: true });
+    const gitEnv = {
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      HOME: sourcePath,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_AUTHOR_NAME: "Fixture",
+      GIT_AUTHOR_EMAIL: "fixture@localhost",
+      GIT_COMMITTER_NAME: "Fixture",
+      GIT_COMMITTER_EMAIL: "fixture@localhost",
+      LC_ALL: "C",
+    };
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, {
+        cwd: sourcePath,
+        env: gitEnv,
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, `git ${args.join(" ")}: ${result.stderr}`);
+      return result.stdout;
+    };
+    await writeFile(join(sourcePath, "app.txt"), "original\n", "utf8");
+    git("init", "--quiet");
+    git("add", "-A");
+    git("commit", "--quiet", "-m", "baseline");
+
+    const store = new StateStore(join(home, ".synaphex"));
+    const configs = new AgentConfigManager(store);
+    for (const agent of ["coder", "planner", "reviewer"] as const) {
+      await configs.setConfigured(agent, {
+        provider: "openai",
+        surface: "cli",
+        model: `${agent}-model`,
+      });
+    }
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [FAKE_PROVIDER_ENTRYPOINT, ...HOST_ARGS],
+      env: { ...process.env, HOME: home, ...env },
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "lifecycle-smoke", version: "0.0.0" });
+    await client.connect(transport);
+    t.after(() => client.close());
+    const call = async (name: string, args: Record<string, unknown>) =>
+      client.callTool({ name, arguments: args });
+
+    const projectId = (
+      (await call("synaphex_register_project", { name: "P", sourcePath }))
+        .structuredContent as { id: string }
+    ).id;
+    const taskId = (
+      (await call("synaphex_create_task", { projectId, description: "Do it" }))
+        .structuredContent as { id: string }
+    ).id;
+    const sessionId = (
+      (await call("synaphex_open_task_session", { projectId, taskId }))
+        .structuredContent as { sessionId: string }
+    ).sessionId;
+    return { call, git, sourcePath, projectId, taskId, sessionId };
+  }
+
+  // --- A: manual completion retains the session --------------------------
+  {
+    const s = await boot();
+    const completed = await s.call("synaphex_complete_task", {
+      sessionId: s.sessionId,
+    });
+    assert.notEqual(completed.isError, true, JSON.stringify(completed.content));
+    const payload = completed.structuredContent as {
+      status: string;
+      completedAt: string | null;
+      archivedAt: string | null;
+      sessionRetained: boolean;
+    };
+    assert.equal(payload.status, "completed");
+    assert.ok(payload.completedAt);
+    assert.equal(payload.archivedAt, null);
+    assert.equal(payload.sessionRetained, true);
+
+    assert.equal(
+      (
+        (await s.call("synaphex_get_task", {
+          projectId: s.projectId,
+          taskId: s.taskId,
+        })).structuredContent as { status: string }
+      ).status,
+      "completed",
+    );
+    // The session is still bound: completion does not close it.
+    assert.equal(
+      (
+        (await s.call("synaphex_get_session", { sessionId: s.sessionId }))
+          .structuredContent as { bound: boolean }
+      ).bound,
+      true,
+    );
+    // A second completion is refused rather than silently succeeding.
+    const again = await s.call("synaphex_complete_task", {
+      sessionId: s.sessionId,
+    });
+    assert.equal(again.isError, true);
+    assert.equal(
+      (again.structuredContent as { code: string }).code,
+      "INVALID_TASK_TRANSITION",
+    );
+  }
+
+  // --- B: completion blockers --------------------------------------------
+  {
+    const s = await boot();
+    // A pending plan draft blocks completion.
+    await s.call("synaphex_invoke_agent", {
+      agent: "planner",
+      scope: { kind: "task_session", sessionId: s.sessionId },
+      instruction: "Plan it.",
+    });
+    const blocked = await s.call("synaphex_complete_task", {
+      sessionId: s.sessionId,
+    });
+    assert.equal(blocked.isError, true);
+    assert.equal(
+      (blocked.structuredContent as { code: string }).code,
+      "PLAN_DRAFT_PENDING",
+    );
+
+    const draftRevisionId = (
+      (await s.call("synaphex_get_plan_state", { sessionId: s.sessionId }))
+        .structuredContent as { draft: { revisionId: string } }
+    ).draft.revisionId;
+    await s.call("synaphex_reject_plan_draft", {
+      sessionId: s.sessionId,
+      draftRevisionId,
+    });
+    const okNow = await s.call("synaphex_complete_task", {
+      sessionId: s.sessionId,
+    });
+    assert.notEqual(okNow.isError, true, JSON.stringify(okNow.content));
+  }
+
+  // --- B2: an undecided change set blocks completion ----------------------
+  {
+    const s = await boot({ SYNAPHEX_TEST_CODER_EDIT: "1" });
+    const invoked = await s.call("synaphex_invoke_agent", {
+      agent: "coder",
+      scope: { kind: "task_session", sessionId: s.sessionId },
+      instruction: "Implement it.",
+    });
+    const changeSetId = (
+      invoked.structuredContent as { changeSet: { id: string } }
+    ).changeSet.id;
+
+    const blocked = await s.call("synaphex_complete_task", {
+      sessionId: s.sessionId,
+    });
+    assert.equal(blocked.isError, true);
+    assert.equal(
+      (blocked.structuredContent as { code: string }).code,
+      "TASK_HAS_PENDING_CHANGE_SET",
+    );
+
+    // Deciding it unblocks completion.
+    await s.call("synaphex_reject_change_set", {
+      sessionId: s.sessionId,
+      changeSetId,
+    });
+    const okNow = await s.call("synaphex_complete_task", {
+      sessionId: s.sessionId,
+    });
+    assert.notEqual(okNow.isError, true, JSON.stringify(okNow.content));
+  }
+
+  // --- C: archive closes the task session ---------------------------------
+  {
+    const s = await boot();
+    await s.call("synaphex_complete_task", { sessionId: s.sessionId });
+    const archived = await s.call("synaphex_archive_task", {
+      projectId: s.projectId,
+      taskId: s.taskId,
+    });
+    assert.notEqual(archived.isError, true, JSON.stringify(archived.content));
+    const payload = archived.structuredContent as {
+      status: string;
+      archivedAt: string | null;
+      releasedTaskSession: boolean;
+    };
+    assert.equal(payload.status, "archived");
+    assert.ok(payload.archivedAt);
+    assert.equal(payload.releasedTaskSession, true);
+
+    // Archived tasks remain readable through the ordinary lookup.
+    assert.equal(
+      (
+        (await s.call("synaphex_get_task", {
+          projectId: s.projectId,
+          taskId: s.taskId,
+        })).structuredContent as { status: string }
+      ).status,
+      "archived",
+    );
+    // The old task session is unbound and the task is unclaimed.
+    assert.equal(
+      (
+        (await s.call("synaphex_get_session", { sessionId: s.sessionId }))
+          .structuredContent as { bound: boolean }
+      ).bound,
+      false,
+    );
+    assert.equal(
+      (
+        (await s.call("synaphex_get_task_session_owner", {
+          projectId: s.projectId,
+          taskId: s.taskId,
+        })).structuredContent as { claimed: boolean }
+      ).claimed,
+      false,
+    );
+    // An active task can never be archived.
+    const second = await boot();
+    const refused = await second.call("synaphex_archive_task", {
+      projectId: second.projectId,
+      taskId: second.taskId,
+    });
+    assert.equal(refused.isError, true);
+    assert.equal(
+      (refused.structuredContent as { code: string }).code,
+      "INVALID_TASK_TRANSITION",
+    );
+  }
+
+  // --- D: REVIEWER completion, then archive -------------------------------
+  {
+    const s = await boot({
+      SYNAPHEX_TEST_CODER_EDIT: "1",
+      SYNAPHEX_TEST_REVIEWER_PASS: "1",
+    });
+    const invoked = await s.call("synaphex_invoke_agent", {
+      agent: "coder",
+      scope: { kind: "task_session", sessionId: s.sessionId },
+      instruction: "Implement it.",
+    });
+    const changeSetId = (
+      invoked.structuredContent as { changeSet: { id: string } }
+    ).changeSet.id;
+    await s.call("synaphex_apply_change_set", {
+      sessionId: s.sessionId,
+      changeSetId,
+    });
+    const reviewed = await s.call("synaphex_invoke_agent", {
+      agent: "reviewer",
+      scope: { kind: "task_session", sessionId: s.sessionId },
+      instruction: "Review it.",
+    });
+    assert.notEqual(reviewed.isError, true, JSON.stringify(reviewed.content));
+
+    // REVIEWER PASS completed the task itself, and retained the session.
+    assert.equal(
+      (
+        (await s.call("synaphex_get_task", {
+          projectId: s.projectId,
+          taskId: s.taskId,
+        })).structuredContent as { status: string }
+      ).status,
+      "completed",
+    );
+    const archived = await s.call("synaphex_archive_task", {
+      projectId: s.projectId,
+      taskId: s.taskId,
+    });
+    assert.notEqual(archived.isError, true, JSON.stringify(archived.content));
+    assert.equal(
+      (archived.structuredContent as { status: string }).status,
+      "archived",
+    );
   }
 });

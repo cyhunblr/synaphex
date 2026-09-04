@@ -60,6 +60,8 @@ export const SYNAPHEX_ERROR_CODES = [
   "CHANGE_SET_APPLY_CHECK_FAILED",
   "CHANGE_SET_APPLY_INTERRUPTED",
   "CHANGE_SET_APPLY_RECOVERY_REQUIRED",
+  "CHANGE_SET_NOT_INTERRUPTED",
+  "TASK_HAS_PENDING_CHANGE_SET",
   "SOURCE_MUTATION_LOCK_TIMEOUT",
   "REVIEW_TARGET_REJECTED",
   "REVIEW_TARGET_APPLY_INTERRUPTED",
@@ -505,6 +507,41 @@ export class ChangeSetApplyRecoveryRequiredError extends SynaphexError<"CHANGE_S
       "CHANGE_SET_APPLY_RECOVERY_REQUIRED",
       "Applying failed and the source workspace could not be restored automatically; manual recovery is required",
       { changeSetId },
+    );
+  }
+}
+
+/**
+ * Reconciliation was requested for a change set that is not interrupted.
+ *
+ * Distinct from {@link ChangeSetAlreadyDecidedError}: it names the invalid
+ * *reconciliation* precondition rather than an invalid apply/reject, so a
+ * caller can tell "nothing to recover" from "already decided".
+ */
+/**
+ * Manual completion was refused because the task's current CODER change set
+ * still has an undecided source-mutation decision.
+ *
+ * The user must apply, reject or reconcile it first. This is deliberately a
+ * distinct code from the plan-draft blocker so a caller knows which explicit
+ * decision flow to run.
+ */
+export class TaskHasPendingChangeSetError extends SynaphexError<"TASK_HAS_PENDING_CHANGE_SET"> {
+  constructor(taskId: TaskId, changeSetId: string, state: string) {
+    super(
+      "TASK_HAS_PENDING_CHANGE_SET",
+      "This task has an undecided CODER change set; apply, reject or reconcile it before completing",
+      { taskId, changeSetId, state },
+    );
+  }
+}
+
+export class ChangeSetNotInterruptedError extends SynaphexError<"CHANGE_SET_NOT_INTERRUPTED"> {
+  constructor(changeSetId: string, state: string) {
+    super(
+      "CHANGE_SET_NOT_INTERRUPTED",
+      "This change set has no interrupted apply to reconcile",
+      { changeSetId, state },
     );
   }
 }

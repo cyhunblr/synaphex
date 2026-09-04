@@ -792,7 +792,7 @@ test("staging internals stay internal, and only the sanctioned change-set tools 
   const { SYNAPHEX_MCP_TOOLS, MCP_DIRECT_INVOCABLE_AGENTS } = await import(
     "../src/index.js"
   );
-  assert.equal(SYNAPHEX_MCP_TOOLS.length, 25);
+  assert.equal(SYNAPHEX_MCP_TOOLS.length, 29);
   // Phase 5B: direct CODER is enabled because every path is staged.
   assert.equal(
     (MCP_DIRECT_INVOCABLE_AGENTS as readonly string[]).includes("coder"),

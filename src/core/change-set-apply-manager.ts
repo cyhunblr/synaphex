@@ -7,6 +7,7 @@ import {
   ChangeSetApplyRecoveryRequiredError,
   ChangeSetAlreadyDecidedError,
   ChangeSetCorruptError,
+  ChangeSetNotInterruptedError,
   ChangeSetSourceDirtyError,
   ChangeSetSourceHeadChangedError,
   CoderStagingRequiresGitError,
@@ -44,6 +45,16 @@ export interface ChangeSetDecisionRecord {
   readonly resultTree?: string;
   readonly patchHash: string;
   readonly decidedAt: string;
+  /**
+   * Present only on a receipt finalized by observing an already-applied
+   * source, never on a receipt written by a live apply. System-generated: no
+   * provider or caller can supply or override it, and legacy receipts without
+   * it stay readable.
+   */
+  readonly reconciliation?: {
+    readonly mode: "observed_exact_result";
+    readonly reconciledAt: string;
+  };
 }
 
 /**
@@ -70,6 +81,42 @@ export type ChangeSetState =
   | "applying_interrupted"
   | "applied"
   | "rejected";
+
+/**
+ * What the REAL source workspace was observed to be, relative to one exact
+ * change set. Derived only from Git object identity -- never supplied by a
+ * caller, a provider or a patch.
+ */
+export type ObservedSourceState = "base_clean" | "exact_applied" | "divergent";
+
+/**
+ * Safe diagnostics behind a classification. These explain a `divergent`
+ * verdict; they are NEVER an alternative authority, and the classification is
+ * always recomputed from Git rather than assembled from these booleans.
+ */
+export interface SourceObservation {
+  readonly observedSourceState: ObservedSourceState;
+  readonly headMatchesBase: boolean;
+  readonly indexMatchesBase: boolean;
+  readonly indexMatchesResult: boolean;
+  readonly worktreeMatchesIndex: boolean;
+  readonly hasUntracked: boolean;
+}
+
+export interface InterruptedApplyRecoveryState {
+  readonly changeSetId: string;
+  readonly state: ChangeSetState;
+  readonly observation: SourceObservation | null;
+  readonly reconciliationAvailable: boolean;
+}
+
+export interface ChangeSetReconciliation {
+  readonly changeSetId: string;
+  readonly previousState: ChangeSetState;
+  readonly observedSourceState: ObservedSourceState;
+  readonly resultingState: ChangeSetState;
+  readonly decision: ChangeSetDecisionRecord | null;
+}
 
 export interface ChangeSetStatus {
   readonly state: ChangeSetState;
@@ -254,6 +301,211 @@ export class ChangeSetApplyManager {
     };
     await this.writeDecision(input.taskId, receipt);
     return receipt;
+  }
+
+  /**
+   * Classifies the REAL source against one exact change set.
+   *
+   * Read-only with respect to the user's files: it runs only identity and
+   * comparison plumbing (`rev-parse`, `write-tree`, `diff`, `ls-files`). It
+   * never applies, resets, checks out, cleans or merges anything.
+   *
+   * `write-tree` writes tree OBJECTS into the object database, which is
+   * additive and unreferenced -- it changes no file, no index entry and no
+   * ref. It is the same call Phase 5C already uses to verify an apply.
+   */
+  async observeSource(
+    project: Project,
+    metadata: ChangeSetMetadata,
+    patch: Buffer,
+  ): Promise<SourceObservation> {
+    const isolatedHome = await mkdtemp(
+      join(this.temporaryRoot, "synaphex-observe-home-"),
+    );
+    try {
+      const head = (
+        await this.git(
+          ["rev-parse", "--verify", "HEAD^{commit}"],
+          project.sourcePath,
+          isolatedHome,
+        )
+      ).stdout.trim();
+      const baseTree = (
+        await this.git(
+          ["rev-parse", "--verify", `${metadata.baseCommit}^{tree}`],
+          project.sourcePath,
+          isolatedHome,
+        )
+      ).stdout.trim();
+      const indexTree = (
+        await this.git(["write-tree"], project.sourcePath, isolatedHome)
+      ).stdout.trim();
+      const unstaged = (
+        await this.git(
+          ["diff", "--name-only", "-z"],
+          project.sourcePath,
+          isolatedHome,
+        )
+      ).stdout
+        .split("\0")
+        .filter((entry) => entry.length > 0);
+      const untracked = (
+        await this.git(
+          ["ls-files", "--others", "--exclude-standard", "-z"],
+          project.sourcePath,
+          isolatedHome,
+        )
+      ).stdout
+        .split("\0")
+        .filter((entry) => entry.length > 0);
+
+      // Legacy change sets carry no resultTree; derive it exactly as Phase 5C
+      // does, in an isolated clone, without touching the real source.
+      const expectedResultTree = await this.resolveResultTree(
+        project,
+        metadata,
+        patch,
+        isolatedHome,
+      );
+
+      const headMatchesBase = head === metadata.baseCommit && head.length > 0;
+      const indexMatchesBase = indexTree === baseTree && baseTree.length > 0;
+      const indexMatchesResult =
+        indexTree === expectedResultTree && expectedResultTree.length > 0;
+      const worktreeMatchesIndex = unstaged.length === 0;
+      const hasUntracked = untracked.length > 0;
+
+      // Both positive classifications demand ALL FOUR conditions. An index
+      // that matches while an unstaged edit or an untracked file exists is
+      // NOT provably either state, and must fall through to divergent.
+      const clean = headMatchesBase && worktreeMatchesIndex && !hasUntracked;
+      let observedSourceState: ObservedSourceState = "divergent";
+      if (clean && indexMatchesBase) {
+        observedSourceState = "base_clean";
+      } else if (clean && indexMatchesResult) {
+        observedSourceState = "exact_applied";
+      }
+
+      return {
+        observedSourceState,
+        headMatchesBase,
+        indexMatchesBase,
+        indexMatchesResult,
+        worktreeMatchesIndex,
+        hasUntracked,
+      };
+    } finally {
+      await rm(isolatedHome, { recursive: true, force: true });
+    }
+  }
+
+  /** Resolves the expected result tree in an isolated scratch HOME. */
+  private async observedResultTree(
+    project: Project,
+    metadata: ChangeSetMetadata,
+    patch: Buffer,
+  ): Promise<string> {
+    const isolatedHome = await mkdtemp(
+      join(this.temporaryRoot, "synaphex-observe-tree-"),
+    );
+    try {
+      return await this.resolveResultTree(project, metadata, patch, isolatedHome);
+    } finally {
+      await rm(isolatedHome, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Reconciles an interrupted apply by OBSERVING the source, never by
+   * changing it.
+   *
+   * The caller does not choose the outcome: there is no mode, no force and no
+   * assume-applied. Synaphex derives the only transition that is provably
+   * consistent with the exact persisted change set.
+   *
+   * ```text
+   * base_clean     -> remove the intent; the change set is pending again
+   * exact_applied  -> write the terminal applied receipt, then remove the intent
+   * divergent      -> mutate NOTHING; explicit manual source recovery required
+   * ```
+   *
+   * The caller must already hold the source-mutation lock and task-ownership
+   * authority; every input is re-read here, inside that boundary.
+   */
+  async reconcileInterruptedApply(input: {
+    readonly project: Project;
+    readonly taskId: TaskId;
+    readonly metadata: ChangeSetMetadata;
+    readonly patch: Buffer;
+  }): Promise<ChangeSetReconciliation> {
+    const { project, taskId, metadata, patch } = input;
+    const changeSetId = metadata.changeSetId;
+
+    // Re-read authoritative state INSIDE the authority boundary, so a decision
+    // is never made on an observation taken before the lock was held.
+    const status = await this.status(taskId, changeSetId);
+    if (status.state !== "applying_interrupted") {
+      throw new ChangeSetNotInterruptedError(changeSetId, status.state);
+    }
+
+    const observation = await this.observeSource(project, metadata, patch);
+
+    if (observation.observedSourceState === "base_clean") {
+      // No source mutation survived the crash. The ONLY durable change is
+      // resolving the intent; no receipt is written, so the change set simply
+      // becomes decidable again.
+      await this.removeIntent(taskId, changeSetId);
+      return {
+        changeSetId,
+        previousState: "applying_interrupted",
+        observedSourceState: "base_clean",
+        resultingState: "pending",
+        decision: null,
+      };
+    }
+
+    if (observation.observedSourceState === "exact_applied") {
+      // The intent recorded the expected tree before mutation began; fall back
+      // to a re-derivation only for an intent written before that field
+      // existed.
+      const resultTree =
+        status.intent?.expectedResultTree ??
+        (await this.observedResultTree(project, metadata, patch));
+      // The apply had already fully succeeded. Finalize the receipt from
+      // PERSISTED authority only -- the patch is never re-applied and not one
+      // source file is touched.
+      const receipt: ChangeSetDecisionRecord = {
+        version: 1,
+        changeSetId,
+        decision: "applied",
+        projectId: metadata.projectId,
+        taskId,
+        baseCommit: metadata.baseCommit,
+        resultTree,
+        patchHash: metadata.patchHash,
+        decidedAt: new Date().toISOString(),
+        reconciliation: {
+          mode: "observed_exact_result",
+          reconciledAt: new Date().toISOString(),
+        },
+      };
+      // Receipt BEFORE intent removal, matching Phase 5C: a crash between the
+      // two leaves a terminal receipt that outranks the stale intent.
+      await this.writeDecision(taskId, receipt);
+      await this.removeIntent(taskId, changeSetId);
+      return {
+        changeSetId,
+        previousState: "applying_interrupted",
+        observedSourceState: "exact_applied",
+        resultingState: "applied",
+        decision: receipt,
+      };
+    }
+
+    // Divergent: Synaphex cannot know whether the differences were written by
+    // its own interrupted apply, by the user, by an editor or by another
+    // process. Guessing could destroy legitimate work, so nothing is mutated.
+    throw new ChangeSetApplyRecoveryRequiredError(changeSetId);
   }
 
   /**

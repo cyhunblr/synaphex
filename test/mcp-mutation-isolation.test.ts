@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
   SYNAPHEX_MCP_CHANGE_SET_TOOLS,
+  SYNAPHEX_MCP_LIFECYCLE_TOOLS,
   SYNAPHEX_MCP_PLAN_TOOLS,
   SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_INVOCATION_TOOLS,
@@ -62,7 +63,8 @@ test("MCP handler modules never import a broad mutation, invocation or provider 
             specifier.endsWith("invocation-continuation-commands.js") ||
             specifier.endsWith("project-task-commands.js") ||
             specifier.endsWith("plan-decision-commands.js") ||
-            specifier.endsWith("change-set-commands.js"),
+            specifier.endsWith("change-set-commands.js") ||
+            specifier.endsWith("task-lifecycle-commands.js"),
           `${name} may only import narrow operations ports (${specifier})`,
         );
       }
@@ -195,7 +197,8 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
         SYNAPHEX_MCP_CONTINUATION_TOOLS.length +
         SYNAPHEX_MCP_BOOTSTRAP_TOOLS.length +
         SYNAPHEX_MCP_PLAN_TOOLS.length +
-        SYNAPHEX_MCP_CHANGE_SET_TOOLS.length,
+        SYNAPHEX_MCP_CHANGE_SET_TOOLS.length +
+        SYNAPHEX_MCP_LIFECYCLE_TOOLS.length,
     );
     const mutating = tools
       .filter((tool) => tool.annotations?.readOnlyHint !== true)
@@ -208,7 +211,9 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
       "synaphex_apply_change_set",
       "synaphex_approve_and_execute_helper",
       "synaphex_approve_network_action",
+      "synaphex_archive_task",
       "synaphex_close_session",
+      "synaphex_complete_task",
       "synaphex_continue_allowed_network",
       "synaphex_create_task",
       "synaphex_execute_helper",
@@ -216,6 +221,7 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
       "synaphex_invoke_agent",
       "synaphex_open_project_session",
       "synaphex_open_task_session",
+      "synaphex_reconcile_interrupted_apply",
       "synaphex_register_project",
       "synaphex_reject_change_set",
       "synaphex_reject_plan_draft",

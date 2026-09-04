@@ -352,7 +352,11 @@ export {
   type ChangeSetDecision,
   type ChangeSetDecisionRecord,
   type ChangeSetState,
+  type ChangeSetReconciliation,
   type ChangeSetStatus,
+  type InterruptedApplyRecoveryState,
+  type ObservedSourceState,
+  type SourceObservation,
 } from "./core/change-set-apply-manager.js";
 export {
   RecoverableProcessLock,
@@ -471,8 +475,19 @@ export {
   type ChangeSetDecisionPort,
   type ChangeSetPatchChunk,
   type ChangeSetReadPort,
+  type ChangeSetReconciliationOutcome,
   type ChangeSetReview,
+  type ApplyRecoveryState,
 } from "./operations/change-set-commands.js";
+export {
+  TaskLifecycleCommands,
+  type TaskArchivePort,
+  type TaskArchiveResult,
+  type TaskCompletionPort,
+  type TaskCompletionResult,
+  type TaskLifecycleDependencies,
+  type TaskLifecycleState,
+} from "./operations/task-lifecycle-commands.js";
 export {
   ProjectTaskCommands,
   type ProjectCommandPort,

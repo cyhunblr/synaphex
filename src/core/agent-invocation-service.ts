@@ -7,6 +7,7 @@ import { PlanManager } from "./plan-manager.js";
 import { ProjectManager } from "./project-manager.js";
 import { ProviderRouter } from "./provider-router.js";
 import type { AgentContext } from "../domain/agent-context.js";
+import type { ProcessedAgentResultFor } from "../domain/processed-agent-result.js";
 import type { TaskId } from "../domain/task.js";
 import type { ExecutionRoute } from "../domain/provider-routing.js";
 import type { TaskOwnershipFence } from "./session-manager.js";
@@ -593,6 +594,10 @@ export class AgentInvocationService {
               invocation.scope.task.id,
               invocation.sessionId,
             ),
+            // Phase 6A: the commit boundary below holds task-ownership
+            // authority across BOTH the change-set publication and the work
+            // record, so publication must not re-enter the same lock.
+            withinOwnershipAuthority: true,
             context,
             execute: async (executionContext) => {
               try {
@@ -683,40 +688,75 @@ export class AgentInvocationService {
       validatedResult.requestedActions ?? [],
       invocation.scope,
     );
-    // Last authoritative task-ownership check before ANY mutation. If the
-    // claim was released, force-released or replaced while the provider ran,
-    // the result must not commit: no artifacts, no memory, no plan draft, no
-    // task completion, no Questioner context, no Reviewer lifecycle effects.
-    //
-    // The provider did complete -- this is authority revocation, not provider
-    // failure -- so it surfaces as TASK_SESSION_OWNERSHIP_LOST rather than
-    // AGENT_EXECUTION_FAILED or INTERNAL_ERROR.
-    if (
-      ownershipFence !== null &&
-      !(await this.sessions.isTaskOwnershipCurrent(ownershipFence))
-    ) {
-      throw new TaskSessionOwnershipLostError(
-        ownershipFence.taskId,
-        ownershipFence.sessionId,
-        "commit",
-      );
-    }
-    // Staged CODER: capture and publish the immutable change set BEFORE the
-    // work record, under the task-binding ownership authority. Ordering is
-    // deliberate -- a work record referencing a change set that was never
-    // fully published would be worse than an orphaned change set, and future
-    // apply authority requires a valid work-record reference, so a bare
-    // directory under `changes/` never becomes apply authority.
-    const changeSet =
-      stagedCoder === null ? undefined : await stagedCoder.publish();
+    // Git capture happens BEFORE the authority boundary: deriving the patch
+    // and revalidating the staging repository is real work, and the
+    // task-binding lock must never span it. Only the durable write below is
+    // taken under the lock.
+    const capturedChanges =
+      stagedCoder === null ? null : await stagedCoder.capture();
 
-    // ResultProcessor deliberately validates again at the mutation boundary.
-    const processedResult = await this.resultProcessor.process({
-      sessionId: invocation.sessionId,
-      expectedAgent: invocation.agent,
-      result: validatedResult,
-      ...(changeSet === undefined ? {} : { coderChangeSet: changeSet }),
-    });
+    // The durable commit boundary.
+    //
+    // Everything above this point is provider work and pure validation. From
+    // here on, task-scoped state is mutated, so ownership AND role/lifecycle
+    // eligibility must both still hold -- and must stay held while the write
+    // happens. `withTaskOwnershipAuthority` keeps the task-binding lock across
+    // validation and the durable write, closing the check-then-mutate window
+    // in which a concurrent completion or archive could interleave.
+    //
+    // The lock spans only this short deterministic boundary. Provider
+    // execution, staging clone and Git capture all already happened above it.
+    const commit = async (): Promise<ProcessedAgentResultFor<TAgent>> => {
+      if (ownershipFence !== null) {
+        // Re-read the task INSIDE the authority boundary: a stale scope
+        // snapshot from preflight would defeat the point of re-checking.
+        const currentTask = await this.tasks.get(
+          invocation.scope.project.id,
+          ownershipFence.taskId,
+        );
+        // Reuses the SAME role-contract table as preflight, so a role that is
+        // legitimately allowed on a completed task (RESEARCHER, EXAMINER) is
+        // not invalidated merely because the status changed while it ran.
+        //
+        // Note this runs BEFORE ResultProcessor: a REVIEWER PASS completes the
+        // task as part of its own processing, and must not be rejected by a
+        // check against the state it is itself about to create.
+        this.assertRoleLifecycleEligible(
+          invocation.agent,
+          invocation.sessionId,
+          currentTask,
+        );
+      }
+      // Staged CODER: capture and publish the immutable change set BEFORE the
+      // work record, under the task-binding ownership authority. Ordering is
+      // deliberate -- a work record referencing a change set that was never
+      // fully published would be worse than an orphaned change set, and apply
+      // authority requires a valid work-record reference, so a bare directory
+      // under `changes/` never becomes apply authority.
+      const changeSet =
+        stagedCoder === null || capturedChanges === null
+          ? undefined
+          : await stagedCoder.publish(capturedChanges);
+
+      // ResultProcessor deliberately validates again at the mutation boundary.
+      return this.resultProcessor.process({
+        sessionId: invocation.sessionId,
+        expectedAgent: invocation.agent,
+        result: validatedResult,
+        ...(changeSet === undefined ? {} : { coderChangeSet: changeSet }),
+      });
+    };
+
+    // A project-only invocation has no task authority to fence, and must not
+    // take the task-binding lock at all.
+    //
+    // Ownership loss surfaces as TASK_SESSION_OWNERSHIP_LOST rather than
+    // AGENT_EXECUTION_FAILED: the provider did complete, and this is authority
+    // revocation, not provider failure.
+    const processedResult =
+      ownershipFence === null
+        ? await commit()
+        : await this.sessions.withTaskOwnershipAuthority(ownershipFence, commit);
     return {
       agent: invocation.agent,
       lineage: invocation.lineage,
@@ -766,25 +806,39 @@ export class AgentInvocationService {
     };
   }
 
+  /**
+   * The single role/lifecycle eligibility rule, shared by invocation preflight
+   * and the durable commit boundary.
+   *
+   * Deliberately NOT "the task must be active": the role contract table is the
+   * authority, and it legitimately allows RESEARCHER and EXAMINER to operate on
+   * a completed task. Duplicating a second table here would let the two checks
+   * drift apart.
+   */
+  private assertRoleLifecycleEligible(
+    agent: AgentName,
+    sessionId: SessionId,
+    task: Task | null,
+  ): void {
+    const contract = this.roleContracts.getInvocationLifecycleContract(agent);
+    if (task === null && contract.taskBinding === "required") {
+      throw new NoTaskBoundError(sessionId);
+    }
+    if (task !== null && !contract.allowedTaskStatuses.includes(task.status)) {
+      if (task.status === "archived") {
+        throw new TaskArchivedError(task.id);
+      }
+      throw new TaskCompletedError(task.id);
+    }
+  }
+
   private async resolveAndValidatePreflight(
     sessionId: SessionId,
     agent: AgentName,
   ): Promise<InvocationScope> {
     const scope = await this.resolveCurrentScope(sessionId);
     const { task } = scope;
-    const contract = this.roleContracts.getInvocationLifecycleContract(agent);
-    if (task === null && contract.taskBinding === "required") {
-      throw new NoTaskBoundError(sessionId);
-    }
-    if (
-      task !== null &&
-      !contract.allowedTaskStatuses.includes(task.status)
-    ) {
-      if (task.status === "archived") {
-        throw new TaskArchivedError(task.id);
-      }
-      throw new TaskCompletedError(task.id);
-    }
+    this.assertRoleLifecycleEligible(agent, sessionId, task);
 
     if (
       agent === "coder" &&

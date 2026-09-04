@@ -26,7 +26,7 @@ test("the server registers exactly the accepted tool surface", async () => {
     for (const phase1Tool of SYNAPHEX_MCP_PHASE1_TOOLS) {
       assert.ok(names.includes(phase1Tool), `${phase1Tool} must remain`);
     }
-    assert.equal(names.length, 25);
+    assert.equal(names.length, 29);
   } finally {
     await close();
   }
@@ -44,9 +44,8 @@ test("no mutation, invocation, approval or filesystem tool is registered", async
       "synaphex_invoke_planner",
       "synaphex_invoke_coder",
       "synaphex_invoke_reviewer",
-      // mutation
-      "synaphex_complete_task",
-      "synaphex_archive_task",
+      // mutation (complete/archive became legitimate in Phase 6A and are
+      // asserted separately by the lifecycle audit below)
       "synaphex_bind_task",
       "synaphex_delete_project",
       "synaphex_reopen_task",
@@ -104,6 +103,12 @@ test("annotations describe each tool honestly and are closed-world throughout", 
         // terminal decision for that exact change-set instance.
         "synaphex_apply_change_set",
         "synaphex_reject_change_set",
+        // Reconciliation mints terminal applied authority or returns a change
+        // set to pending; it is a one-time transition, not a repeatable read.
+        "synaphex_reconcile_interrupted_apply",
+        // A second call raises INVALID_TASK_TRANSITION rather than succeeding.
+        "synaphex_complete_task",
+        "synaphex_archive_task",
       ];
       assert.equal(
         tool.annotations?.idempotentHint,
@@ -128,6 +133,10 @@ test("annotations describe each tool honestly and are closed-world throughout", 
           // irreversible decision for that exact change set.
           "synaphex_apply_change_set",
           "synaphex_reject_change_set",
+          "synaphex_reconcile_interrupted_apply",
+          // Lifecycle transitions are irreversible: there is no reopen.
+          "synaphex_complete_task",
+          "synaphex_archive_task",
         ].includes(tool.name),
         `${tool.name} destructiveHint`,
       );
@@ -154,6 +163,7 @@ test("server identity uses the package name and the injected package version", a
     agentContinuation: reads.agentContinuation,
     planCommands: reads.planCommands,
     changeSetCommands: reads.changeSetCommands,
+    taskLifecycleCommands: reads.taskLifecycleCommands,
     projectTaskCommands: reads.projectTaskCommands,
     version: "9.9.9-test",
   });
@@ -168,5 +178,64 @@ test("server identity uses the package name and the injected package version", a
   } finally {
     await client.close();
     await server.close();
+  }
+});
+
+
+test("the task lifecycle is one-way: no reopen or un-archive tool exists", async () => {
+  const { client, close } = await connectedClient();
+  try {
+    const tools = (await client.listTools()).tools;
+    const names = new Set(tools.map((tool) => tool.name));
+    // The two legitimate lifecycle transitions.
+    assert.equal(names.has("synaphex_complete_task"), true);
+    assert.equal(names.has("synaphex_archive_task"), true);
+    // Nothing may move a task backwards.
+    for (const forbidden of [
+      "synaphex_reopen_task",
+      "synaphex_unarchive_task",
+      "synaphex_restore_task",
+      "synaphex_activate_task",
+      "synaphex_uncomplete_task",
+      "synaphex_set_task_status",
+      "synaphex_delete_task",
+    ]) {
+      assert.equal(names.has(forbidden), false, `${forbidden} must not exist`);
+    }
+    // And no tool accepts a status/force field that could smuggle a reversal.
+    for (const tool of tools) {
+      const properties = Object.keys(
+        (tool.inputSchema as { properties?: Record<string, unknown> })
+          .properties ?? {},
+      );
+      for (const forbidden of ["status", "force", "reopen", "archived", "completed"]) {
+        assert.equal(
+          properties.includes(forbidden),
+          false,
+          `${tool.name} must not accept a ${forbidden} field`,
+        );
+      }
+    }
+    // The completion tool's ONLY authority is the session id.
+    const complete = tools.find((t) => t.name === "synaphex_complete_task");
+    assert.deepEqual(
+      Object.keys(
+        (complete?.inputSchema as { properties?: Record<string, unknown> })
+          .properties ?? {},
+      ),
+      ["sessionId"],
+    );
+    // Archive is addressed administratively, and cannot be handed a session to
+    // force-close.
+    const archive = tools.find((t) => t.name === "synaphex_archive_task");
+    assert.deepEqual(
+      Object.keys(
+        (archive?.inputSchema as { properties?: Record<string, unknown> })
+          .properties ?? {},
+      ),
+      ["projectId", "taskId"],
+    );
+  } finally {
+    await close();
   }
 });
