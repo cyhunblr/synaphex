@@ -653,3 +653,154 @@ but is not yet self-service through MCP
 `synaphex_open_task_session` is the only session-creating tool and it always
 binds a task, so a project-only session must currently be created outside MCP.
 No tool was added for this in this slice.
+
+## Phase 3C: trusted continuations and explicit approval
+
+```text
+USER IS THE ORCHESTRATOR
+```
+
+A helper is never auto-executed and an action is never auto-approved. Each
+continuation step is an explicit, one-time, invocation-scoped tool call.
+
+### Native-host error identity (opening correction)
+
+`AgentInvocationService` wrapped every executor error as
+`AGENT_EXECUTION_FAILED`, which hid the Phase-3B native-host condition. It now
+rethrows `NativeHostExecutionUnavailableError` before that wrapping, because no
+provider ever ran — this is an infrastructure capability gap, not a provider
+failure. The three identities stay distinct end-to-end:
+
+```text
+INVALID_PROVIDER_ROUTE            route itself invalid
+NATIVE_HOST_EXECUTION_UNAVAILABLE route valid, no native VS Code bridge
+AGENT_EXECUTION_FAILED            a callable provider actually failed
+```
+
+### Trusted continuation store
+
+The MCP client receives only an opaque `cont_<32 hex>` handle plus a bounded
+request index. It never resends `requestedCall`, `requestedAction`,
+`classification`, `callerAgent`, `targetAgent`, `reason`, `purpose`, `lineage`,
+`route`, `executionPolicy` or host identity as authority — those live
+server-side, having come from a previous trusted invocation result, so a client
+cannot alter them. The wire schemas contain no such field at all (asserted by
+test).
+
+The handle is cryptographically random and derived from nothing: not SessionId,
+lineage, provider, agent, PID, MCP connection or conversation id. It is **not**
+a SessionId and never passes through `parseSessionId`.
+
+```text
+Synaphex Session survives MCP restart.
+Invocation continuation does not.
+```
+
+The store is ephemeral, in-memory and process-local, matching the already
+ephemeral helper-approval and provider-capability-approval semantics. Nothing is
+persisted to Synaphex state, and there is no lease, heartbeat, TTL expiry,
+background sweeper or durable registry. On restart, handles are lost with
+`CONTINUATION_NOT_FOUND` and the user may repeat the original invocation; the
+Synaphex session itself is unaffected (both proven by a two-process test).
+
+Capacity is bounded (default 64) with ONE record per originating invocation —
+not per request. Nothing is allocated when no request is actionable. Exhaustion
+raises `CONTINUATION_CAPACITY_EXHAUSTED` rather than silently evicting a
+still-pending user continuation. Records are bound to the immutable
+`HostRuntime` they were created under and are invisible from any other host.
+
+### State machine
+
+```text
+ORIGIN_PENDING
+  |- execute allowed helper         -> HELPER_COMPLETED
+  |- approve + execute asked helper -> HELPER_COMPLETED
+  |- approve network action         -> CONSUMED (new handle if actionable)
+
+HELPER_COMPLETED
+  |- resume caller                  -> CONSUMED (new handle if actionable)
+```
+
+Illegal transitions fail deterministically: resume before helper execution,
+executing the same helper twice, approving the same action twice, and resuming
+twice are all refused.
+
+### The four tools
+
+- `synaphex_execute_helper` — executes a helper whose SERVER-SIDE
+  classification is `allowed`. This is orchestration, not approval: an
+  `approval_required` edge is refused.
+- `synaphex_approve_and_execute_helper` — explicitly approves ONE
+  `approval_required` helper and executes it. One-time and invocation-scoped;
+  no rule moves from `ask` to `allow`, and there is no `rememberApproval`,
+  `alwaysAllow` or `changeRule` option.
+- `synaphex_resume_caller` — explicitly resumes the caller after a helper
+  completed. A fresh execution with a continuation handoff; no provider thread
+  reuse and no resurrection of old authority.
+- `synaphex_approve_network_action` — explicitly approves ONE
+  `approval_required` provider-capability `network` action and resumes the
+  caller with a one-time grant. No rule or provider-setting mutation.
+
+Denied, forbidden and unavailable requests can never be progressed, whatever
+index is supplied; server-side classification always wins.
+
+A helper result does **not** auto-resume the caller, and nested requests
+returned by a helper are classified only — never recursively executed. Core
+remains authoritative for the maximum invocation depth.
+
+### Host actions remain unsupported
+
+`git_push` and `ci` are Synaphex host actions with a separate architecture, and
+there is still no real `HostActionExecutor`. No `synaphex_approve_git_push`,
+`synaphex_approve_ci` or `synaphex_execute_host_action` was added — an approval
+tool would be meaningless without an executor. Their classifications are still
+returned for reading.
+
+### The `network = allowed` gap
+
+`resumeCallerWithActionApproval` hard-rejects any status other than
+`approval_required` (`InvalidActionContinuationError`). Core therefore has **no**
+continuation path for an already-`allowed` network action, and that API was
+deliberately not misused to manufacture an approval where none was required.
+Such an action stays classified and readable. **Reported gap:** if an agent must
+be re-run with an already-permitted capability, Core needs a no-approval
+continuation entrypoint.
+
+### Failure and consumption ordering
+
+Validation failures (unknown handle, wrong host, illegal state, bad index,
+wrong classification, forbidden helper target) occur BEFORE any provider
+execution and leave the record pending. A helper spawn failure also leaves it
+pending and retryable, because no trusted transition occurred. A successful
+helper execution marks that request consumed so it cannot run twice. A
+successful caller resume or network approval consumes the record, and only then
+is a NEW handle issued for the resulting generation — the consumed id is never
+reused as authority. This is safe ordering, not distributed transactionality.
+
+### Source-read-only helper boundary
+
+Beyond the normal helper permission classification, any helper executed through
+MCP must resolve to `sourceModification = read_only`. A continuation handle
+must never become a route to a workspace-write helper: if an exposed agent
+requests CODER and the edge somehow classifies allowed, MCP still refuses with
+`UNSUPPORTED_AGENT_INVOCATION` before dispatch. `MCP_INVOCABLE_AGENTS` is
+unchanged — no CODER source mutation through a helper loophole.
+
+### Ownership fencing
+
+No fencing logic was added to MCP. Every helper execution, caller resume and
+network-approved resume goes through existing AgentInvocationService paths and
+therefore captures and revalidates a fresh ownership fence. A force release
+between steps still yields `TASK_SESSION_OWNERSHIP_LOST`, with no auto-reclaim.
+
+### Trust assumption
+
+`synaphex_approve_and_execute_helper` and `synaphex_approve_network_action` are
+explicit user-approval surfaces **only** under the accepted Phase-3A local-stdio
+model, where a top-level tool call is a direct local user action. Before any
+remote MCP transport, caller authentication and approval provenance must be
+redesigned and reviewed.
+
+This store is not provider-process tracking, a cancellation registry, an async
+job manager or an MCP tasks implementation; all provider execution remains
+synchronous within the tool request.

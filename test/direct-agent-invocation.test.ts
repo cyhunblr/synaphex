@@ -766,12 +766,12 @@ test("case C: a native same-provider VS Code route fails closed with no CLI dele
       scope: { kind: "task_session", sessionId: opened.sessionId },
       instruction: "Research it.",
     }),
-    // Wrapped by the invocation service's provider-failure boundary; the
-    // underlying cause is the typed native-host error.
+    // Phase 3C correction: the precise infrastructure-capability error is
+    // preserved rather than hidden inside AGENT_EXECUTION_FAILED, because no
+    // provider ever ran.
     (error: unknown) =>
-      error instanceof AgentExecutionFailedError &&
-      (error as { cause?: unknown }).cause instanceof
-        NativeHostExecutionUnavailableError,
+      error instanceof NativeHostExecutionUnavailableError &&
+      error.code === "NATIVE_HOST_EXECUTION_UNAVAILABLE",
   );
   assert.equal(spies.openaiCli.calls.length, 0);
   assert.equal(spies.anthropicCli.calls.length, 0);

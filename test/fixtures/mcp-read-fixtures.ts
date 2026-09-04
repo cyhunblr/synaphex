@@ -15,6 +15,7 @@ import type {
   DirectAgentInvocationPort,
   DirectAgentInvocationRequest,
 } from "../../src/operations/direct-agent-invocation.js";
+import type { InvocationContinuationPort } from "../../src/operations/invocation-continuation-commands.js";
 import type {
   SessionCommandPort,
   SessionRecoveryPort,
@@ -120,6 +121,50 @@ export class FakeReads {
   };
   forceReleaseError: Error | null = null;
   invokeError: Error | null = null;
+  continuationId: string | null = null;
+  continuationError: Error | null = null;
+  continuationOutcome: unknown = null;
+
+  /** Narrow continuation fake; owns no business logic. */
+  get agentContinuation(): InvocationContinuationPort {
+    const outcome = (): never =>
+      (this.continuationOutcome ?? {
+        invocation: defaultInvocationResult({
+          agent: "examiner",
+          scope: {
+            kind: "task_session",
+            sessionId: "ses_00000000000000000000000000000001",
+          },
+          instruction: "x",
+        }),
+        callerResumeReady: true,
+        continuationId: "cont_test",
+      }) as never;
+    const step = async (port: string, args: readonly unknown[]) => {
+      this.calls.push({ port, args });
+      if (this.continuationError !== null) {
+        throw this.continuationError;
+      }
+      return outcome();
+    };
+    return {
+      issueFor: (sessionId, invocation) => {
+        this.calls.push({
+          port: "agentContinuation.issueFor",
+          args: [sessionId, invocation.agent],
+        });
+        return this.continuationId as never;
+      },
+      executeAllowedHelper: (id, index) =>
+        step("agentContinuation.executeAllowedHelper", [id, index]),
+      approveAndExecuteHelper: (id, index) =>
+        step("agentContinuation.approveAndExecuteHelper", [id, index]),
+      resumeCaller: (id) => step("agentContinuation.resumeCaller", [id]),
+      approveNetworkAction: (id, index) =>
+        step("agentContinuation.approveNetworkAction", [id, index]),
+    };
+  }
+
   invokeResult: unknown = null;
   readonly invocations: DirectAgentInvocationRequest[] = [];
 
@@ -273,6 +318,7 @@ export async function connectedClient(
     sessionCommands: reads.sessionCommands,
     sessionRecovery: reads.sessionRecovery,
     agentInvocation: reads.agentInvocation,
+    agentContinuation: reads.agentContinuation,
     version: "0.0.0-test",
     onDiagnostic: (message) => {
       reads.diagnostics.push(message);

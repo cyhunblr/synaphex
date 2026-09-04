@@ -43,9 +43,40 @@ function recordingDelegate(label: string): AgentExecutor {
           "utf8",
         );
       }
-      return researcherResult();
+      return scriptedResult(input.context.agent);
     },
   };
+}
+
+/**
+ * Scripted provider results keyed by agent, so the protocol test can drive
+ * caller -> helper -> resume and network-approval flows deterministically.
+ *
+ * SYNAPHEX_TEST_HELPER_STATUS selects whether the caller's helper request is
+ * pre-approved (allow rule) or needs approval; SYNAPHEX_TEST_WANT_NETWORK
+ * makes the caller request the network capability instead.
+ */
+function scriptedResult(agent: string): unknown {
+  if (agent === "examiner") {
+    return {
+      agent: "examiner",
+      outcome: "success",
+      summary: "Examiner recorded nothing.",
+      memoryIntent: { kind: "none" },
+    };
+  }
+  if (process.env.SYNAPHEX_TEST_WANT_NETWORK === "1") {
+    return {
+      agent: "researcher",
+      outcome: "success",
+      summary: "Research needs the network.",
+      researchArtifact: { findings: ["needs network"] },
+      requestedActions: [
+        { action: "network", reason: "External research is required." },
+      ],
+    };
+  }
+  return researcherResult();
 }
 
 function researcherResult(): unknown {
@@ -65,9 +96,6 @@ function researcherResult(): unknown {
           summary: "Record the fake finding.",
         },
       },
-    ],
-    requestedActions: [
-      { action: "network", reason: "External research is required." },
     ],
   };
 }

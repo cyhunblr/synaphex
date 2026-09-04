@@ -3,6 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_INVOCATION_TOOLS,
   SYNAPHEX_MCP_PHASE1_TOOLS,
   SYNAPHEX_MCP_RECOVERY_TOOLS,
@@ -54,7 +55,8 @@ test("MCP handler modules never import a broad mutation, invocation or provider 
       if (specifier.includes("operations/")) {
         assert.ok(
           specifier.endsWith("session-commands.js") ||
-            specifier.endsWith("direct-agent-invocation.js"),
+            specifier.endsWith("direct-agent-invocation.js") ||
+            specifier.endsWith("invocation-continuation-commands.js"),
           `${name} may only import narrow operations ports (${specifier})`,
         );
       }
@@ -81,7 +83,12 @@ test("MCP handler modules never import a broad mutation, invocation or provider 
 test("MCP handler modules never name a mutation, approval or host-action API", async () => {
   for (const [name, source] of await mcpHandlerSources()) {
     const code = stripComments(source);
+    // Host actions must never be *invoked*; naming them in a description that
+    // explains they cannot be approved is fine.
     for (const forbidden of [
+      'action: "git_push"',
+      "executeGitPush",
+      'action: "ci"',
       // project/task mutation
       ".create(",
       ".markCompleted(",
@@ -102,8 +109,8 @@ test("MCP handler modules never name a mutation, approval or host-action API", a
       ".removeFile(",
       // invocation, approvals, host actions
       "AgentInvocationService",
+      "InvocationContinuationStore",
       "approveAction",
-      "git_push",
       "executeHostAction",
       // shell / network primitives
       "child_process",
@@ -169,7 +176,7 @@ test("a handler cannot reach a broader mutation API because none is injected", a
   }
 });
 
-test("the tool surface is exactly reads, session lifecycle, recovery and invocation", async () => {
+test("the tool surface is exactly reads, session lifecycle, recovery, invocation and continuation", async () => {
   const { client, close } = await connectedClient();
   try {
     const tools = (await client.listTools()).tools;
@@ -178,7 +185,8 @@ test("the tool surface is exactly reads, session lifecycle, recovery and invocat
       SYNAPHEX_MCP_PHASE1_TOOLS.length +
         SYNAPHEX_MCP_SESSION_TOOLS.length +
         SYNAPHEX_MCP_RECOVERY_TOOLS.length +
-        SYNAPHEX_MCP_INVOCATION_TOOLS.length,
+        SYNAPHEX_MCP_INVOCATION_TOOLS.length +
+        SYNAPHEX_MCP_CONTINUATION_TOOLS.length,
     );
     const mutating = tools
       .filter((tool) => tool.annotations?.readOnlyHint !== true)
@@ -187,14 +195,22 @@ test("the tool surface is exactly reads, session lifecycle, recovery and invocat
     // Exactly four mutating tools. No helper-execution, action-approval,
     // cancellation or invocation-status tool exists yet.
     assert.deepEqual(mutating, [
+      "synaphex_approve_and_execute_helper",
+      "synaphex_approve_network_action",
       "synaphex_close_task_session",
+      "synaphex_execute_helper",
       "synaphex_force_release_task_session",
       "synaphex_invoke_agent",
       "synaphex_open_task_session",
+      "synaphex_resume_caller",
     ]);
+    // Host actions, cancellation, status and plan acceptance stay absent:
+    // git_push/ci have no real executor, so an approval tool would be
+    // meaningless.
     for (const absent of [
-      "synaphex_execute_helper",
-      "synaphex_approve_action",
+      "synaphex_approve_git_push",
+      "synaphex_approve_ci",
+      "synaphex_execute_host_action",
       "synaphex_abort_invocation",
       "synaphex_get_invocation",
       "synaphex_accept_plan",

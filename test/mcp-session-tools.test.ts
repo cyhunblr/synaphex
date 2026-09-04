@@ -16,6 +16,11 @@ import {
   fakeReadDependencies,
   type FakeReads,
 } from "./fixtures/mcp-read-fixtures.js";
+import {
+  ContinuationCapacityError,
+  ContinuationNotFoundError,
+  ContinuationStateError,
+} from "../src/operations/invocation-continuation-store.js";
 
 interface ToolOutcome {
   readonly structured: Record<string, unknown>;
@@ -451,6 +456,8 @@ test("invoke_agent delegates to the narrow invocation port and returns a safe re
     projectId: FAKE_PROJECT.id,
     taskId: FAKE_TASK.id,
   });
+  // No continuation handle when nothing is actionable.
+  assert.equal(outcome.structured.continuationId, null);
   assert.deepEqual(reads.calls, [
     {
       port: "agentInvocation.invoke",
@@ -464,6 +471,10 @@ test("invoke_agent delegates to the narrow invocation port and returns a safe re
           instruction: "Research the fencing behavior.",
         },
       ],
+    },
+    {
+      port: "agentContinuation.issueFor",
+      args: ["ses_00000000000000000000000000000001", "researcher"],
     },
   ]);
 });
@@ -621,8 +632,12 @@ test("helper and action classifications are returned without execution", async (
       errorCode: null,
     },
   ]);
-  // Exactly one application call: nothing was auto-executed or auto-approved.
-  assert.equal(reads.calls.length, 1);
+  // Only the invocation plus continuation issuance: nothing was auto-executed
+  // or auto-approved.
+  assert.deepEqual(
+    reads.calls.map((call) => call.port),
+    ["agentInvocation.invoke", "agentContinuation.issueFor"],
+  );
 });
 
 test("ownership loss maps to its stable code without exposing the replacement owner", async () => {
@@ -688,4 +703,183 @@ test("no invocation result or transcript carries an ownership token", async () =
   assert.equal(serialized.includes("deadbeef"), false);
   assert.equal(serialized.includes("ownershipToken"), false);
   assert.equal(serialized.includes("ownershipFence"), false);
+});
+
+// --- Phase 3C: continuation tools -----------------------------------------
+
+test("continuation schemas expose no tamperable authority field", async () => {
+  const { client, close } = await connectedClient();
+  try {
+    const tools = (await client.listTools()).tools;
+    const expected: Record<string, string[]> = {
+      synaphex_execute_helper: ["continuationId", "requestIndex"],
+      synaphex_approve_and_execute_helper: ["continuationId", "requestIndex"],
+      synaphex_resume_caller: ["continuationId"],
+      synaphex_approve_network_action: ["continuationId", "requestIndex"],
+    };
+    for (const [name, properties] of Object.entries(expected)) {
+      const tool = tools.find((candidate) => candidate.name === name);
+      assert.notEqual(tool, undefined, name);
+      const actual = Object.keys(
+        (tool?.inputSchema as { properties?: Record<string, unknown> })
+          ?.properties ?? {},
+      ).sort();
+      assert.deepEqual(actual, [...properties].sort(), name);
+    }
+    // None of these authority fields exists as an INPUT PROPERTY on any tool.
+    // (Descriptions may mention "classification" to explain that the
+    // server-side classification governs; that is documentation, not a field.)
+    const allProperties = new Set(
+      tools.flatMap((tool) =>
+        Object.keys(
+          (tool.inputSchema as { properties?: Record<string, unknown> })
+            ?.properties ?? {},
+        ),
+      ),
+    );
+    for (const forbidden of [
+      "targetAgent",
+      "callerAgent",
+      "classification",
+      "approvalGranted",
+      "rememberApproval",
+      "alwaysAllow",
+      "changeRule",
+      "hostProvider",
+      "hostSurface",
+      "lineage",
+      "executionPolicy",
+      "requestedCall",
+      "requestedAction",
+      "reason",
+      "purpose",
+      "route",
+      "host",
+      "caller",
+      "directUser",
+      "force",
+      "unsafe",
+    ]) {
+      assert.equal(
+        allProperties.has(forbidden),
+        false,
+        `${forbidden} must not be an input property on any tool`,
+      );
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("each continuation tool delegates one call to the continuation port", async () => {
+  const cases: readonly [string, Record<string, unknown>, string][] = [
+    [
+      "synaphex_execute_helper",
+      { continuationId: "cont_a", requestIndex: 0 },
+      "agentContinuation.executeAllowedHelper",
+    ],
+    [
+      "synaphex_approve_and_execute_helper",
+      { continuationId: "cont_a", requestIndex: 1 },
+      "agentContinuation.approveAndExecuteHelper",
+    ],
+    [
+      "synaphex_resume_caller",
+      { continuationId: "cont_a" },
+      "agentContinuation.resumeCaller",
+    ],
+    [
+      "synaphex_approve_network_action",
+      { continuationId: "cont_a", requestIndex: 0 },
+      "agentContinuation.approveNetworkAction",
+    ],
+  ];
+  for (const [tool, args, expectedPort] of cases) {
+    const reads = fakeReadDependencies();
+    const outcome = await call(reads, tool, args);
+    assert.equal(outcome.isError, false, `${tool}: ${outcome.text}`);
+    assert.equal(reads.calls.length, 1, tool);
+    assert.equal(reads.calls[0]?.port, expectedPort, tool);
+  }
+});
+
+test("continuation failures map to stable safe codes", async () => {
+  const cases: readonly [Error, string][] = [
+    [new ContinuationNotFoundError(), "CONTINUATION_NOT_FOUND"],
+    [
+      new ContinuationStateError("resume requires a completed helper"),
+      "INVALID_CONTINUATION_STATE",
+    ],
+    [new ContinuationCapacityError(), "CONTINUATION_CAPACITY_EXHAUSTED"],
+  ];
+  for (const [error, expectedCode] of cases) {
+    const reads = fakeReadDependencies();
+    reads.continuationError = error;
+    const outcome = await call(reads, "synaphex_execute_helper", {
+      continuationId: "cont_a",
+      requestIndex: 0,
+    });
+    assert.equal(outcome.isError, true);
+    assert.equal(outcome.structured.code, expectedCode);
+    assert.notEqual(outcome.structured.code, "INTERNAL_ERROR");
+    assert.equal(/\n\s+at /.test(outcome.text), false, "no stack frames");
+  }
+});
+
+test("malformed continuation input never reaches the continuation port", async () => {
+  const cases: readonly Record<string, unknown>[] = [
+    { continuationId: "", requestIndex: 0 },
+    { continuationId: "cont_a", requestIndex: -1 },
+    { continuationId: "cont_a", requestIndex: 1.5 },
+    { continuationId: "cont_a", requestIndex: 999 },
+    { continuationId: "cont_a" },
+    { requestIndex: 0 },
+  ];
+  for (const args of cases) {
+    const reads = fakeReadDependencies();
+    const outcome = await call(reads, "synaphex_execute_helper", args);
+    assert.equal(outcome.isError, true, JSON.stringify(args));
+    assert.deepEqual(reads.calls, []);
+  }
+});
+
+test("a continuation result exposes no ownership token or provider internals", async () => {
+  const reads = fakeReadDependencies();
+  reads.continuationOutcome = {
+    invocation: {
+      ...defaultInvocationResult({
+        agent: "examiner",
+        scope: { kind: "task_session", sessionId: "ses_x" },
+        instruction: "x",
+      }),
+      ownershipToken: "deadbeefdeadbeefdeadbeefdeadbeef",
+    },
+    callerResumeReady: true,
+    continuationId: "cont_next",
+  };
+  const outcome = await call(reads, "synaphex_execute_helper", {
+    continuationId: "cont_a",
+    requestIndex: 0,
+  });
+  const serialized = `${outcome.text}${JSON.stringify(outcome.structured)}`;
+  assert.equal(serialized.includes("deadbeef"), false);
+  assert.equal(serialized.includes("ownershipToken"), false);
+  assert.equal(serialized.includes("TaskOwnershipFence"), false);
+});
+
+test("host actions have no approval tool", async () => {
+  const { client, close } = await connectedClient();
+  try {
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    for (const absent of [
+      "synaphex_approve_git_push",
+      "synaphex_approve_ci",
+      "synaphex_execute_host_action",
+    ]) {
+      assert.equal(names.includes(absent), false, `${absent} must not exist`);
+    }
+    assert.equal(names.length, 14);
+  } finally {
+    await close();
+  }
 });

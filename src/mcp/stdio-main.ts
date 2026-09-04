@@ -19,6 +19,8 @@ import { ProviderDispatchingAgentExecutor } from "../providers/provider-dispatch
 import { RoleContractRegistry } from "../core/role-contract-registry.js";
 import { StateStore } from "../infrastructure/state-store.js";
 import { DirectAgentInvocation } from "../operations/direct-agent-invocation.js";
+import { InvocationContinuationCommands } from "../operations/invocation-continuation-commands.js";
+import { InvocationContinuationStore } from "../operations/invocation-continuation-store.js";
 import { SessionCommands } from "../operations/session-commands.js";
 import { createSynaphexMcpServer } from "./create-synaphex-mcp-server.js";
 import { parseHostContextArguments } from "./mcp-host-context.js";
@@ -125,13 +127,21 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
   diagnostic(
     `[synaphex-mcp] host context: ${host.provider}/${host.surface}`,
   );
+  const continuationStore = new InvocationContinuationStore();
+  const invocations = new AgentInvocationService({
+    executor: options.executor ?? createProviderDispatchingExecutor(),
+    runtimeAvailability:
+      options.runtimeAvailability ?? createRuntimeAvailability(),
+  });
+  const agentContinuation = new InvocationContinuationCommands({
+    host,
+    invocations,
+    store: continuationStore,
+    roleContracts: new RoleContractRegistry(),
+  });
   const agentInvocation = new DirectAgentInvocation({
     host,
-    invocations: new AgentInvocationService({
-      executor: options.executor ?? createProviderDispatchingExecutor(),
-      runtimeAvailability:
-        options.runtimeAvailability ?? createRuntimeAvailability(),
-    }),
+    invocations,
     sessions,
     roleContracts: new RoleContractRegistry(),
   });
@@ -146,6 +156,7 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
     sessionCommands,
     sessionRecovery: sessionCommands,
     agentInvocation,
+    agentContinuation,
     onDiagnostic: diagnostic,
   });
 

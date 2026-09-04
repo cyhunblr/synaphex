@@ -402,6 +402,22 @@ export {
   type ProviderDispatchingAgentExecutorDelegates,
 } from "./providers/provider-dispatching-agent-executor.js";
 export {
+  CONTINUATION_ID_PREFIX,
+  ContinuationCapacityError,
+  ContinuationNotFoundError,
+  ContinuationStateError,
+  InvocationContinuationStore,
+  type ContinuationId,
+  type ContinuationRecord,
+  type ContinuationState,
+} from "./operations/invocation-continuation-store.js";
+export {
+  InvocationContinuationCommands,
+  type ContinuationOutcome,
+  type InvocationContinuationDependencies,
+  type InvocationContinuationPort,
+} from "./operations/invocation-continuation-commands.js";
+export {
   MCP_INVOCABLE_AGENTS,
   DirectAgentInvocation,
   isMcpInvocableAgent,
@@ -419,6 +435,7 @@ export {
   parseHostContextArguments,
 } from "./mcp/mcp-host-context.js";
 export {
+  SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_INVOCATION_TOOLS,
   SYNAPHEX_MCP_PHASE1_TOOLS,
   SYNAPHEX_MCP_RECOVERY_TOOLS,

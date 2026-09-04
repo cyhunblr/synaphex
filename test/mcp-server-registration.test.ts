@@ -3,6 +3,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import {
+  SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_PHASE1_TOOLS,
   SYNAPHEX_MCP_SERVER_NAME,
   SYNAPHEX_MCP_SESSION_TOOLS,
@@ -25,7 +26,7 @@ test("the server registers exactly the accepted tool surface", async () => {
     for (const phase1Tool of SYNAPHEX_MCP_PHASE1_TOOLS) {
       assert.ok(names.includes(phase1Tool), `${phase1Tool} must remain`);
     }
-    assert.equal(names.length, 10);
+    assert.equal(names.length, 14);
   } finally {
     await close();
   }
@@ -75,36 +76,42 @@ test("annotations describe each tool honestly and are closed-world throughout", 
   const { client, close } = await connectedClient();
   try {
     for (const tool of (await client.listTools()).tools) {
-      const mutates =
-        tool.name === "synaphex_open_task_session" ||
-        tool.name === "synaphex_close_task_session" ||
-        tool.name === "synaphex_force_release_task_session" ||
-        tool.name === "synaphex_invoke_agent";
-      // Mutating tools must NOT claim readOnlyHint.
+      const mutates = tool.annotations?.readOnlyHint !== true;
+      const continuationTool = (
+        SYNAPHEX_MCP_CONTINUATION_TOOLS as readonly string[]
+      ).includes(tool.name);
+      const invocationLike = tool.name === "synaphex_invoke_agent" || continuationTool;
+      // Read tools claim readOnlyHint; everything else must not.
       assert.equal(
-        tool.annotations?.readOnlyHint,
+        tool.name.startsWith("synaphex_get_"),
         !mutates,
         `${tool.name} readOnlyHint`,
       );
-      // Only open is non-idempotent: it mints a new SessionId each call.
+      // Non-idempotent: open mints a new SessionId; invocation and every
+      // continuation step consume provider quota and a one-time transition.
       assert.equal(
         tool.annotations?.idempotentHint,
-        tool.name !== "synaphex_open_task_session" &&
-          tool.name !== "synaphex_invoke_agent",
+        tool.name !== "synaphex_open_task_session" && !invocationLike,
         `${tool.name} idempotentHint`,
       );
-      // Only force release is destructive: it terminates another session's
-      // ownership and deletes that session's binding record.
+      // Destructive: force release (terminates another session's ownership),
+      // agent invocation (Reviewer completion / memory replacement), and the
+      // two APPROVAL tools (they grant previously-unapproved execution).
       assert.equal(
         tool.annotations?.destructiveHint,
-        tool.name === "synaphex_force_release_task_session" ||
-          tool.name === "synaphex_invoke_agent",
+        [
+          "synaphex_force_release_task_session",
+          "synaphex_invoke_agent",
+          "synaphex_approve_and_execute_helper",
+          "synaphex_approve_network_action",
+        ].includes(tool.name),
         `${tool.name} destructiveHint`,
       );
-      // Only agent invocation reaches an external provider/model.
+      // Agent invocation and every continuation step reach an external
+      // provider/model.
       assert.equal(
         tool.annotations?.openWorldHint,
-        tool.name === "synaphex_invoke_agent",
+        invocationLike,
         `${tool.name} openWorldHint`,
       );
     }
@@ -120,6 +127,7 @@ test("server identity uses the package name and the injected package version", a
     sessionCommands: reads.sessionCommands,
     sessionRecovery: reads.sessionRecovery,
     agentInvocation: reads.agentInvocation,
+    agentContinuation: reads.agentContinuation,
     version: "9.9.9-test",
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

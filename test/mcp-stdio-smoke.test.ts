@@ -7,6 +7,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { AgentConfigManager } from "../src/core/agent-config-manager.js";
 import { ProjectManager } from "../src/core/project-manager.js";
+import { RuleResolver } from "../src/core/rule-resolver.js";
 import { TaskManager } from "../src/core/task-manager.js";
 import { StateStore } from "../src/infrastructure/state-store.js";
 
@@ -116,7 +117,10 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
 
     const tools = (await client.listTools()).tools.map((tool) => tool.name).sort();
     assert.deepEqual(tools, [
+      "synaphex_approve_and_execute_helper",
+      "synaphex_approve_network_action",
       "synaphex_close_task_session",
+      "synaphex_execute_helper",
       "synaphex_force_release_task_session",
       "synaphex_get_agent_config",
       "synaphex_get_effective_rules",
@@ -126,7 +130,8 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_get_task_session_owner",
       "synaphex_invoke_agent",
       "synaphex_open_task_session",
-    ]);
+      "synaphex_resume_caller",
+    ].sort());
 
     // CODER must be absent from the invocation enum at the schema level.
     const invokeTool = (await client.listTools()).tools.find(
@@ -573,7 +578,7 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
       (candidate) => candidate.name === "synaphex_invoke_agent",
     );
     assert.notEqual(invokeTool, undefined);
-    assert.equal(tools.length, 10);
+    assert.equal(tools.length, 14);
 
     // 5: CODER is absent from the observable enum.
     const agentEnum =
@@ -637,12 +642,9 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
     const calls = invocation.requestedCalls as { target: string; status: string }[];
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.target, "examiner");
-    const actions = invocation.requestedActions as {
-      action: string;
-      status: string;
-    }[];
-    assert.equal(actions.length, 1);
-    assert.equal(actions[0]?.action, "network");
+    // The base scripted result requests a helper only; network is driven
+    // separately by the Phase-3C network-approval flow test.
+    assert.deepEqual(invocation.requestedActions, []);
     // Only ONE provider execution happened: no helper auto-ran.
     assert.equal(
       JSON.parse(await readFile(routeSink, "utf8")).agent,
@@ -717,5 +719,389 @@ test("a native VS Code target fails closed through the production dispatch path"
     await assert.rejects(readFile(routeSink, "utf8"));
   } finally {
     await client.close();
+  }
+});
+
+// --- Phase 3C: continuation flows over real stdio -------------------------
+
+interface ContinuationHarness {
+  readonly client: Client;
+  readonly sessionId: string;
+  readonly projectId: string;
+  readonly taskId: string;
+  close(): Promise<void>;
+}
+
+async function continuationHarness(
+  t: TestContext,
+  options: {
+    readonly helperRule?: "allow" | "ask";
+    readonly wantNetwork?: boolean;
+    readonly networkRule?: "ask";
+  } = {},
+): Promise<ContinuationHarness> {
+  const home = await temporaryStateRoot(t);
+  const { projectId, taskId } = await fixtureProjectAndTask(home);
+  const store = new StateStore(join(home, ".synaphex"));
+  const projects = new ProjectManager(store, { homeDirectory: home });
+  const tasks = new TaskManager(store, projects);
+  const configs = new AgentConfigManager(store);
+  await configs.setConfigured("researcher", {
+    provider: "openai",
+    surface: "cli",
+    model: "researcher-model",
+  });
+  await configs.setConfigured("examiner", {
+    provider: "openai",
+    surface: "cli",
+    model: "examiner-model",
+  });
+  const rules = new RuleResolver(store, projects, tasks);
+  if (options.helperRule !== undefined) {
+    await rules.setRule(
+      "global",
+      { kind: "agent_call", caller: "researcher", target: "examiner" },
+      options.helperRule,
+    );
+  }
+  if (options.networkRule !== undefined) {
+    await rules.setRule(
+      "global",
+      { kind: "action", action: "network" },
+      options.networkRule,
+    );
+  }
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [FAKE_PROVIDER_ENTRYPOINT, ...HOST_ARGS],
+    env: {
+      ...process.env,
+      HOME: home,
+      ...(options.wantNetwork === true
+        ? { SYNAPHEX_TEST_WANT_NETWORK: "1" }
+        : {}),
+    },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "synaphex-cont-smoke", version: "0.0.0" });
+  await client.connect(transport);
+  const opened = await client.callTool({
+    name: "synaphex_open_task_session",
+    arguments: { projectId, taskId },
+  });
+  const sessionId = (opened.structuredContent as { sessionId: string })
+    .sessionId;
+  return {
+    client,
+    sessionId,
+    projectId,
+    taskId,
+    close: () => client.close(),
+  };
+}
+
+test("allowed helper: execute once, no auto-resume, then explicit resume", async (t) => {
+  const h = await continuationHarness(t, { helperRule: "allow" });
+  try {
+    const invoked = await h.client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId: h.sessionId },
+        instruction: "Research it.",
+      },
+    });
+    const result = invoked.structuredContent as Record<string, unknown>;
+    const calls = result.requestedCalls as { status: string }[];
+    assert.equal(calls[0]?.status, "allowed");
+    const continuationId = result.continuationId as string;
+    assert.match(continuationId, /^cont_[0-9a-f]{32}$/);
+
+    // Execute the helper explicitly.
+    const helper = await h.client.callTool({
+      name: "synaphex_execute_helper",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.notEqual(helper.isError, true, JSON.stringify(helper.content));
+    const helperOut = helper.structuredContent as Record<string, unknown>;
+    assert.equal(helperOut.callerResumeReady, true);
+    assert.equal(
+      (helperOut.invocation as { agent: string }).agent,
+      "examiner",
+    );
+
+    // Executing the same request again is refused.
+    const twice = await h.client.callTool({
+      name: "synaphex_execute_helper",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.equal(twice.isError, true);
+    assert.equal(
+      (twice.structuredContent as { code: string }).code,
+      "INVALID_CONTINUATION_STATE",
+    );
+
+    // Explicit caller resume -> a fresh caller invocation.
+    const resumed = await h.client.callTool({
+      name: "synaphex_resume_caller",
+      arguments: { continuationId },
+    });
+    assert.notEqual(resumed.isError, true, JSON.stringify(resumed.content));
+    assert.equal(
+      ((resumed.structuredContent as { invocation: { agent: string } })
+        .invocation).agent,
+      "researcher",
+    );
+
+    // Resuming twice is refused: the record was consumed.
+    const resumedAgain = await h.client.callTool({
+      name: "synaphex_resume_caller",
+      arguments: { continuationId },
+    });
+    assert.equal(resumedAgain.isError, true);
+  } finally {
+    await h.close();
+  }
+});
+
+test("asked helper: execute_helper refuses, approve_and_execute succeeds once, rule stays ask", async (t) => {
+  const h = await continuationHarness(t, { helperRule: "ask" });
+  try {
+    const invoked = await h.client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId: h.sessionId },
+        instruction: "Research it.",
+      },
+    });
+    const result = invoked.structuredContent as Record<string, unknown>;
+    const calls = result.requestedCalls as { status: string }[];
+    assert.equal(calls[0]?.status, "approval_required");
+    const continuationId = result.continuationId as string;
+
+    // Plain execution refuses an asked edge.
+    const refused = await h.client.callTool({
+      name: "synaphex_execute_helper",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.equal(refused.isError, true);
+
+    // Explicit approval succeeds.
+    const approved = await h.client.callTool({
+      name: "synaphex_approve_and_execute_helper",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.notEqual(approved.isError, true, JSON.stringify(approved.content));
+
+    // Approving again is refused.
+    const twice = await h.client.callTool({
+      name: "synaphex_approve_and_execute_helper",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.equal(twice.isError, true);
+
+    // The rule remains `ask` -- approval was one-time and invocation-scoped.
+    const rules = await h.client.callTool({
+      name: "synaphex_get_effective_rules",
+      arguments: {},
+    });
+    const effective = (
+      rules.structuredContent as {
+        rules: { key: string; decision: string }[];
+      }
+    ).rules;
+    const edge = effective.find(
+      (rule) => rule.key === "agent-call.researcher.examiner",
+    );
+    assert.equal(edge?.decision, "ask", "the ask rule must not be mutated");
+  } finally {
+    await h.close();
+  }
+});
+
+test("network approval: one-time grant reaches a fresh caller execution, rule stays ask", async (t) => {
+  const h = await continuationHarness(t, {
+    wantNetwork: true,
+    networkRule: "ask",
+  });
+  try {
+    const invoked = await h.client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId: h.sessionId },
+        instruction: "Research it.",
+      },
+    });
+    const result = invoked.structuredContent as Record<string, unknown>;
+    const actions = result.requestedActions as {
+      action: string;
+      status: string;
+    }[];
+    assert.equal(actions[0]?.action, "network");
+    assert.equal(actions[0]?.status, "approval_required");
+    const continuationId = result.continuationId as string;
+
+    const approved = await h.client.callTool({
+      name: "synaphex_approve_network_action",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.notEqual(approved.isError, true, JSON.stringify(approved.content));
+    // A fresh caller invocation ran under the one-time grant.
+    assert.equal(
+      ((approved.structuredContent as { invocation: { agent: string } })
+        .invocation).agent,
+      "researcher",
+    );
+
+    // Approving twice is refused: the record was consumed.
+    const twice = await h.client.callTool({
+      name: "synaphex_approve_network_action",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.equal(twice.isError, true);
+
+    // The network rule remains `ask`.
+    const rules = await h.client.callTool({
+      name: "synaphex_get_effective_rules",
+      arguments: {},
+    });
+    const effective = (
+      rules.structuredContent as {
+        rules: { key: string; decision: string }[];
+      }
+    ).rules;
+    assert.equal(
+      effective.find((rule) => rule.key === "action.network")?.decision,
+      "ask",
+    );
+  } finally {
+    await h.close();
+  }
+});
+
+test("a denied helper cannot be executed with a valid continuationId and index", async (t) => {
+  const h = await continuationHarness(t, { helperRule: "deny" as "allow" });
+  try {
+    const invoked = await h.client.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId: h.sessionId },
+        instruction: "Research it.",
+      },
+    });
+    const result = invoked.structuredContent as Record<string, unknown>;
+    assert.equal(
+      (result.requestedCalls as { status: string }[])[0]?.status,
+      "denied",
+    );
+    // Nothing is actionable, so no handle is issued at all.
+    assert.equal(result.continuationId, null);
+
+    // Even a well-formed guess cannot progress it.
+    const attempted = await h.client.callTool({
+      name: "synaphex_execute_helper",
+      arguments: {
+        continuationId: "cont_00000000000000000000000000000000",
+        requestIndex: 0,
+      },
+    });
+    assert.equal(attempted.isError, true);
+    assert.equal(
+      (attempted.structuredContent as { code: string }).code,
+      "CONTINUATION_NOT_FOUND",
+    );
+  } finally {
+    await h.close();
+  }
+});
+
+test("a continuation handle does not survive an MCP process restart", async (t) => {
+  const home = await temporaryStateRoot(t);
+  const { projectId, taskId } = await fixtureProjectAndTask(home);
+  const store = new StateStore(join(home, ".synaphex"));
+  const projects = new ProjectManager(store, { homeDirectory: home });
+  const tasks = new TaskManager(store, projects);
+  await new AgentConfigManager(store).setConfigured("researcher", {
+    provider: "openai",
+    surface: "cli",
+    model: "researcher-model",
+  });
+  await new AgentConfigManager(store).setConfigured("examiner", {
+    provider: "openai",
+    surface: "cli",
+    model: "examiner-model",
+  });
+  await new RuleResolver(store, projects, tasks).setRule(
+    "global",
+    { kind: "agent_call", caller: "researcher", target: "examiner" },
+    "allow",
+  );
+
+  const spawnClient = async (): Promise<Client> => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [FAKE_PROVIDER_ENTRYPOINT, ...HOST_ARGS],
+      env: { ...process.env, HOME: home },
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "restart-probe", version: "0.0.0" });
+    await client.connect(transport);
+    return client;
+  };
+
+  const first = await spawnClient();
+  let continuationId: string;
+  let sessionId: string;
+  try {
+    const opened = await first.callTool({
+      name: "synaphex_open_task_session",
+      arguments: { projectId, taskId },
+    });
+    sessionId = (opened.structuredContent as { sessionId: string }).sessionId;
+    const invoked = await first.callTool({
+      name: "synaphex_invoke_agent",
+      arguments: {
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId },
+        instruction: "Research it.",
+      },
+    });
+    continuationId = (invoked.structuredContent as { continuationId: string })
+      .continuationId;
+    assert.match(continuationId, /^cont_/);
+  } finally {
+    await first.close();
+  }
+
+  // A brand-new process: continuation state was process-local and is gone.
+  const second = await spawnClient();
+  try {
+    const attempted = await second.callTool({
+      name: "synaphex_execute_helper",
+      arguments: { continuationId, requestIndex: 0 },
+    });
+    assert.equal(attempted.isError, true);
+    assert.equal(
+      (attempted.structuredContent as { code: string }).code,
+      "CONTINUATION_NOT_FOUND",
+    );
+
+    // The Synaphex SESSION, by contrast, survived the restart intact.
+    const session = await second.callTool({
+      name: "synaphex_get_session",
+      arguments: { sessionId },
+    });
+    assert.deepEqual(session.structuredContent, {
+      sessionId,
+      bound: true,
+      projectId,
+      taskId,
+    });
+  } finally {
+    await second.close();
   }
 });

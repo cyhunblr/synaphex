@@ -107,9 +107,29 @@ export class McpInvalidInputError extends Error {
   }
 }
 
+const CONTINUATION_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  CONTINUATION_NOT_FOUND:
+    "Continuation was not found. Continuations are process-local and do not survive an MCP restart.",
+  INVALID_CONTINUATION_STATE:
+    "This continuation cannot be progressed in its current state.",
+  CONTINUATION_CAPACITY_EXHAUSTED:
+    "Too many pending continuations; complete or abandon one before starting another.",
+});
+
 export function toMcpToolFailure(error: unknown): McpToolFailure {
   if (error instanceof McpInvalidInputError) {
     return { code: error.code, message: error.message };
+  }
+  // Continuation-store failures carry their own stable codes.
+  const continuationCode = (error as { code?: unknown } | null)?.code;
+  if (
+    typeof continuationCode === "string" &&
+    continuationCode in CONTINUATION_MESSAGES
+  ) {
+    return {
+      code: continuationCode,
+      message: CONTINUATION_MESSAGES[continuationCode]!,
+    };
   }
   if (
     error instanceof SynaphexError &&

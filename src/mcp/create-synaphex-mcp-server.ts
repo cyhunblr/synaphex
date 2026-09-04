@@ -16,6 +16,10 @@ import {
   type DirectAgentInvocationPort,
 } from "../operations/direct-agent-invocation.js";
 import type {
+  ContinuationOutcome,
+  InvocationContinuationPort,
+} from "../operations/invocation-continuation-commands.js";
+import type {
   SessionCommandPort,
   SessionRecoveryPort,
 } from "../operations/session-commands.js";
@@ -81,12 +85,30 @@ export const SYNAPHEX_MCP_INVOCATION_TOOLS = Object.freeze([
   "synaphex_invoke_agent",
 ] as const);
 
+/**
+ * Explicit continuation tools (Phase 3C).
+ *
+ * The user remains the orchestrator: a helper is never auto-executed and an
+ * action is never auto-approved. Each of these is an explicit, one-time,
+ * invocation-scoped step keyed by an opaque server-issued continuation handle.
+ *
+ * Host actions (`git_push`, `ci`) are deliberately absent -- no real
+ * HostActionExecutor exists, so an approval tool for them would be meaningless.
+ */
+export const SYNAPHEX_MCP_CONTINUATION_TOOLS = Object.freeze([
+  "synaphex_execute_helper",
+  "synaphex_approve_and_execute_helper",
+  "synaphex_resume_caller",
+  "synaphex_approve_network_action",
+] as const);
+
 /** Every tool this server registers. */
 export const SYNAPHEX_MCP_TOOLS = Object.freeze([
   ...SYNAPHEX_MCP_PHASE1_TOOLS,
   ...SYNAPHEX_MCP_SESSION_TOOLS,
   ...SYNAPHEX_MCP_RECOVERY_TOOLS,
   ...SYNAPHEX_MCP_INVOCATION_TOOLS,
+  ...SYNAPHEX_MCP_CONTINUATION_TOOLS,
 ] as const);
 
 export interface CreateSynaphexMcpServerOptions
@@ -108,6 +130,11 @@ export interface CreateSynaphexMcpServerOptions
    * supply or override it.
    */
   readonly agentInvocation: DirectAgentInvocationPort;
+  /**
+   * Narrow continuation boundary. MCP never receives the continuation store
+   * itself, so tool handlers own no continuation business logic.
+   */
+  readonly agentContinuation: InvocationContinuationPort;
   /** Server version; callers pass the package.json version (never duplicated here). */
   readonly version: string;
   /** Diagnostics sink. Defaults to stderr so MCP stdout stays protocol-only. */
@@ -268,6 +295,49 @@ const invokeAgentOutputSchema = z.object({
       errorCode: z.string().nullable(),
     }),
   ),
+  /**
+   * Present only when at least one request can be progressed through a
+   * continuation tool. Denied/forbidden/unavailable requests and host actions
+   * still appear in the classifications but yield no handle.
+   */
+  continuationId: z.string().nullable(),
+});
+
+/**
+ * Continuation input.
+ *
+ * Only an opaque handle and a bounded index. There is deliberately NO
+ * targetAgent, purpose, reason, callerAgent, action, classification, lineage,
+ * route, ExecutionPolicy, host or `approval: true` field -- the server holds
+ * all of that from the previous trusted invocation result, so a client cannot
+ * alter it.
+ */
+const continuationRefSchema = z.object({
+  continuationId: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe("Opaque continuation handle returned by a previous invocation."),
+  requestIndex: z
+    .number()
+    .int()
+    .min(0)
+    .max(255)
+    .describe("Index of the server-stored request to progress."),
+});
+
+const continuationIdOnlySchema = z.object({
+  continuationId: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe("Opaque continuation handle returned by a previous invocation."),
+});
+
+const continuationOutputSchema = z.object({
+  invocation: z.record(z.string(), z.unknown()),
+  callerResumeReady: z.boolean(),
+  continuationId: z.string().nullable(),
 });
 
 const agentConfigOutputSchema = z.object({
@@ -308,6 +378,7 @@ export function createSynaphexMcpServer(
     sessionCommands,
     sessionRecovery,
     agentInvocation,
+    agentContinuation,
     version,
     onDiagnostic = defaultDiagnostic,
   } = options;
@@ -675,11 +746,128 @@ export function createSynaphexMcpServer(
           scope: { kind: scope.kind, sessionId },
           instruction,
         });
-        return presentInvocationResult(result);
+        const continuationId = agentContinuation.issueFor(sessionId, result);
+        return {
+          ...presentInvocationResult(result),
+          continuationId,
+        };
       }),
   );
 
+  // --- Phase 3C: explicit continuations ------------------------------------
+  //
+  // All four mutate Synaphex state and spawn an external provider, so
+  // readOnlyHint is false, openWorldHint is true, and idempotentHint is false
+  // (each consumes quota and a one-time continuation step).
+  //
+  // destructiveHint is true for the two APPROVAL tools only: they grant a
+  // previously-unapproved execution, which is the conservative reading of the
+  // MCP annotation semantics. Plain helper execution and caller resume progress
+  // an already-permitted step, so they are not marked destructive.
+  const continuationAnnotations = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  } as const;
+  const approvalAnnotations = {
+    ...continuationAnnotations,
+    destructiveHint: true,
+  } as const;
+
+  server.registerTool(
+    "synaphex_execute_helper",
+    {
+      title: "Execute Synaphex helper agent",
+      description:
+        "Explicitly execute a helper request whose server-side classification is 'allowed'. This is orchestration, not approval: an approval_required edge is refused. The caller is NOT auto-resumed.",
+      inputSchema: continuationRefSchema,
+      outputSchema: continuationOutputSchema,
+      annotations: continuationAnnotations,
+    },
+    async ({ continuationId, requestIndex }) =>
+      run(onDiagnostic, "synaphex_execute_helper", async () =>
+        presentContinuation(
+          await agentContinuation.executeAllowedHelper(
+            continuationId,
+            requestIndex,
+          ),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "synaphex_approve_and_execute_helper",
+    {
+      title: "Approve and execute Synaphex helper agent",
+      description:
+        "Explicitly approve ONE helper request classified 'approval_required' and execute it. The approval is one-time and invocation-scoped; no rule is changed from ask to allow.",
+      inputSchema: continuationRefSchema,
+      outputSchema: continuationOutputSchema,
+      annotations: approvalAnnotations,
+    },
+    async ({ continuationId, requestIndex }) =>
+      run(onDiagnostic, "synaphex_approve_and_execute_helper", async () =>
+        presentContinuation(
+          await agentContinuation.approveAndExecuteHelper(
+            continuationId,
+            requestIndex,
+          ),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "synaphex_resume_caller",
+    {
+      title: "Resume Synaphex caller agent",
+      description:
+        "Explicitly resume the original caller after a helper execution completed. This is a fresh provider execution with a continuation handoff; task-bound resumes revalidate task ownership.",
+      inputSchema: continuationIdOnlySchema,
+      outputSchema: continuationOutputSchema,
+      annotations: continuationAnnotations,
+    },
+    async ({ continuationId }) =>
+      run(onDiagnostic, "synaphex_resume_caller", async () =>
+        presentContinuation(
+          await agentContinuation.resumeCaller(continuationId),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "synaphex_approve_network_action",
+    {
+      title: "Approve Synaphex network capability",
+      description:
+        "Explicitly approve ONE requested 'network' provider capability classified 'approval_required', then resume the caller with a one-time grant. No rule or provider setting is changed. Host actions (git_push, ci) cannot be approved here.",
+      inputSchema: continuationRefSchema,
+      outputSchema: continuationOutputSchema,
+      annotations: approvalAnnotations,
+    },
+    async ({ continuationId, requestIndex }) =>
+      run(onDiagnostic, "synaphex_approve_network_action", async () =>
+        presentContinuation(
+          await agentContinuation.approveNetworkAction(
+            continuationId,
+            requestIndex,
+          ),
+        ),
+      ),
+  );
+
   return server;
+}
+
+/** Maps a continuation outcome, never exposing trusted record internals. */
+function presentContinuation(
+  outcome: ContinuationOutcome,
+): Record<string, unknown> {
+  return {
+    invocation: presentInvocationResult(outcome.invocation),
+    callerResumeReady: outcome.callerResumeReady,
+    continuationId: outcome.continuationId,
+  };
 }
 
 /**

@@ -68,6 +68,7 @@ import {
   HostActionDeniedError,
   HostActionUnavailableError,
   InvalidHostActionAuthorizationError,
+  NativeHostExecutionUnavailableError,
   NoProjectBoundError,
   TaskSessionOwnershipLostError,
   NoTaskBoundError,
@@ -498,6 +499,13 @@ export class AgentInvocationService {
         executionPolicy,
       });
     } catch (error) {
+      // A valid-but-undispatchable route is an infrastructure capability gap,
+      // not a provider execution failure: no provider ever ran. Preserve its
+      // precise identity so a client can distinguish it from a real provider
+      // failure and from an invalid route.
+      if (error instanceof NativeHostExecutionUnavailableError) {
+        throw error;
+      }
       throw new AgentExecutionFailedError(
         invocation.agent,
         route.provider,
