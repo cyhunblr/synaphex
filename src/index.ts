@@ -355,6 +355,20 @@ export {
   type ChangeSetStatus,
 } from "./core/change-set-apply-manager.js";
 export {
+  RecoverableProcessLock,
+  SignalProcessLivenessProbe,
+  generateLockOwnerId,
+  LockAcquisitionTimeout,
+  type LegacyLockRecord,
+  type Liveness,
+  type LockInspection,
+  type LockOwnerId,
+  type LockOwnerRecord,
+  type LockTimeoutReason,
+  type ProcessLivenessProbe,
+  type RecoverableProcessLockOptions,
+} from "./infrastructure/recoverable-process-lock.js";
+export {
   SpawnIsolatedGitRunner,
   ISOLATED_GIT_CONFIG_OVERRIDES,
   type IsolatedGitRunInput,

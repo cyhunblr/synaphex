@@ -434,7 +434,10 @@ it would be worse than failing. If the exact clean baseline is not restored,
 the intent is **kept** and `CHANGE_SET_APPLY_RECOVERY_REQUIRED` is raised.
 After a genuine crash, Synaphex never auto-resets the source — edits made in
 the meantime could be destroyed — so `applying_interrupted` blocks further
-decisions until recovery becomes explicit (deferred, like stale-lock recovery).
+decisions until recovery becomes explicit (deferred to Phase 5E). Note that
+since Phase 5D the *mutex* is no longer part of that problem: a dead process's
+source-mutation lock is reclaimed automatically, while the apply intent it left
+behind survives untouched. See ADR 0004.
 
 ### Locks
 
@@ -448,6 +451,8 @@ source-mutation lock  ──▶  withTaskOwnershipAuthority(...)
 never the reverse, and never held across provider execution. Contention raises
 `SOURCE_MUTATION_LOCK_TIMEOUT` — deliberately distinct from
 `TASK_BINDING_LOCK_TIMEOUT`, so a caller can tell which resource is contended.
+Since Phase 5D this lock is a `RecoverableProcessLock` (ADR 0004); a crashed
+holder no longer wedges the subsystem.
 
 ### Patch transport
 

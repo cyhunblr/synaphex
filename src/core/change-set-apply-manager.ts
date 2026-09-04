@@ -1,8 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   ChangeSetApplyCheckFailedError,
   ChangeSetApplyInterruptedError,
@@ -16,6 +14,10 @@ import {
 } from "../domain/errors.js";
 import type { Project, ProjectId } from "../domain/project.js";
 import type { TaskId } from "../domain/task.js";
+import {
+  LockAcquisitionTimeout,
+  RecoverableProcessLock,
+} from "../infrastructure/recoverable-process-lock.js";
 import {
   SpawnIsolatedGitRunner,
   type IsolatedGitRunner,
@@ -82,16 +84,15 @@ export interface ChangeSetApplyManagerOptions {
   readonly beforeSourceMutation?: () => Promise<void>;
   /** Test seam fired after `git apply`, before verification. */
   readonly afterSourceMutation?: () => Promise<void>;
+  /** Injectable so tests can supply liveness probes and recovery seams. */
+  readonly lock?: RecoverableProcessLock;
 }
 
 const SOURCE_MUTATION_LOCK_PREFIX = "state/source-locks";
-const LOCK_RETRY_COUNT = 500;
-const LOCK_RETRY_DELAY_MS = 10;
-// TODO: Stale source-mutation-lock recovery is deferred, matching the existing
-// task-binding, memory and plan locks.
 
 export class ChangeSetApplyManager {
   private readonly gitRunner: IsolatedGitRunner;
+  private readonly lock: RecoverableProcessLock;
   private readonly temporaryRoot: string;
 
   constructor(
@@ -101,6 +102,7 @@ export class ChangeSetApplyManager {
   ) {
     this.gitRunner = options.gitRunner ?? new SpawnIsolatedGitRunner();
     this.temporaryRoot = options.temporaryRoot ?? tmpdir();
+    this.lock = options.lock ?? new RecoverableProcessLock(stateStore);
   }
 
   /** Reads the observable state, deriving it from decision and intent records. */
@@ -298,24 +300,19 @@ export class ChangeSetApplyManager {
     projectId: ProjectId,
     operation: () => Promise<T>,
   ): Promise<T> {
-    const path = `${SOURCE_MUTATION_LOCK_PREFIX}/${projectId}.json`;
-    const token = randomUUID();
-    for (let attempt = 0; attempt < LOCK_RETRY_COUNT; attempt += 1) {
-      const acquired = await this.stateStore.createJsonExclusive(path, {
-        token,
-        processId: process.pid,
-        createdAt: new Date().toISOString(),
-      });
-      if (acquired) {
-        try {
-          return await operation();
-        } finally {
-          await this.stateStore.removeFile(path);
-        }
+    try {
+      return await this.lock.withLock(
+        `${SOURCE_MUTATION_LOCK_PREFIX}/${projectId}.json`,
+        operation,
+      );
+    } catch (error) {
+      // Keep this domain's own public code: a caller must be able to tell a
+      // contended SOURCE lock from a contended task-binding one.
+      if (error instanceof LockAcquisitionTimeout) {
+        throw new SourceMutationLockTimeoutError(projectId);
       }
-      await delay(LOCK_RETRY_DELAY_MS);
+      throw error;
     }
-    throw new SourceMutationLockTimeoutError(projectId);
   }
 
   // --- internals ---------------------------------------------------------

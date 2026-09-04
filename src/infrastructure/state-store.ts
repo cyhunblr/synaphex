@@ -223,6 +223,62 @@ export class StateStore {
     }
   }
 
+  /**
+   * Moves `sourceRelativePath` onto `destinationRelativePath` only when the
+   * destination does not already exist, returning `false` instead of
+   * clobbering it.
+   *
+   * Uses `link` + `unlink` rather than `rename`, because `rename` overwrites
+   * an existing destination unconditionally. This is what lets a lock
+   * recovery restore a captured generation without ever destroying a newer
+   * one that claimed the path in the meantime.
+   */
+  async linkExclusive(
+    sourceRelativePath: string,
+    destinationRelativePath: string,
+  ): Promise<boolean> {
+    const destination = this.resolvePath(destinationRelativePath);
+    const source = this.resolvePath(sourceRelativePath);
+    await mkdir(dirname(destination), { recursive: true });
+    try {
+      await link(source, destination);
+    } catch (error) {
+      if (isNodeError(error) && error.code === "EEXIST") {
+        return false;
+      }
+      throw error;
+    }
+    await unlink(source).catch((cleanupError: unknown) => {
+      if (!isNodeError(cleanupError) || cleanupError.code !== "ENOENT") {
+        throw cleanupError;
+      }
+    });
+    return true;
+  }
+
+  /**
+   * Atomically moves a file away, returning `false` when it was already gone.
+   *
+   * `rename` is atomic with respect to concurrent readers: the file is either
+   * fully at the source or fully at the destination, never absent from both.
+   */
+  async captureFile(
+    sourceRelativePath: string,
+    destinationRelativePath: string,
+  ): Promise<boolean> {
+    const destination = this.resolvePath(destinationRelativePath);
+    await mkdir(dirname(destination), { recursive: true });
+    try {
+      await rename(this.resolvePath(sourceRelativePath), destination);
+      return true;
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   async removeFile(relativePath: string): Promise<void> {
     try {
       await unlink(this.resolvePath(relativePath));

@@ -1,5 +1,8 @@
+import {
+  LockAcquisitionTimeout,
+  RecoverableProcessLock,
+} from "../infrastructure/recoverable-process-lock.js";
 import { createHash, randomUUID } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   NoProjectBoundError,
   SessionAlreadyBoundToTaskError,
@@ -70,12 +73,17 @@ function isOwnershipToken(value: unknown): value is string {
 }
 
 const TASK_BINDING_LOCK_PATH = "state/task-bindings/.ownership-lock.json";
-const LOCK_RETRY_COUNT = 500;
-const LOCK_RETRY_DELAY_MS = 10;
 // TODO: Crash/stale-lock recovery is intentionally deferred to production hardening.
 
 export class SessionManager {
-  constructor(private readonly stateStore: StateStore) {}
+  private readonly lock: RecoverableProcessLock;
+
+  constructor(
+    private readonly stateStore: StateStore,
+    lock?: RecoverableProcessLock,
+  ) {
+    this.lock = lock ?? new RecoverableProcessLock(stateStore);
+  }
 
   async getCurrentBinding(sessionId: SessionId): Promise<SessionBinding> {
     return (
@@ -462,27 +470,17 @@ export class SessionManager {
   }
 
   private async withTaskBindingLock<T>(operation: () => Promise<T>): Promise<T> {
-    const token = randomUUID();
-    for (let attempt = 0; attempt < LOCK_RETRY_COUNT; attempt += 1) {
-      const acquired = await this.stateStore.createJsonExclusive(
-        TASK_BINDING_LOCK_PATH,
-        {
-          token,
-          processId: process.pid,
-          createdAt: new Date().toISOString(),
-        },
-      );
-      if (acquired) {
-        try {
-          return await operation();
-        } finally {
-          await this.stateStore.removeFile(TASK_BINDING_LOCK_PATH);
-        }
+    try {
+      return await this.lock.withLock(TASK_BINDING_LOCK_PATH, operation);
+    } catch (error) {
+      // The shared primitive raises a generic timeout; each domain keeps its
+      // own stable public error code so callers can still tell the lock
+      // domains apart.
+      if (error instanceof LockAcquisitionTimeout) {
+        throw new TaskBindingLockTimeoutError();
       }
-      await delay(LOCK_RETRY_DELAY_MS);
+      throw error;
     }
-
-    throw new TaskBindingLockTimeoutError();
   }
 }
 

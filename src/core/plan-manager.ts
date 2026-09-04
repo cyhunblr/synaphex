@@ -1,5 +1,8 @@
+import {
+  LockAcquisitionTimeout,
+  RecoverableProcessLock,
+} from "../infrastructure/recoverable-process-lock.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   InvalidPlanContentError,
   NoPlanDraftError,
@@ -35,16 +38,19 @@ interface DraftRevisionMetadata {
 }
 
 const PLAN_MUTATION_LOCK_PATH = "state/plans/.mutation-lock.json";
-const LOCK_RETRY_COUNT = 500;
-const LOCK_RETRY_DELAY_MS = 10;
 // TODO: Crash/stale-lock recovery is intentionally deferred, matching the
 // existing task-binding and memory mutation locks.
 
 export class PlanManager {
+  private readonly lock: RecoverableProcessLock;
+
   constructor(
     private readonly stateStore: StateStore,
     private readonly taskManager: TaskManager,
-  ) {}
+    lock?: RecoverableProcessLock,
+  ) {
+    this.lock = lock ?? new RecoverableProcessLock(stateStore);
+  }
 
   /**
    * Reads the draft WITHOUT hydrating revision metadata.
@@ -331,26 +337,17 @@ export class PlanManager {
    * accept-vs-write lock.
    */
   private async withPlanMutationLock<T>(operation: () => Promise<T>): Promise<T> {
-    const token = randomUUID();
-    for (let attempt = 0; attempt < LOCK_RETRY_COUNT; attempt += 1) {
-      const acquired = await this.stateStore.createJsonExclusive(
-        PLAN_MUTATION_LOCK_PATH,
-        {
-          token,
-          processId: process.pid,
-          createdAt: new Date().toISOString(),
-        },
-      );
-      if (acquired) {
-        try {
-          return await operation();
-        } finally {
-          await this.stateStore.removeFile(PLAN_MUTATION_LOCK_PATH);
-        }
+    try {
+      return await this.lock.withLock(PLAN_MUTATION_LOCK_PATH, operation);
+    } catch (error) {
+      // The shared primitive raises a generic timeout; each domain keeps its
+      // own stable public error code so callers can still tell the lock
+      // domains apart.
+      if (error instanceof LockAcquisitionTimeout) {
+        throw new PlanMutationLockTimeoutError();
       }
-      await delay(LOCK_RETRY_DELAY_MS);
+      throw error;
     }
-    throw new PlanMutationLockTimeoutError();
   }
 
   private async plansDirectory(taskId: TaskId): Promise<string> {

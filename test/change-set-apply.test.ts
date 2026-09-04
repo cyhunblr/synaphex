@@ -9,7 +9,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { AgentConfigManager } from "../src/core/agent-config-manager.js";
@@ -47,6 +47,7 @@ import type { Project } from "../src/domain/project.js";
 import type { RuntimeAvailability } from "../src/domain/provider-routing.js";
 import type { SessionId } from "../src/domain/session.js";
 import type { Task } from "../src/domain/task.js";
+import { RecoverableProcessLock } from "../src/infrastructure/recoverable-process-lock.js";
 import { StateStore } from "../src/infrastructure/state-store.js";
 import { ChangeSetCommands } from "../src/operations/change-set-commands.js";
 import { SessionCommands } from "../src/operations/session-commands.js";
@@ -1096,4 +1097,121 @@ test("no apply-path module reaches for a network, merge or history-rewriting Git
       );
     }
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// Phase 5D: mutex recovery must never imply domain recovery
+// ---------------------------------------------------------------------------
+
+test("recovering a dead source-mutation lock leaves the apply intent intact", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const stored = await f.changeSets.get(f.task.id, changeSetId);
+
+  // A process crashes mid-apply, leaving BOTH an apply intent and its source
+  // mutation lock behind.
+  const crashing = applyManager(f, {
+    beforeSourceMutation: async () => {
+      throw new Error("process died mid-apply");
+    },
+  });
+  await assert.rejects(
+    () =>
+      crashing.withSourceMutationLock(f.project.id, async () =>
+        crashing.apply({
+          project: f.project,
+          taskId: f.task.id,
+          metadata: stored.metadata,
+          patch: stored.patch,
+        }),
+      ),
+    /process died mid-apply/,
+  );
+  // Simulate the lock surviving the crash: re-create it owned by a dead pid.
+  const lockScope = `state/source-locks/${f.project.id}.json`;
+  await f.store.createJsonAtomicExclusive(lockScope, {
+    version: 1,
+    ownerId: `lock_${"a".repeat(32)}`,
+    pid: 424242,
+    host: hostname(),
+    createdAt: new Date().toISOString(),
+  });
+  assert.equal(await f.store.exists(lockScope), true);
+
+  // The intent is present before recovery.
+  const before = await applyManager(f).status(f.task.id, changeSetId);
+  assert.equal(before.state, "applying_interrupted");
+  assert.notEqual(before.intent, null);
+
+  // A fresh manager whose probe knows the crashed pid is gone.
+  const recovering = applyManager(f, {
+    lock: new RecoverableProcessLock(f.store, {
+      retryCount: 50,
+      retryDelayMs: 1,
+      livenessProbe: { probe: (pid) => (pid === 424242 ? "dead" : "alive") },
+    }),
+  });
+
+  // The MUTEX is reclaimed with no manual deletion...
+  let enteredCriticalSection = false;
+  await recovering.withSourceMutationLock(f.project.id, async () => {
+    enteredCriticalSection = true;
+  });
+  assert.equal(enteredCriticalSection, true, "dead lock must not wedge the subsystem");
+
+  // ...but the DOMAIN state is untouched: the apply intent still stands.
+  const after = await applyManager(f).status(f.task.id, changeSetId);
+  assert.equal(after.state, "applying_interrupted");
+  assert.deepEqual(after.intent, before.intent);
+  assert.equal(after.decision, null);
+
+  // So apply and reject still fail closed until explicit reconciliation.
+  await assert.rejects(
+    () => commandsFor(f, recovering).applyChangeSet(f.sessionId, changeSetId),
+    ChangeSetApplyInterruptedError,
+  );
+  await assert.rejects(
+    () => commandsFor(f, recovering).rejectChangeSet(f.sessionId, changeSetId),
+    ChangeSetApplyInterruptedError,
+  );
+});
+
+test("source-lock recovery does not touch the source workspace or task state", async (t) => {
+  const f = await createFixture(t);
+  const changeSetId = await stageChangeSet(f);
+  const snapshotBefore = await sourceSnapshot(f.sourcePath);
+  const headBefore = git(f.sourcePath, "rev-parse", "HEAD").trim();
+
+  await f.store.createJsonAtomicExclusive(
+    `state/source-locks/${f.project.id}.json`,
+    {
+      version: 1,
+      ownerId: `lock_${"b".repeat(32)}`,
+      pid: 424242,
+      host: hostname(),
+      createdAt: new Date().toISOString(),
+    },
+  );
+  const recovering = applyManager(f, {
+    lock: new RecoverableProcessLock(f.store, {
+      retryCount: 50,
+      retryDelayMs: 1,
+      livenessProbe: { probe: (pid) => (pid === 424242 ? "dead" : "alive") },
+    }),
+  });
+  await recovering.withSourceMutationLock(f.project.id, async () => undefined);
+
+  // Reclaiming a mutex resets nothing.
+  assert.equal(git(f.sourcePath, "rev-parse", "HEAD").trim(), headBefore);
+  assert.equal(git(f.sourcePath, "status", "--porcelain").trim(), "");
+  assert.deepEqual(await sourceSnapshot(f.sourcePath), snapshotBefore);
+  // The change set is still pending and still decidable.
+  assert.equal(
+    (await commandsFor(f, recovering).getChangeSet(f.sessionId, changeSetId)).state,
+    "pending",
+  );
+  // The session still owns the task: no logical session was closed.
+  const binding = await f.sessions.getCurrentBinding(f.sessionId);
+  assert.equal(binding.taskId, f.task.id);
 });
