@@ -689,13 +689,36 @@ test("the source mutation lock serialises two projects sharing one workspace", a
 
 test("source mutation lock contention surfaces its own timeout error", async (t) => {
   const f = await createFixture(t);
-  const manager = applyManager(f);
+  // A bounded retry budget so the contender reaches its timeout in ~50ms of
+  // retries rather than the ~5s default. The default budget made this test
+  // slow enough that runner scheduling under full-suite load, not lock
+  // behaviour, decided the outcome.
+  const manager = applyManager(f, {
+    lock: new RecoverableProcessLock(f.store, {
+      retryCount: 50,
+      retryDelayMs: 1,
+    }),
+  });
+
+  // Two barriers make the ordering explicit instead of racing the scheduler:
+  // `acquired` proves the first holder is genuinely inside the critical
+  // section before the contender starts, and `release` keeps it there until
+  // the assertion is done.
+  let signalAcquired: () => void = () => {};
+  const acquired = new Promise<void>((resolve) => {
+    signalAcquired = resolve;
+  });
   let release: () => void = () => {};
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const holder = manager.withSourceMutationLock(f.project.id, async () => held);
+
+  const holder = manager.withSourceMutationLock(f.project.id, async () => {
+    signalAcquired();
+    return held;
+  });
   try {
+    await acquired;
     await assert.rejects(
       () => manager.withSourceMutationLock(f.project.id, async () => undefined),
       // Distinct from a task-binding timeout: the caller can tell which
@@ -706,6 +729,14 @@ test("source mutation lock contention surfaces its own timeout error", async (t)
     release();
     await holder;
   }
+
+  // The intentionally held lock is released normally, so the resource is free
+  // for any later test rather than leaving a stale artifact behind.
+  let reacquired = false;
+  await manager.withSourceMutationLock(f.project.id, async () => {
+    reacquired = true;
+  });
+  assert.equal(reacquired, true, "the lock must be free after the holder exits");
 });
 
 // ---------------------------------------------------------------------------
