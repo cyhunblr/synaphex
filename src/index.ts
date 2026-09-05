@@ -359,6 +359,61 @@ export {
   type SourceObservation,
 } from "./core/change-set-apply-manager.js";
 export {
+  SUPPORTED_INSTALLATION_TARGETS,
+  SYNAPHEX_MCP_SERVER_REGISTRATION_NAME,
+  formatTarget,
+  isSupportedTarget,
+  launcherArgsFor,
+  type HostAvailability,
+  type InstallationTarget,
+  type SynaphexLauncher,
+} from "./domain/installation.js";
+export { AntigravityMcpRegistrar } from "./installer/antigravity-mcp-registrar.js";
+export { ClaudeMcpRegistrar } from "./installer/claude-mcp-registrar.js";
+export {
+  CodexMcpRegistrar,
+  classifyRegistration,
+} from "./installer/codex-mcp-registrar.js";
+export { createRegistrars } from "./installer/create-registrars.js";
+export { formatPlanConfirmation, formatReport } from "./installer/format-report.js";
+export {
+  InstallationManifestStore,
+  type InstallationManifest,
+  type ManifestEntry,
+} from "./installer/installation-manifest.js";
+export {
+  InstallationPlanner,
+  targetKey,
+  type InstallationPlan,
+  type PlannedAction,
+  type PlannedMutation,
+} from "./installer/installation-planner.js";
+export {
+  InstallerService,
+  type HostOutcome,
+  type HostOutcomeStatus,
+  type InstallationReport,
+} from "./installer/installer-service.js";
+export {
+  SpawnProviderCommandRunner,
+  summarizeFailure,
+  type ProviderCommandInput,
+  type ProviderCommandResult,
+  type ProviderCommandRunner,
+} from "./installer/provider-command-runner.js";
+export type {
+  ProviderMcpRegistrar,
+  RegistrationInspection,
+} from "./installer/provider-mcp-registrar.js";
+export {
+  INSTALLER_MINIMUM_VERSIONS,
+  compareVersions as compareInstallerVersions,
+  meetsMinimum,
+  parseVersion,
+} from "./installer/provider-runtime-versions.js";
+export { SynaphexLauncherResolver } from "./installer/synaphex-launcher-resolver.js";
+export { SynaphexStateInitializer } from "./installer/synaphex-state-initializer.js";
+export {
   RecoverableProcessLock,
   SignalProcessLivenessProbe,
   generateLockOwnerId,

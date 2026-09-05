@@ -62,6 +62,13 @@ export const SYNAPHEX_ERROR_CODES = [
   "CHANGE_SET_APPLY_RECOVERY_REQUIRED",
   "CHANGE_SET_NOT_INTERRUPTED",
   "TASK_HAS_PENDING_CHANGE_SET",
+  "PROVIDER_RUNTIME_NOT_FOUND",
+  "PROVIDER_RUNTIME_VERSION_UNSUPPORTED",
+  "PROVIDER_MCP_REGISTRATION_UNSUPPORTED",
+  "PROVIDER_MCP_REGISTRATION_CONFLICT",
+  "PROVIDER_MCP_REGISTRATION_FAILED",
+  "PROVIDER_MCP_UNREGISTRATION_FAILED",
+  "SYNAPHEX_LAUNCHER_NOT_FOUND",
   "SOURCE_MUTATION_LOCK_TIMEOUT",
   "REVIEW_TARGET_REJECTED",
   "REVIEW_TARGET_APPLY_INTERRUPTED",
@@ -526,6 +533,86 @@ export class ChangeSetApplyRecoveryRequiredError extends SynaphexError<"CHANGE_S
  * distinct code from the plan-draft blocker so a caller knows which explicit
  * decision flow to run.
  */
+// --- Phase 6B1: installer -------------------------------------------------
+//
+// These describe TERMINAL BOOTSTRAP conditions and are deliberately separate
+// from agent-execution errors: a host that cannot be registered is not a
+// provider execution failure.
+
+export class ProviderRuntimeNotFoundError extends SynaphexError<"PROVIDER_RUNTIME_NOT_FOUND"> {
+  constructor(target: string) {
+    super(
+      "PROVIDER_RUNTIME_NOT_FOUND",
+      `No installed runtime was found for ${target}. Synaphex does not install provider software.`,
+      { target },
+    );
+  }
+}
+
+export class ProviderRuntimeVersionUnsupportedError extends SynaphexError<"PROVIDER_RUNTIME_VERSION_UNSUPPORTED"> {
+  constructor(target: string, version: string, minimum: string) {
+    super(
+      "PROVIDER_RUNTIME_VERSION_UNSUPPORTED",
+      `${target} runtime ${version} is older than the required ${minimum}.`,
+      { target, version, minimum },
+    );
+  }
+}
+
+export class ProviderMcpRegistrationUnsupportedError extends SynaphexError<"PROVIDER_MCP_REGISTRATION_UNSUPPORTED"> {
+  constructor(target: string, reason: string) {
+    super(
+      "PROVIDER_MCP_REGISTRATION_UNSUPPORTED",
+      `${target} has no safe MCP registration mechanism: ${reason}`,
+      { target, reason },
+    );
+  }
+}
+
+/**
+ * An MCP entry with the Synaphex name exists but is not provably
+ * Synaphex-managed. It is never overwritten or deleted.
+ */
+export class ProviderMcpRegistrationConflictError extends SynaphexError<"PROVIDER_MCP_REGISTRATION_CONFLICT"> {
+  constructor(target: string, registrationName: string) {
+    super(
+      "PROVIDER_MCP_REGISTRATION_CONFLICT",
+      `${target} already has an MCP server named "${registrationName}" that Synaphex does not own; it was left untouched.`,
+      { target, registrationName },
+    );
+  }
+}
+
+export class ProviderMcpRegistrationFailedError extends SynaphexError<"PROVIDER_MCP_REGISTRATION_FAILED"> {
+  constructor(target: string, detail: string) {
+    super(
+      "PROVIDER_MCP_REGISTRATION_FAILED",
+      `Registering Synaphex with ${target} failed: ${detail}`,
+      { target, detail },
+    );
+  }
+}
+
+export class ProviderMcpUnregistrationFailedError extends SynaphexError<"PROVIDER_MCP_UNREGISTRATION_FAILED"> {
+  constructor(target: string, detail: string) {
+    super(
+      "PROVIDER_MCP_UNREGISTRATION_FAILED",
+      `Removing the Synaphex registration from ${target} failed: ${detail}`,
+      { target, detail },
+    );
+  }
+}
+
+export class SynaphexLauncherNotFoundError extends SynaphexError<"SYNAPHEX_LAUNCHER_NOT_FOUND"> {
+  constructor(detail: string) {
+    super(
+      "SYNAPHEX_LAUNCHER_NOT_FOUND",
+      `The Synaphex MCP launcher could not be resolved: ${detail}`,
+      { detail },
+    );
+  }
+}
+
 export class TaskHasPendingChangeSetError extends SynaphexError<"TASK_HAS_PENDING_CHANGE_SET"> {
   constructor(taskId: TaskId, changeSetId: string, state: string) {
     super(
