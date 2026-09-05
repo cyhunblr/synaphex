@@ -184,6 +184,10 @@ try {
     "package/dist/installer/cli-main.js",
     "package/dist/mcp/stdio-main.js",
     "package/dist/index.js",
+    // The configure GUI must ship pre-built: `synaphex configure` has to work
+    // from a plain global install, with no checkout and no dev server.
+    "package/dist/configure/configure-command.js",
+    "package/dist/configure/web/index.html",
     "package/package.json",
     // npm includes a root LICENSE regardless of the `files` allowlist, but the
     // declared SPDX identifier is only substantiated if it actually ships.
@@ -191,7 +195,13 @@ try {
   ]) {
     check(`contains ${required}`, listing.includes(required));
   }
-  for (const unwanted of ["package/src/", "package/test/", "package/.test-dist/"]) {
+  for (const unwanted of [
+    "package/src/",
+    "package/test/",
+    "package/.test-dist/",
+    // Frontend source stays out; only the built bundle ships.
+    "package/web/",
+  ]) {
     check(
       `excludes ${unwanted}`,
       !listing.some((entry) => entry.startsWith(unwanted)),
@@ -519,6 +529,61 @@ try {
     "uninstall removed the Synaphex registration",
     readServers(providerHome, "claude").synaphex === undefined,
   );
+
+  // --- 10. Configure GUI from the installed package -------------------------
+  //
+  // Proves `synaphex configure` serves its pre-built UI and read-only API from
+  // a plain global install. No browser is launched (--no-open) and no agent is
+  // invoked; this is a packaging and boundary check.
+  section("configure GUI");
+  const configureHome = providerHome;
+  const configure = spawn(synaphexBin, ["configure", "--no-open"], {
+    env: { ...productEnv, HOME: configureHome },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    const url = await new Promise((resolvePromise, rejectPromise) => {
+      let buffered = "";
+      const timer = setTimeout(
+        () => rejectPromise(new Error("configure did not print a URL")),
+        20_000,
+      );
+      configure.stdout.on("data", (chunk) => {
+        buffered += chunk.toString("utf8");
+        const found = /http:\/\/127\.0\.0\.1:\d+/.exec(buffered);
+        if (found !== null) {
+          clearTimeout(timer);
+          resolvePromise(found[0]);
+        }
+      });
+      configure.once("error", rejectPromise);
+    });
+    check("configure printed a loopback URL", url.startsWith("http://127.0.0.1:"));
+
+    const page = await fetch(url);
+    const html = await page.text();
+    check("configure serves the built UI", page.status === 200);
+    check(
+      "configure UI ships its bundle",
+      /\/assets\/[A-Za-z0-9._-]+\.js/.test(html),
+    );
+    check(
+      "configure injected a session token",
+      !html.includes("__SYNAPHEX_CONFIGURE_TOKEN__"),
+    );
+
+    const token = /content="([a-f0-9]{64})"/.exec(html)?.[1] ?? "";
+    const status = await fetch(`${url}/api/status`, {
+      headers: { "x-synaphex-configure-token": token, origin: url },
+    });
+    const payload = await status.json();
+    check("configure API reports six agents", payload.agents === 6);
+
+    const unauthorized = await fetch(`${url}/api/status`);
+    check("configure API refuses an untokened request", unauthorized.status === 401);
+  } finally {
+    configure.kill("SIGTERM");
+  }
 
   section(`\n${checks - failures}/${checks} checks passed`);
   exitCode = failures === 0 ? 0 : 1;
