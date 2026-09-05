@@ -631,3 +631,86 @@ test("real registrars are constructed for every supported target", () => {
     assert.equal(registrars.get(targetKey(target))?.target.surface, target.surface);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Regressions found during real-machine validation (Phase 6B2)
+// ---------------------------------------------------------------------------
+
+test("an empty provider config file means absent, not unverifiable", async (t) => {
+  // Found on a real machine: agy had left a ZERO-BYTE mcp_config.json behind.
+  // Treating that as "could not verify" made the registrar fail closed and
+  // wedged installation on a perfectly ordinary state.
+  const home = await temporaryHome(t);
+  for (const [file, registrar] of [
+    [
+      join(home, ".claude.json"),
+      new ClaudeMcpRegistrar(ANTHROPIC_CLI, new FakeRunner()),
+    ],
+    [
+      join(home, ".gemini", "config", "mcp_config.json"),
+      new AntigravityMcpRegistrar(GOOGLE_CLI, new FakeRunner()),
+    ],
+  ] as const) {
+    await mkdir(join(file, ".."), { recursive: true });
+    await writeFile(file, "", "utf8");
+    assert.deepEqual(
+      await registrar.inspect(LAUNCHER, home),
+      { state: "absent" },
+      `${file} should read as absent`,
+    );
+    // Whitespace-only behaves the same way.
+    await writeFile(file, "\n  \n", "utf8");
+    assert.deepEqual(await registrar.inspect(LAUNCHER, home), { state: "absent" });
+    // Genuinely malformed content still fails closed.
+    await writeFile(file, "{ this is not json", "utf8");
+    assert.equal((await registrar.inspect(LAUNCHER, home)).state, "unknown");
+  }
+});
+
+test("the CLI entrypoint guard survives npm's bin symlink", async () => {
+  // Found on a real machine: npm installs `synaphex` as a symlink to
+  // cli-main.js, so process.argv[1] is the SYMLINK path. A guard matching
+  // `endsWith("cli-main.js")` never fired and the command exited 0 printing
+  // nothing at all.
+  const source = await readFile(
+    join(process.cwd(), "src/installer/cli-main.ts"),
+    "utf8",
+  );
+  const code = source
+    .replaceAll(/\/\*[\s\S]*?\*\//g, "")
+    .replaceAll(/\/\/.*$/gm, "");
+  assert.equal(
+    code.includes('endsWith("cli-main.js")'),
+    false,
+    "entrypoint detection must not match on a filename suffix",
+  );
+  // It must compare resolved paths instead.
+  assert.match(code, /realpathSync/);
+  assert.match(code, /fileURLToPath\(import\.meta\.url\)/);
+});
+
+test("the installer asks every provider through one prompt channel", async () => {
+  // Found on a real machine: opening a second readline interface on stdin --
+  // and even a third sequential `question()` on ONE interface -- stalls on
+  // Node 22, so the Google prompt never appeared. The line-iterator pattern is
+  // what actually works, on both a pipe and a PTY.
+  const source = await readFile(
+    join(process.cwd(), "src/installer/cli-main.ts"),
+    "utf8",
+  );
+  const code = source
+    .replaceAll(/\/\*[\s\S]*?\*\//g, "")
+    .replaceAll(/\/\/.*$/gm, "");
+  // Exactly one interface is constructed for the whole interaction.
+  assert.equal(
+    (code.match(/createInterface\(/g) ?? []).length,
+    1,
+    "a second readline interface on stdin stalls the prompt sequence",
+  );
+  assert.equal(
+    code.includes("rl.question("),
+    false,
+    "sequential rl.question() calls stall after the second prompt",
+  );
+  assert.match(code, /Symbol\.asyncIterator/);
+});

@@ -94,6 +94,12 @@ export class AntigravityMcpRegistrar implements ProviderMcpRegistrar {
     } catch {
       return { state: "absent" };
     }
+    if (raw.trim().length === 0) {
+      // A provider may leave an empty config file behind; that means "no
+      // servers configured", not "corrupt". Treating it as unverifiable would
+      // wedge installation on a perfectly ordinary state.
+      return { state: "absent" };
+    }
     let config: unknown;
     try {
       config = JSON.parse(raw);
