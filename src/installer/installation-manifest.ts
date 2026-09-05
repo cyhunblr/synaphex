@@ -5,7 +5,11 @@ const MANIFEST_PATH = "state/installation.json";
 
 export interface ManifestEntry {
   readonly provider: InstallationTarget["provider"];
-  readonly surface: InstallationTarget["surface"];
+  /**
+   * Present only on records written before host identity became
+   * provider-only. Kept readable for migration; never authority.
+   */
+  readonly surface?: string;
   readonly registrationName: string;
   /** The launcher argv that was registered, for drift diagnostics only. */
   readonly launcherCommand: string;
@@ -50,7 +54,7 @@ export class InstallationManifestStore {
     const existing = await this.read();
     const merged = new Map<string, ManifestEntry>();
     for (const entry of [...existing.entries, ...entries]) {
-      merged.set(`${entry.provider}/${entry.surface}`, entry);
+      merged.set(entry.provider, entry);
     }
     await this.stateStore.writeJson(MANIFEST_PATH, {
       version: 1,
@@ -59,12 +63,12 @@ export class InstallationManifestStore {
   }
 
   async forget(targets: readonly InstallationTarget[]): Promise<void> {
-    const removed = new Set(targets.map((t) => `${t.provider}/${t.surface}`));
+    const removed = new Set(targets.map((t) => t.provider));
     const existing = await this.read();
     await this.stateStore.writeJson(MANIFEST_PATH, {
       version: 1,
       entries: existing.entries.filter(
-        (entry) => !removed.has(`${entry.provider}/${entry.surface}`),
+        (entry) => !removed.has(entry.provider),
       ),
     } satisfies InstallationManifest);
   }

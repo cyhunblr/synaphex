@@ -324,7 +324,7 @@ test("an undecided change set blocks completion; a decided one does not", async 
   const invoked = await service(f, executor).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Do it.",
   });
   const changeSetId = (
@@ -365,7 +365,7 @@ test("an interrupted apply blocks completion", async (t) => {
   const invoked = await service(f, executor).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Do it.",
   });
   const changeSetId = (
@@ -405,7 +405,7 @@ test("a CODER record with no change set does not block completion", async (t) =>
   await service(f, executor).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Do nothing.",
   });
   const records = await f.artifacts.listCoderWorkRecords({
@@ -433,7 +433,7 @@ test("CODER cannot publish a change set after the task is completed", async (t) 
   const invocation = service(f, executor).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Do it.",
   });
   // Barrier: the provider is inside, having already edited staging.
@@ -471,7 +471,7 @@ test("PLANNER cannot persist a draft after the task is completed", async (t) => 
   const invocation = service(f, executor).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "planner",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Plan it.",
   });
   await executor.entered;
@@ -488,7 +488,7 @@ test("QUESTIONER cannot mutate context after the task is completed", async (t) =
   const invocation = service(f, executor).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "questioner",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Ask.",
   });
   await executor.entered;
@@ -507,7 +507,7 @@ test("a role legal on a completed task still commits after completion", async (t
   const invocation = service(f, executor).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Research it.",
   });
   await executor.entered;
@@ -533,7 +533,7 @@ test("archive is terminal, releases the task session, and preserves history", as
   const invoked = await service(f, executor).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Do it.",
   });
   const changeSetId = (
@@ -628,7 +628,7 @@ test("archive invalidates a completed-bound invocation still in flight", async (
   const invocation = service(f, executor).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Research it.",
   });
   await executor.entered;
@@ -748,7 +748,7 @@ test("a continuation issued before completion cannot resurrect authority", async
   const invocations = service(f, executor);
   const store = new InvocationContinuationStore({});
   const continuations = new InvocationContinuationCommands({
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     invocations,
     store,
     roleContracts: new RoleContractRegistry(),
@@ -757,7 +757,7 @@ test("a continuation issued before completion cannot resurrect authority", async
   const planned = await invocations.invokeUserAgent({
     sessionId: f.sessionId,
     agent: "planner",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Plan it.",
   });
   const continuationId = continuations.issueFor(f.sessionId, planned as never);

@@ -5,7 +5,7 @@ import type {
   HelperExecutionResult,
 } from "../domain/agent-invocation.js";
 import { UnsupportedAgentInvocationError } from "../domain/errors.js";
-import type { HostRuntime } from "../domain/provider-routing.js";
+import type { McpHostContext } from "../domain/provider-routing.js";
 import type { SessionId } from "../domain/session.js";
 import { isMcpContinuationHelperAgent } from "./direct-agent-invocation.js";
 import {
@@ -70,7 +70,7 @@ export interface InvocationContinuationPort {
 
 export interface InvocationContinuationDependencies {
   /** Immutable, process-bound host identity. Never supplied per request. */
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
   readonly invocations: Pick<
     AgentInvocationService,
     | "executeHelper"

@@ -23,7 +23,10 @@ import type {
   ProviderCommandRunner,
 } from "../src/installer/provider-command-runner.js";
 import { SpawnProviderCommandRunner } from "../src/installer/provider-command-runner.js";
-import { ProviderMcpUnregistrationFailedError } from "../src/domain/errors.js";
+import {
+  ProviderMcpRegistrationFailedError,
+  ProviderMcpUnregistrationFailedError,
+} from "../src/domain/errors.js";
 import type { ProviderMcpRegistrar } from "../src/installer/provider-mcp-registrar.js";
 
 const LAUNCHER: SynaphexLauncher = {
@@ -31,9 +34,9 @@ const LAUNCHER: SynaphexLauncher = {
   args: ["/opt/pkg/synaphex/dist/mcp/stdio-main.js"],
 };
 
-const OPENAI_CLI: InstallationTarget = { provider: "openai", surface: "cli" };
-const ANTHROPIC_CLI: InstallationTarget = { provider: "anthropic", surface: "cli" };
-const GOOGLE_CLI: InstallationTarget = { provider: "google", surface: "cli" };
+const OPENAI_CLI: InstallationTarget = { provider: "openai" };
+const ANTHROPIC_CLI: InstallationTarget = { provider: "anthropic" };
+const GOOGLE_CLI: InstallationTarget = { provider: "google" };
 
 /**
  * A scripted provider runtime. Records every command so tests can prove that
@@ -161,92 +164,32 @@ function codexRegistrar(runner: FakeRunner): CodexMcpRegistrar {
 // Host matrix
 // ---------------------------------------------------------------------------
 
-test("the supported host matrix is CLI-only, as the audit established", () => {
+test("the supported host matrix is provider-only", () => {
   assert.deepEqual(
-    SUPPORTED_INSTALLATION_TARGETS.map((t) => `${t.provider}/${t.surface}`).sort(),
-    ["anthropic/cli", "google/cli", "openai/cli"],
+    SUPPORTED_INSTALLATION_TARGETS.map((t) => t.provider).sort(),
+    ["anthropic", "google", "openai"],
   );
-  // No VS Code surface can be truthfully encoded: each provider shares ONE MCP
-  // registration between its CLI and its extension, with no per-surface scope,
-  // and both surfaces present the same MCP clientInfo (ADR 0007).
-  for (const provider of ["openai", "anthropic", "google"] as const) {
-    assert.equal(
-      isSupportedTarget({ provider, surface: "vscode" }),
-      false,
-      `${provider}/vscode must not be claimed as supported`,
-    );
+  // No surface dimension exists at all: a provider's CLI and its VS Code
+  // extension share ONE MCP registration, so offering them separately would
+  // offer a distinction the installer cannot deliver (ADR 0009).
+  for (const target of SUPPORTED_INSTALLATION_TARGETS) {
+    assert.equal(Object.hasOwn(target, "surface"), false);
   }
+  assert.equal(isSupportedTarget({ provider: "openai" }), true);
+  assert.equal(
+    isSupportedTarget({ provider: "acme" as never }),
+    false,
+    "an unknown provider is not a supported host",
+  );
 });
 
-test("the installer cannot register a VS Code host context anywhere", async () => {
-  // Structural, not conventional: no registrar exists for any vscode target,
-  // so there is no code path that could write one.
+test("no registrar asserts a host surface", async () => {
+  // Structural: registrars are keyed by provider alone, so no code path can
+  // write a surface-asserting registration.
   const registrars = createRegistrars(new SpawnProviderCommandRunner());
-  for (const provider of ["openai", "anthropic", "google"] as const) {
-    assert.equal(registrars.get(`${provider}/vscode`), undefined);
-  }
-  // And every registrar that does exist carries a cli surface.
+  assert.deepEqual([...registrars.keys()].sort(), ["anthropic", "google", "openai"]);
   for (const registrar of registrars.values()) {
-    assert.equal(registrar.target.surface, "cli");
-  }
-});
-
-test("a VS Code selection is reported unsupported with the audited reason", async () => {
-  const runner = new FakeRunner();
-  const planner = plannerWith([[OPENAI_CLI, codexRegistrar(runner)]]);
-  const plan = await planner.planInstall(
-    [{ provider: "openai", surface: "vscode" }],
-    LAUNCHER,
-  );
-  assert.deepEqual(plan.mutations, []);
-  assert.equal(plan.skipped.length, 1);
-  assert.match(plan.skipped[0]!.reason, /shares one MCP registration/);
-  // Nothing was touched.
-  assert.equal(runner.entries().size, 0);
-});
-
-test("the MCP server refuses to start with a VS Code host context", async () => {
-  const { parseHostContextArguments } = await import(
-    "../src/mcp/mcp-host-context.js"
-  );
-  for (const provider of ["openai", "anthropic", "google"] as const) {
-    assert.throws(
-      () =>
-        parseHostContextArguments([
-          "--host-provider",
-          provider,
-          "--host-surface",
-          "vscode",
-        ]),
-      /unsupported host combination/,
-      `${provider}/vscode must fail closed`,
-    );
-  }
-  // CLI surfaces still start.
-  for (const provider of ["openai", "anthropic", "google"] as const) {
-    assert.deepEqual(
-      parseHostContextArguments([
-        "--host-provider",
-        provider,
-        "--host-surface",
-        "cli",
-      ]),
-      { provider, surface: "cli" },
-    );
-  }
-});
-
-test("no Gemini runtime appears anywhere in the installer", async () => {
-  const { readdir } = await import("node:fs/promises");
-  const directory = join(process.cwd(), "src", "installer");
-  for (const name of (await readdir(directory)).filter((n) => n.endsWith(".ts"))) {
-    const source = await readFile(join(directory, name), "utf8");
-    const code = source
-      .replaceAll(/\/\*[\s\S]*?\*\//g, "")
-      .replaceAll(/\/\/.*$/gm, "");
-    for (const forbidden of ['"gemini"', '"gemini-cli"', "geminiCli"]) {
-      assert.equal(code.includes(forbidden), false, `${name} references ${forbidden}`);
-    }
+    assert.equal(Object.hasOwn(registrar.target, "surface"), false);
   }
 });
 
@@ -256,8 +199,6 @@ test("launcher argv carries exactly the immutable host context", () => {
       "/pkg/dist/mcp/stdio-main.js",
       "--host-provider",
       target.provider,
-      "--host-surface",
-      target.surface,
     ]);
   }
 });
@@ -271,13 +212,9 @@ test("registration writes the absolute launcher and host context", async () => {
   await codexRegistrar(runner).register(LAUNCHER);
   const entry = runner.entries().get(SYNAPHEX_MCP_SERVER_REGISTRATION_NAME);
   assert.equal(entry?.command, LAUNCHER.command);
-  assert.deepEqual(entry?.args, [
-    LAUNCHER.args[0],
-    "--host-provider",
-    "openai",
-    "--host-surface",
-    "cli",
-  ]);
+  assert.deepEqual(entry?.args, [LAUNCHER.args[0], "--host-provider", "openai"]);
+  // No surface is asserted anywhere in the registration.
+  assert.equal(entry?.args.includes("--host-surface"), false);
   // Never a bare `node` or a PATH-relative command.
   assert.equal(entry!.command.startsWith("/"), true);
   assert.equal(entry!.args[0]!.startsWith("/"), true);
@@ -333,17 +270,50 @@ test("a foreign server with the Synaphex name is never overwritten", async () =>
   });
 });
 
-test("a registration whose host context drifted is not treated as current", async () => {
-  const runner = new FakeRunner();
-  // Right entrypoint, WRONG surface: must refresh rather than silently accept.
-  runner.seed(SYNAPHEX_MCP_SERVER_REGISTRATION_NAME, LAUNCHER.command, [
+test("our own legacy surface-asserting registration migrates, a foreign one does not", async () => {
+  // The exact shape Synaphex used to write is recognised so reinstall can
+  // MIGRATE it rather than mistaking it for someone else's server.
+  const legacy = new FakeRunner();
+  legacy.seed(SYNAPHEX_MCP_SERVER_REGISTRATION_NAME, LAUNCHER.command, [
+    LAUNCHER.args[0]!,
+    "--host-provider",
+    "openai",
+    "--host-surface",
+    "cli",
+  ]);
+  assert.equal((await codexRegistrar(legacy).inspect(LAUNCHER)).state, "outdated");
+  await codexRegistrar(legacy).register(LAUNCHER);
+  assert.deepEqual(
+    legacy.entries().get(SYNAPHEX_MCP_SERVER_REGISTRATION_NAME)?.args,
+    [LAUNCHER.args[0], "--host-provider", "openai"],
+  );
+
+  // A `vscode` assertion is a shape Synaphex NEVER wrote, so it is foreign and
+  // must not be overwritten merely because the server name matches.
+  const foreign = new FakeRunner();
+  foreign.seed(SYNAPHEX_MCP_SERVER_REGISTRATION_NAME, LAUNCHER.command, [
     LAUNCHER.args[0]!,
     "--host-provider",
     "openai",
     "--host-surface",
     "vscode",
   ]);
-  assert.equal((await codexRegistrar(runner).inspect(LAUNCHER)).state, "outdated");
+  assert.equal((await codexRegistrar(foreign).inspect(LAUNCHER)).state, "foreign");
+  await assert.rejects(
+    () => codexRegistrar(foreign).register(LAUNCHER),
+    (error: unknown) => {
+      assert.equal(
+        (error as { code: string }).code,
+        "PROVIDER_MCP_REGISTRATION_CONFLICT",
+      );
+      return true;
+    },
+  );
+  assert.deepEqual(
+    foreign.entries().get(SYNAPHEX_MCP_SERVER_REGISTRATION_NAME)?.args?.slice(-2),
+    ["--host-surface", "vscode"],
+    "the foreign entry must be left untouched",
+  );
 });
 
 test("version below the installer minimum is reported, not registered", async () => {
@@ -382,14 +352,14 @@ test("planning performs no mutation", async () => {
   assert.equal(runner.calls.some((c) => c.args[1] === "add"), false);
 });
 
-test("an unsupported provider/surface combination is refused by the plan", async () => {
+test("an unsupported provider is refused by the plan", async () => {
   const plan = await plannerWith([]).planInstall(
-    [{ provider: "google", surface: "vscode" }],
+    [{ provider: "acme" as never }],
     LAUNCHER,
   );
   assert.deepEqual(plan.mutations, []);
   assert.equal(plan.skipped.length, 1);
-  assert.match(plan.skipped[0]!.reason, /shares one MCP registration/);
+  assert.match(plan.skipped[0]!.reason, /not supported/);
 });
 
 // ---------------------------------------------------------------------------
@@ -407,26 +377,34 @@ function serviceWith(
 }
 
 test("one host failing does not roll back or abort another", async (t) => {
+  // Registrations are independent: a failure on one host must neither abort
+  // the run nor undo a host that already succeeded.
   const home = await temporaryHome(t);
   const okRunner = new FakeRunner();
-  const badRunner = new FakeRunner();
-  badRunner.failRegistration = true;
+  const failing: ProviderMcpRegistrar = {
+    target: ANTHROPIC_CLI,
+    async detect() {
+      return { state: "available", version: "9.9.9" };
+    },
+    async inspect() {
+      return { state: "absent" };
+    },
+    async register() {
+      throw new ProviderMcpRegistrationFailedError("Anthropic", "provider refused");
+    },
+    async unregister() {},
+  };
   const service = serviceWith([
     [OPENAI_CLI, codexRegistrar(okRunner)],
-    [ANTHROPIC_CLI, new ClaudeMcpRegistrar(ANTHROPIC_CLI, badRunner)],
+    [ANTHROPIC_CLI, failing],
   ]);
   const plan = await service.plan([OPENAI_CLI, ANTHROPIC_CLI], LAUNCHER, home);
   const report = await service.apply(plan, LAUNCHER, home);
 
-  const byTarget = new Map(
-    report.outcomes.map((o) => [`${o.target.provider}/${o.target.surface}`, o]),
-  );
-  assert.equal(byTarget.get("openai/cli")?.status, "configured");
-  assert.equal(byTarget.get("anthropic/cli")?.status, "failed");
-  assert.equal(
-    byTarget.get("anthropic/cli")?.code,
-    "PROVIDER_MCP_REGISTRATION_FAILED",
-  );
+  const byTarget = new Map(report.outcomes.map((o) => [o.target.provider, o]));
+  assert.equal(byTarget.get("openai")?.status, "configured");
+  assert.equal(byTarget.get("anthropic")?.status, "failed");
+  assert.equal(byTarget.get("anthropic")?.code, "PROVIDER_MCP_REGISTRATION_FAILED");
   // The successful registration survives.
   assert.equal(okRunner.entries().size, 1);
 });
@@ -494,12 +472,12 @@ test("uninstall continues after an individual cleanup failure", async (t) => {
     okHome,
   );
   const byTarget = new Map(
-    report.outcomes.map((o) => [`${o.target.provider}/${o.target.surface}`, o.status]),
+    report.outcomes.map((o) => [o.target.provider, o.status]),
   );
   // The failure of one host neither aborts nor alters the others.
-  assert.equal(byTarget.get("openai/cli"), "removed");
-  assert.equal(byTarget.get("anthropic/cli"), "failed");
-  assert.equal(byTarget.get("google/cli"), "not_configured");
+  assert.equal(byTarget.get("openai"), "removed");
+  assert.equal(byTarget.get("anthropic"), "failed");
+  assert.equal(byTarget.get("google"), "not_configured");
   assert.equal(
     report.outcomes.find((o) => o.target.provider === "anthropic")?.code,
     "PROVIDER_MCP_UNREGISTRATION_FAILED",
@@ -628,7 +606,7 @@ test("real registrars are constructed for every supported target", () => {
   const registrars = createRegistrars(new SpawnProviderCommandRunner());
   assert.equal(registrars.size, SUPPORTED_INSTALLATION_TARGETS.length);
   for (const target of SUPPORTED_INSTALLATION_TARGETS) {
-    assert.equal(registrars.get(targetKey(target))?.target.surface, target.surface);
+    assert.equal(registrars.get(targetKey(target))?.target.provider, target.provider);
   }
 });
 

@@ -345,7 +345,8 @@ const invokeAgentOutputSchema = z.object({
     effectiveSurface: z.string(),
     routingReason: z.string(),
     model: z.string(),
-    host: z.object({ provider: z.string(), surface: z.string() }),
+    // Provider identity only: the host's UI origin is not observable.
+    host: z.object({ provider: z.string() }),
   }),
   executionPolicy: z.object({
     sourceModification: z.string(),
@@ -1697,10 +1698,8 @@ function presentInvocationResult(
       effectiveSurface: result.route.effectiveSurface,
       routingReason: result.route.routingReason,
       model: result.route.model,
-      host: {
-        provider: result.route.host.provider,
-        surface: result.route.host.surface,
-      },
+      // Provider identity only: the host's UI origin is not observable.
+      host: { provider: result.route.host.provider },
     },
     executionPolicy: {
       sourceModification: result.executionPolicy.sourceModification,

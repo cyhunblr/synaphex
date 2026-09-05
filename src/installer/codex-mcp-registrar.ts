@@ -7,6 +7,7 @@ import {
   SYNAPHEX_MCP_SERVER_REGISTRATION_NAME,
   formatTarget,
   launcherArgsFor,
+  legacyLauncherArgsFor,
   type HostAvailability,
   type InstallationTarget,
   type SynaphexLauncher,
@@ -185,14 +186,43 @@ export function classifyRegistration(
       detail: "the registered command is not a Synaphex MCP entrypoint",
     };
   }
-  const expected = [launcher.command, ...launcherArgsFor(launcher.args[0]!, target)];
   const actual = [command, ...argv];
-  if (expected.length === actual.length && expected.every((v, i) => v === actual[i])) {
+  const matches = (expected: readonly string[]) =>
+    expected.length === actual.length && expected.every((v, i) => v === actual[i]);
+
+  if (matches([launcher.command, ...launcherArgsFor(launcher.args[0]!, target)])) {
     return { state: "current" };
   }
+  // Our OWN previous registration, which asserted `--host-surface cli`.
+  // Recognised so reinstall migrates it rather than mistaking it for a foreign
+  // server. Only this EXACT legacy shape qualifies.
+  if (matches([launcher.command, ...legacyLauncherArgsFor(launcher.args[0]!, target)])) {
+    return {
+      state: "outdated",
+      detail: "legacy registration asserts a host surface; refresh to provider-only",
+    };
+  }
+  // A Synaphex entrypoint at a DIFFERENT path but with our exact managed
+  // argument shape is still ours -- that is an ordinary upgrade or a package
+  // move, and refusing it would strand users on a stale launcher.
+  const managedTail = (expected: readonly string[]) =>
+    argv.length === expected.length &&
+    argv.slice(1).every((value, index) => value === expected[index + 1]);
+  if (
+    managedTail(launcherArgsFor(entrypoint, target)) ||
+    managedTail(legacyLauncherArgsFor(entrypoint, target))
+  ) {
+    return {
+      state: "outdated",
+      detail: "the registered launcher points at a different Synaphex installation",
+    };
+  }
+  // Anything else -- a different provider, a `vscode` assertion Synaphex never
+  // wrote, extra flags -- is NOT provably ours. It is left untouched rather
+  // than overwritten merely because the server name matches.
   return {
-    state: "outdated",
-    detail: "the registered launcher does not match this installation",
+    state: "foreign",
+    detail: "the registered launcher is not a Synaphex-managed argument shape",
   };
 }
 

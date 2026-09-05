@@ -7,7 +7,7 @@ import type {
   HelperExecutionResult,
 } from "../src/domain/agent-invocation.js";
 import { UnsupportedAgentInvocationError } from "../src/domain/errors.js";
-import type { HostRuntime } from "../src/domain/provider-routing.js";
+import type { McpHostContext } from "../src/domain/provider-routing.js";
 import { RoleContractRegistry } from "../src/core/role-contract-registry.js";
 import { InvocationContinuationCommands } from "../src/operations/invocation-continuation-commands.js";
 import {
@@ -17,8 +17,8 @@ import {
   InvocationContinuationStore,
 } from "../src/operations/invocation-continuation-store.js";
 
-const HOST: HostRuntime = { provider: "anthropic", surface: "vscode" };
-const OTHER_HOST: HostRuntime = { provider: "openai", surface: "cli" };
+const HOST: McpHostContext = { provider: "anthropic" };
+const OTHER_HOST: McpHostContext = { provider: "openai" };
 const SESSION = "ses_00000000000000000000000000000001";
 
 function helperClassification(
@@ -127,7 +127,7 @@ function invocationResult(
 interface Recorded {
   readonly api: string;
   readonly approvalGranted?: boolean;
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
 }
 
 class FakeInvocations {
@@ -138,7 +138,7 @@ class FakeInvocations {
   allowedResult: AnyAgentInvocationResult | null = null;
 
   async resumeCallerWithAllowedAction(request: {
-    host: HostRuntime;
+    host: McpHostContext;
   }): Promise<AnyAgentInvocationResult> {
     this.calls.push({
       api: "resumeCallerWithAllowedAction",
@@ -151,7 +151,7 @@ class FakeInvocations {
   }
 
   async executeHelper(request: {
-    host: HostRuntime;
+    host: McpHostContext;
     approvalGranted?: boolean;
   }): Promise<HelperExecutionResult> {
     this.calls.push({
@@ -173,7 +173,7 @@ class FakeInvocations {
   }
 
   async resumeCaller(request: {
-    host: HostRuntime;
+    host: McpHostContext;
   }): Promise<AnyAgentInvocationResult> {
     this.calls.push({ api: "resumeCaller", host: request.host });
     if (this.resumeFails) {
@@ -183,7 +183,7 @@ class FakeInvocations {
   }
 
   async resumeCallerWithActionApproval(request: {
-    host: HostRuntime;
+    host: McpHostContext;
     approvalGranted: boolean;
   }): Promise<AnyAgentInvocationResult> {
     this.calls.push({
@@ -501,7 +501,7 @@ test("a resumed invocation with new actionable requests gets a NEW handle", asyn
     invocation: invocationResult([helperClassification("allowed")]),
   })!;
   await h.commands.executeAllowedHelper(record.id, 0);
-  h.invocations.resumeCaller = async (request: { host: HostRuntime }) => {
+  h.invocations.resumeCaller = async (request: { host: McpHostContext }) => {
     h.invocations.calls.push({ api: "resumeCaller", host: request.host });
     return invocationResult([helperClassification("allowed")]);
   };

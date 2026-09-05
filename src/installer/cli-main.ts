@@ -115,7 +115,6 @@ export async function main(argv: readonly string[]): Promise<number> {
       )
       .map((outcome) => ({
         provider: outcome.target.provider,
-        surface: outcome.target.surface,
         registrationName: "synaphex",
         launcherCommand: launcher.command,
         launcherArgs: [...launcher.args],
@@ -129,54 +128,25 @@ export async function main(argv: readonly string[]): Promise<number> {
 }
 
 /**
- * Providers first, then only the surfaces that provider actually supports.
+ * One question per provider runtime.
  *
- * Every supported target is currently a CLI surface, so the surface question
- * never appears. The TUI derives its options from
- * SUPPORTED_INSTALLATION_TARGETS rather than a hardcoded list, so it cannot
- * offer a VS Code surface Synaphex is unable to encode (ADR 0007).
+ * There is no surface question, because a provider's CLI and its VS Code
+ * extension share one MCP registration -- offering them separately would offer
+ * a distinction the installer cannot deliver (ADR 0009).
  */
 async function promptForSelection(
   ask: (question: string) => Promise<string>,
 ): Promise<readonly InstallationTarget[]> {
-  {
-    const selected: InstallationTarget[] = [];
-    for (const provider of ["openai", "anthropic", "google"] as const) {
-      const surfaces = SUPPORTED_INSTALLATION_TARGETS.filter(
-        (target) => target.provider === provider,
-      );
-      const label = formatTarget(surfaces[0]!).split(" ")[0]!;
-      const wanted = await ask(`Configure ${label}? [y/N] `);
-      if (!isYes(wanted)) {
-        continue;
-      }
-      if (surfaces.length === 1) {
-        selected.push(surfaces[0]!);
-        continue;
-      }
-      for (const surface of surfaces) {
-        const answer = await ask(`  ${formatTarget(surface)}? [y/N] `);
-        if (isYes(answer)) {
-          selected.push(surface);
-        }
-      }
+  const selected: InstallationTarget[] = [];
+  for (const target of SUPPORTED_INSTALLATION_TARGETS) {
+    const answer = await ask(`Configure ${formatTarget(target)}? [y/N] `);
+    if (isYes(answer)) {
+      selected.push(target);
     }
-    return selected;
   }
+  return selected;
 }
 
-/**
- * One prompt channel for the WHOLE interaction.
- *
- * Uses readline's async line iterator rather than `rl.question()`. On Node 22
- * a sequence of `question()` calls stalls after the second prompt -- verified
- * outside Synaphex with both `node:readline` and `node:readline/promises`, on
- * a pipe and on a PTY alike. Pulling one line per prompt from the iterator is
- * reliable in both cases.
- *
- * `terminal: false` keeps the transcript clean: the prompt text is written
- * explicitly, so readline must not also echo the typed answer back.
- */
 function createAsker(): {
   ask: (question: string) => Promise<string>;
   close: () => void;

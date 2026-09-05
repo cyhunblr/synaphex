@@ -23,7 +23,7 @@ import type {
 import {
   AgentExecutionFailedError,
   AntigravityCliExecutionError,
-  InvalidProviderRouteError,
+  AgentTargetSurfaceUnsupportedError,
   NativeHostExecutionUnavailableError,
   NoTaskBoundError,
   TaskSessionOwnershipLostError,
@@ -32,7 +32,7 @@ import {
 import { isProviderCapabilityUsable } from "../src/domain/execution-policy.js";
 import type { Project } from "../src/domain/project.js";
 import type {
-  HostRuntime,
+  McpHostContext,
   RuntimeAvailability,
 } from "../src/domain/provider-routing.js";
 import type { Task } from "../src/domain/task.js";
@@ -116,7 +116,7 @@ const availableEverywhere: RuntimeAvailability = {
 
 function invocationPort(
   fixture: Fixture,
-  host: HostRuntime,
+  host: McpHostContext,
   executor: AgentExecutor,
   runtimeAvailability: RuntimeAvailability = availableEverywhere,
 ): DirectAgentInvocation {
@@ -210,7 +210,7 @@ test("an agent outside the direct set is still rejected before any provider", as
     throw new Error("provider must never be reached");
   });
   await assert.rejects(
-    invocationPort(fixture, { provider: "openai", surface: "cli" }, executor).invoke({
+    invocationPort(fixture, { provider: "openai" }, executor).invoke({
       agent: "orchestrator" as unknown as McpInvocableAgent,
       scope: { kind: "task_session", sessionId: opened.sessionId },
       instruction: "Not a real agent.",
@@ -226,7 +226,7 @@ test("an agent outside the direct set is still rejected before any provider", as
 // Host routing (Phase 32 cases A-E)
 // ---------------------------------------------------------------------------
 
-test("case A: anthropic/vscode host with an openai/cli target routes cross-provider CLI", async (t) => {
+test("case A: an anthropic host with an openai/cli target routes cross-provider CLI", async (t) => {
   const fixture = await createFixture(t);
   await configure(fixture, "researcher", "openai", "cli");
   const opened = await fixture.commands.openTaskSession(
@@ -236,7 +236,7 @@ test("case A: anthropic/vscode host with an openai/cli target routes cross-provi
   const executor = new RecordingExecutor(() => researcherResult());
   const result = await invocationPort(
     fixture,
-    { provider: "anthropic", surface: "vscode" },
+    { provider: "anthropic" },
     executor,
   ).invoke({
     agent: "researcher",
@@ -247,10 +247,7 @@ test("case A: anthropic/vscode host with an openai/cli target routes cross-provi
   assert.equal(result.route.effectiveSurface, "cli");
   assert.equal(result.route.routingReason, "cross_provider_cli");
   // The immutable process host reached ProviderRouter.
-  assert.deepEqual(result.route.host, {
-    provider: "anthropic",
-    surface: "vscode",
-  });
+  assert.deepEqual(result.route.host, { provider: "anthropic" });
 });
 
 test("case B: openai/cli host with an anthropic/cli target routes cross-provider CLI", async (t) => {
@@ -263,7 +260,7 @@ test("case B: openai/cli host with an anthropic/cli target routes cross-provider
   const executor = new RecordingExecutor(() => researcherResult());
   const result = await invocationPort(
     fixture,
-    { provider: "openai", surface: "cli" },
+    { provider: "openai" },
     executor,
   ).invoke({
     agent: "researcher",
@@ -272,60 +269,41 @@ test("case B: openai/cli host with an anthropic/cli target routes cross-provider
   });
   assert.equal(result.route.provider, "anthropic");
   assert.equal(result.route.effectiveSurface, "cli");
-  assert.deepEqual(result.route.host, { provider: "openai", surface: "cli" });
+  assert.deepEqual(result.route.host, { provider: "openai" });
 });
 
-test("case C: a CLI host targeting a VS Code surface fails before execution", async (t) => {
-  const fixture = await createFixture(t);
-  await configure(fixture, "researcher", "anthropic", "vscode");
-  const opened = await fixture.commands.openTaskSession(
-    fixture.project.id,
-    fixture.task.id,
-  );
-  const executor = new RecordingExecutor(() => researcherResult());
-  await assert.rejects(
-    invocationPort(
-      fixture,
-      { provider: "anthropic", surface: "cli" },
-      executor,
-    ).invoke({
-      agent: "researcher",
-      scope: { kind: "task_session", sessionId: opened.sessionId },
-      instruction: "Research it.",
-    }),
-    (error: unknown) =>
-      error instanceof InvalidProviderRouteError &&
-      error.code === "INVALID_PROVIDER_ROUTE",
-  );
-  assert.equal(executor.calls.length, 0);
-});
-
-test("a native same-provider VS Code route fails deterministically, never faked as CLI", async (t) => {
-  // VS Code extensions are interactive HOST surfaces, not callable targets.
-  // No executor dispatches a native vscode route, so it must fail rather than
-  // silently spawning a CLI while claiming the vscode surface.
-  const fixture = await createFixture(t);
-  await configure(fixture, "researcher", "anthropic", "vscode");
-  const opened = await fixture.commands.openTaskSession(
-    fixture.project.id,
-    fixture.task.id,
-  );
-  const executor = new RecordingExecutor(() => researcherResult());
-  const result = await invocationPort(
-    fixture,
-    { provider: "anthropic", surface: "vscode" },
-    executor,
-  ).invoke({
-    agent: "researcher",
-    scope: { kind: "task_session", sessionId: opened.sessionId },
-    instruction: "Research it.",
-  });
-  // The route resolves as native, and this fake executor accepts it. The real
-  // CLI executors reject effectiveSurface !== "cli", which is the deterministic
-  // failure; nothing pretends a CLI run is a vscode run.
-  assert.equal(result.route.routingReason, "same_provider_native");
-  assert.equal(result.route.effectiveSurface, "vscode");
-  assert.equal(executor.calls[0]?.route.effectiveSurface, "vscode");
+test("a VS Code target is refused before execution, for every host", async (t) => {
+  // VS Code extensions are interactive host surfaces, not callable targets,
+  // and no host can reach one. The refusal happens before any executor runs,
+  // and the user's configuration is never rewritten to `cli` on their behalf.
+  for (const hostProvider of ["openai", "anthropic", "google"] as const) {
+    const fixture = await createFixture(t);
+    await configure(fixture, "researcher", "anthropic", "vscode");
+    const opened = await fixture.commands.openTaskSession(
+      fixture.project.id,
+      fixture.task.id,
+    );
+    const executor = new RecordingExecutor(() => researcherResult());
+    await assert.rejects(
+      invocationPort(fixture, { provider: hostProvider }, executor).invoke({
+        agent: "researcher",
+        scope: { kind: "task_session", sessionId: opened.sessionId },
+        instruction: "Research it.",
+      }),
+      (error: unknown) =>
+        error instanceof AgentTargetSurfaceUnsupportedError &&
+        error.code === "AGENT_TARGET_SURFACE_UNSUPPORTED",
+      `${hostProvider} host must refuse a vscode target`,
+    );
+    assert.equal(executor.calls.length, 0, "nothing may execute");
+    // The stored configuration is untouched: changing it would change intent.
+    const stored = await fixture.configs.getConfig("researcher");
+    assert.equal(
+      (stored as { surface?: string }).surface,
+      "vscode",
+      "Synaphex must not rewrite the user's configured surface",
+    );
+  }
 });
 
 test("case D/E: request input and client identity cannot override host context", async (t) => {
@@ -338,7 +316,7 @@ test("case D/E: request input and client identity cannot override host context",
   const executor = new RecordingExecutor(() => researcherResult());
   const port = invocationPort(
     fixture,
-    { provider: "anthropic", surface: "vscode" },
+    { provider: "anthropic" },
     executor,
   );
   // A caller attempting to smuggle host identity through the request.
@@ -348,21 +326,15 @@ test("case D/E: request input and client identity cannot override host context",
     instruction: "Research it.",
     hostProvider: "google",
     hostSurface: "cli",
-    host: { provider: "google", surface: "cli" },
+    host: { provider: "google" },
     caller: "coder",
     directUser: false,
     clientInfo: { name: "claude-code" },
   };
   const result = await port.invoke(spoofed);
   // The process-bound host wins; nothing from the request reached the router.
-  assert.deepEqual(result.route.host, {
-    provider: "anthropic",
-    surface: "vscode",
-  });
-  assert.deepEqual(executor.calls[0]?.route.host, {
-    provider: "anthropic",
-    surface: "vscode",
-  });
+  assert.deepEqual(result.route.host, { provider: "anthropic" });
+  assert.deepEqual(executor.calls[0]?.route.host, { provider: "anthropic" });
 });
 
 // ---------------------------------------------------------------------------
@@ -379,7 +351,7 @@ test("task-session scope resolves project and task from the authoritative bindin
   const executor = new RecordingExecutor(() => researcherResult());
   const result = await invocationPort(
     fixture,
-    { provider: "openai", surface: "cli" },
+    { provider: "openai" },
     executor,
   ).invoke({
     agent: "researcher",
@@ -404,7 +376,7 @@ test("a closed session cannot be invoked", async (t) => {
   await assert.rejects(
     invocationPort(
       fixture,
-      { provider: "openai", surface: "cli" },
+      { provider: "openai" },
       executor,
     ).invoke({
       agent: "researcher",
@@ -431,7 +403,7 @@ test("a force-released session cannot commit an invocation", async (t) => {
   await assert.rejects(
     invocationPort(
       fixture,
-      { provider: "openai", surface: "cli" },
+      { provider: "openai" },
       executor,
     ).invoke({
       agent: "researcher",
@@ -452,7 +424,7 @@ test("project scope works for a project-capable role and has no task fence", asy
   const executor = new RecordingExecutor(() => researcherResult());
   const result = await invocationPort(
     fixture,
-    { provider: "openai", surface: "cli" },
+    { provider: "openai" },
     executor,
   ).invoke({
     agent: "researcher",
@@ -472,7 +444,7 @@ test("project scope is refused for a role Core requires to be task-bound", async
   await assert.rejects(
     invocationPort(
       fixture,
-      { provider: "openai", surface: "cli" },
+      { provider: "openai" },
       executor,
     ).invoke({
       agent: "planner",
@@ -496,7 +468,7 @@ test("project scope is refused when the session is actually task-bound", async (
   await assert.rejects(
     invocationPort(
       fixture,
-      { provider: "openai", surface: "cli" },
+      { provider: "openai" },
       executor,
     ).invoke({
       agent: "researcher",
@@ -517,7 +489,7 @@ test("no session is implicitly created by an invocation", async (t) => {
   await assert.rejects(
     invocationPort(
       fixture,
-      { provider: "openai", surface: "cli" },
+      { provider: "openai" },
       executor,
     ).invoke({
       agent: "researcher",
@@ -572,7 +544,7 @@ test("a top-level invocation bypasses the agent->agent edge rule but classifies 
   }));
   const result = await invocationPort(
     fixture,
-    { provider: "openai", surface: "cli" },
+    { provider: "openai" },
     executor,
   ).invoke({
     agent: "researcher",
@@ -606,7 +578,7 @@ test("requested actions are classified and returned, never auto-approved or exec
   }));
   const result = await invocationPort(
     fixture,
-    { provider: "openai", surface: "cli" },
+    { provider: "openai" },
     executor,
   ).invoke({
     agent: "researcher",
@@ -642,7 +614,7 @@ test("an agent needs_user outcome is a normal result, not an invocation failure"
   }));
   const result = await invocationPort(
     fixture,
-    { provider: "openai", surface: "cli" },
+    { provider: "openai" },
     executor,
   ).invoke({
     agent: "questioner",
@@ -663,7 +635,7 @@ test("the resolved execution policy for every invocable agent is read_only", asy
   const executor = new RecordingExecutor(() => researcherResult());
   const result = await invocationPort(
     fixture,
-    { provider: "openai", surface: "cli" },
+    { provider: "openai" },
     executor,
   ).invoke({
     agent: "researcher",
@@ -718,7 +690,7 @@ function dispatchSpies(): DispatchSpies {
   };
 }
 
-test("case A: anthropic/vscode host with openai/cli target reaches the Codex delegate", async (t) => {
+test("case A: an anthropic host with an openai/cli target reaches the Codex delegate", async (t) => {
   const fixture = await createFixture(t);
   await configure(fixture, "researcher", "openai", "cli");
   const opened = await fixture.commands.openTaskSession(
@@ -728,7 +700,7 @@ test("case A: anthropic/vscode host with openai/cli target reaches the Codex del
   const spies = dispatchSpies();
   const result = await invocationPort(
     fixture,
-    { provider: "anthropic", surface: "vscode" },
+    { provider: "anthropic" },
     spies.executor,
   ).invoke({
     agent: "researcher",
@@ -752,7 +724,7 @@ test("case B: openai/cli host with anthropic/cli target reaches the Claude deleg
   const spies = dispatchSpies();
   await invocationPort(
     fixture,
-    { provider: "openai", surface: "cli" },
+    { provider: "openai" },
     spies.executor,
   ).invoke({
     agent: "researcher",
@@ -764,7 +736,7 @@ test("case B: openai/cli host with anthropic/cli target reaches the Claude deleg
   assert.equal(spies.googleCli.calls.length, 0);
 });
 
-test("case C: a native same-provider VS Code route fails closed with no CLI delegate run", async (t) => {
+test("case C: a VS Code target fails closed with no delegate run at all", async (t) => {
   const fixture = await createFixture(t);
   await configure(fixture, "researcher", "anthropic", "vscode");
   const opened = await fixture.commands.openTaskSession(
@@ -775,19 +747,18 @@ test("case C: a native same-provider VS Code route fails closed with no CLI dele
   await assert.rejects(
     invocationPort(
       fixture,
-      { provider: "anthropic", surface: "vscode" },
+      { provider: "anthropic" },
       spies.executor,
     ).invoke({
       agent: "researcher",
       scope: { kind: "task_session", sessionId: opened.sessionId },
       instruction: "Research it.",
     }),
-    // Phase 3C correction: the precise infrastructure-capability error is
-    // preserved rather than hidden inside AGENT_EXECUTION_FAILED, because no
-    // provider ever ran.
+    // Phase 8B: refused at ROUTING, before dispatch is even attempted, so no
+    // provider adapter is consulted and no execution identity is implied.
     (error: unknown) =>
-      error instanceof NativeHostExecutionUnavailableError &&
-      error.code === "NATIVE_HOST_EXECUTION_UNAVAILABLE",
+      error instanceof AgentTargetSurfaceUnsupportedError &&
+      error.code === "AGENT_TARGET_SURFACE_UNSUPPORTED",
   );
   assert.equal(spies.openaiCli.calls.length, 0);
   assert.equal(spies.anthropicCli.calls.length, 0);
@@ -804,7 +775,7 @@ test("case D: a google/cli target reaches the Antigravity delegate, not another 
   const spies = dispatchSpies();
   await invocationPort(
     fixture,
-    { provider: "anthropic", surface: "vscode" },
+    { provider: "anthropic" },
     spies.executor,
   ).invoke({
     agent: "researcher",
@@ -840,7 +811,7 @@ test("the real Antigravity adapter still fails closed through the dispatcher", a
   await assert.rejects(
     invocationPort(
       fixture,
-      { provider: "anthropic", surface: "vscode" },
+      { provider: "anthropic" },
       executor,
     ).invoke({
       agent: "researcher",
@@ -907,7 +878,7 @@ async function networkFixture(
 test("an allowed network action does NOT auto-resume the caller", async (t) => {
   const h = await networkFixture(t, "allow");
   const first = await new DirectAgentInvocation({
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     invocations: h.service,
     sessions: h.fixture.sessions,
     roleContracts: new RoleContractRegistry(),
@@ -926,7 +897,7 @@ test("an allowed network action does NOT auto-resume the caller", async (t) => {
     sessionId: h.sessionId,
     previousInvocation: first as never,
     actionClassification: first.actionClassifications[0]!,
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
   });
   assert.equal(h.executor.calls.length, 2);
 });
@@ -934,7 +905,7 @@ test("an allowed network action does NOT auto-resume the caller", async (t) => {
 test("the resumed execution is actually authorized to use the network", async (t) => {
   const h = await networkFixture(t, "allow");
   const first = await new DirectAgentInvocation({
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     invocations: h.service,
     sessions: h.fixture.sessions,
     roleContracts: new RoleContractRegistry(),
@@ -948,7 +919,7 @@ test("the resumed execution is actually authorized to use the network", async (t
     sessionId: h.sessionId,
     previousInvocation: first as never,
     actionClassification: first.actionClassifications[0]!,
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
   });
 
   // Inspect the ACTUAL ExecutionPolicy the provider received, not just that it
@@ -964,7 +935,7 @@ test("the resumed execution is actually authorized to use the network", async (t
 test("an approval-required network resume is authorized via the approval token", async (t) => {
   const h = await networkFixture(t, "ask");
   const first = await new DirectAgentInvocation({
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     invocations: h.service,
     sessions: h.fixture.sessions,
     roleContracts: new RoleContractRegistry(),
@@ -980,7 +951,7 @@ test("an approval-required network resume is authorized via the approval token",
     previousInvocation: first as never,
     actionClassification: first.actionClassifications[0]!,
     approvalGranted: true,
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
   });
 
   // Visibly distinct authority source: the rule is still `ask`, and usability
@@ -996,7 +967,7 @@ test("the two Core continuation paths reject each other's classification", async
   const allowedFirst = await allowed.service.invokeUserAgent({
     sessionId: allowed.sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Research it.",
   });
   await assert.rejects(
@@ -1005,7 +976,7 @@ test("the two Core continuation paths reject each other's classification", async
       previousInvocation: allowedFirst as never,
       actionClassification: allowedFirst.actionClassifications[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof Error && /approval_required/.test(error.message),
@@ -1015,7 +986,7 @@ test("the two Core continuation paths reject each other's classification", async
   const askedFirst = await asked.service.invokeUserAgent({
     sessionId: asked.sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Research it.",
   });
   await assert.rejects(
@@ -1023,7 +994,7 @@ test("the two Core continuation paths reject each other's classification", async
       sessionId: asked.sessionId,
       previousInvocation: askedFirst as never,
       actionClassification: askedFirst.actionClassifications[0]!,
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof Error && /allowed/.test(error.message),
@@ -1055,7 +1026,7 @@ test("neither Core continuation path accepts a host action", async (t) => {
   const first = await service.invokeUserAgent({
     sessionId: opened.sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Research it.",
   });
   const classification = first.actionClassifications[0]!;
@@ -1069,7 +1040,7 @@ test("neither Core continuation path accepts a host action", async (t) => {
         sessionId: opened.sessionId,
         previousInvocation: first as never,
         actionClassification: classification,
-        host: { provider: "openai", surface: "cli" },
+        host: { provider: "openai" },
       }),
     () =>
       service.resumeCallerWithActionApproval({
@@ -1077,7 +1048,7 @@ test("neither Core continuation path accepts a host action", async (t) => {
         previousInvocation: first as never,
         actionClassification: classification,
         approvalGranted: true,
-        host: { provider: "openai", surface: "cli" },
+        host: { provider: "openai" },
       }),
   ]) {
     await assert.rejects(attempt);

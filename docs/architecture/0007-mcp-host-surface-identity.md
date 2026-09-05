@@ -1,6 +1,11 @@
 # ADR 0007: MCP host-surface identity
 
-Status: accepted (Phase 6B1.1)
+> **SUPERSEDED by ADR 0009 (Phase 8B).** The premise below -- that restricting
+> registration to CLI makes the asserted surface truthful -- was disproved: both
+> VS Code extensions load and connect to the CLI-labelled registration. MCP host
+> identity is now provider-only.
+
+Status: superseded (was Phase 6B1.1)
 
 ```text
 Supported MCP host surfaces: CLI only.

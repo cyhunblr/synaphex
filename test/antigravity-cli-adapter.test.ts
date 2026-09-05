@@ -78,7 +78,7 @@ function executionInput(
   return {
     route: {
       agent,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
       provider: "google",
       configuredSurface: "cli",
       effectiveSurface: "cli",

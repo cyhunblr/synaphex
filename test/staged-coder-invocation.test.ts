@@ -254,7 +254,7 @@ test("a staged CODER invocation edits staging only and leaves the real source un
   const result = await service(f, executor, stagingWith(f)).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Implement it.",
   });
 
@@ -317,7 +317,7 @@ test("the real source path is structurally absent from the CODER provider contex
   await service(f, executor, stagingWith(f)).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Implement it.",
   });
   const delivered = executor.calls[0]!;
@@ -349,7 +349,7 @@ test("the persisted project source path is never rewritten", async (t) => {
   await service(f, executor, stagingWith(f)).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
     instruction: "Implement it.",
   });
   const project = await f.projects.get(f.project.id);
@@ -369,7 +369,7 @@ test("a non-Git or dirty source blocks CODER before the provider runs", async (t
     service(nonGit, executorA, stagingWith(nonGit)).invokeUserAgent({
       sessionId: nonGit.sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
     (error: unknown) => error instanceof CoderStagingRequiresGitError,
   );
@@ -385,7 +385,7 @@ test("a non-Git or dirty source blocks CODER before the provider runs", async (t
     service(dirty, executorB, stagingWith(dirty)).invokeUserAgent({
       sessionId: dirty.sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
     (error: unknown) => error instanceof CoderStagingWorktreeDirtyError,
   );
@@ -411,7 +411,7 @@ async function assertUnsafeOutputRejected(
     service(f, executor, stagingWith(f)).invokeUserAgent({
       sessionId: f.sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof CoderStagingUnsupportedRepositoryError &&
@@ -500,7 +500,7 @@ test("provider Git manipulation cannot redefine the authoritative baseline", asy
   const result = await service(f, executor, stagingWith(f)).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
   });
   const changeSet = (
     result.processedResult as { coderChangeSet?: { id: string } | null }
@@ -531,7 +531,7 @@ test("ownership loss before the provider blocks execution and publishes nothing"
     service(f, executor, staging).invokeUserAgent({
       sessionId: f.sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
     (error: unknown) => error instanceof TaskSessionOwnershipLostError,
   );
@@ -560,7 +560,7 @@ test("force release during provider execution prevents publication", async (t) =
   const pending = service(f, executor, stagingWith(f)).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
   });
 
   // No sleeps: the barrier proves the provider is mid-flight.
@@ -606,7 +606,7 @@ test("ownership loss after capture but before publish blocks the durable write",
     service(f, executor, staging).invokeUserAgent({
       sessionId: f.sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
     (error: unknown) => error instanceof TaskSessionOwnershipLostError,
   );
@@ -634,7 +634,7 @@ test("a CODER invocation that changes nothing writes a work record with changeSe
   const result = await service(f, executor, stagingWith(f)).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
   });
   const processed = result.processedResult as { coderChangeSet?: unknown };
   assert.ok("coderChangeSet" in processed);
@@ -666,7 +666,7 @@ test("a provider failure publishes nothing and leaves the real source clean", as
     service(f, executor, stagingWith(f)).invokeUserAgent({
       sessionId: f.sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof AgentExecutionFailedError &&
@@ -700,7 +700,7 @@ test("REVIEWER is blocked while the latest CODER work is staged and unapplied", 
   ).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
   });
   const changeSetId = (
     coderResultValue.processedResult as { coderChangeSet?: { id: string } }
@@ -714,7 +714,7 @@ test("REVIEWER is blocked while the latest CODER work is staged and unapplied", 
     service(f, reviewerExecutor, stagingWith(f)).invokeUserAgent({
       sessionId: f.sessionId,
       agent: "reviewer",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof ReviewTargetNotAppliedError &&
@@ -756,7 +756,7 @@ test("a legacy CODER work record keeps its accepted Reviewer behavior", async (t
   const reviewed = await service(f, reviewerExecutor, stagingWith(f)).invokeUserAgent({
     sessionId: f.sessionId,
     agent: "reviewer",
-    host: { provider: "openai", surface: "cli" },
+    host: { provider: "openai" },
   });
   assert.equal(reviewed.processedResult.outcome, "success");
   assert.equal(reviewerExecutor.calls.length, 1);

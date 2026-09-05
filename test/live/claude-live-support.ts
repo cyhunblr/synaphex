@@ -75,7 +75,7 @@ export function liveInput(options: {
   return {
     route: {
       agent: options.agent,
-      host: { provider: "anthropic", surface: "cli" },
+      host: { provider: "anthropic" },
       provider: "anthropic",
       configuredSurface: "cli",
       effectiveSurface: "cli",

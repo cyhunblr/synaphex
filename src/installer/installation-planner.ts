@@ -1,5 +1,4 @@
 import {
-  VSCODE_SURFACE_UNSUPPORTED_REASON,
   isSupportedTarget,
   type HostAvailability,
   type InstallationTarget,
@@ -39,7 +38,7 @@ export interface InstallationPlan {
 }
 
 export function targetKey(target: InstallationTarget): string {
-  return `${target.provider}/${target.surface}`;
+  return target.provider;
 }
 
 export interface InstallationPlannerDependencies {
@@ -68,13 +67,7 @@ export class InstallationPlanner {
     for (const target of selected) {
       const key = targetKey(target);
       if (!isSupportedTarget(target)) {
-        skipped.push({
-          target,
-          reason:
-            target.surface === "vscode"
-              ? VSCODE_SURFACE_UNSUPPORTED_REASON
-              : "this provider and surface combination is not supported",
-        });
+        skipped.push({ target, reason: "this provider is not supported" });
         continue;
       }
       const registrar = this.dependencies.registrars.get(key);

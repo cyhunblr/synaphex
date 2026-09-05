@@ -249,7 +249,7 @@ async function stageChangeSet(
     {
       sessionId: f.sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
       instruction: "Implement it.",
     },
   );
@@ -904,7 +904,7 @@ test("REVIEWER runs only after apply, and only while the source still matches", 
     reviewer().invokeUserAgent({
       sessionId: f.sessionId,
       agent: "reviewer",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
       instruction: "Review it.",
     });
 
@@ -937,7 +937,7 @@ test("REVIEWER is refused after the user commits the applied change", async (t) 
       service(f, new FixedResultExecutor(reviewerResult())).invokeUserAgent({
         sessionId: f.sessionId,
         agent: "reviewer",
-        host: { provider: "openai", surface: "cli" },
+        host: { provider: "openai" },
         instruction: "Review it.",
       }),
     ReviewTargetChangedError,
@@ -959,7 +959,7 @@ test("REVIEWER is refused for a rejected or interrupted target", async (t) => {
       ).invokeUserAgent({
         sessionId: rejectedFixture.sessionId,
         agent: "reviewer",
-        host: { provider: "openai", surface: "cli" },
+        host: { provider: "openai" },
         instruction: "Review it.",
       }),
     ReviewTargetRejectedError,
@@ -993,7 +993,7 @@ test("REVIEWER is refused for a rejected or interrupted target", async (t) => {
       ).invokeUserAgent({
         sessionId: interruptedFixture.sessionId,
         agent: "reviewer",
-        host: { provider: "openai", surface: "cli" },
+        host: { provider: "openai" },
         instruction: "Review it.",
       }),
     ReviewTargetApplyInterruptedError,
@@ -1746,7 +1746,7 @@ test("REVIEWER runs after an exact-result reconciliation, with no drift bypass",
     service(f, new FixedResultExecutor(reviewerResult())).invokeUserAgent({
       sessionId: f.sessionId,
       agent: "reviewer",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
       instruction: "Review it.",
     });
 
@@ -1777,7 +1777,7 @@ test("REVIEWER is refused after a clean-base reconciliation returns to pending",
       service(f, new FixedResultExecutor(reviewerResult())).invokeUserAgent({
         sessionId: f.sessionId,
         agent: "reviewer",
-        host: { provider: "openai", surface: "cli" },
+        host: { provider: "openai" },
         instruction: "Review it.",
       }),
     ReviewTargetNotAppliedError,

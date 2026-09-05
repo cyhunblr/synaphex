@@ -621,7 +621,7 @@ export function defaultInvocationResult(
     },
     route: {
       agent: request.agent,
-      host: { provider: "anthropic", surface: "vscode" },
+      host: { provider: "anthropic" },
       provider: "openai",
       configuredSurface: "cli",
       effectiveSurface: "cli",

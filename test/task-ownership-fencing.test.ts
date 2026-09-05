@@ -132,7 +132,8 @@ async function configure(
   fixture: Fixture,
   agent: AgentName,
   provider: AgentProvider = "openai",
-  surface: AgentSurface = "vscode",
+  // CLI is the only executable target surface in v0.1.
+  surface: AgentSurface = "cli",
 ): Promise<void> {
   await fixture.configs.setConfigured(agent, {
     provider,
@@ -371,7 +372,7 @@ test("a normal task-bound invocation still succeeds with fencing in place", asyn
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId: opened.sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
     instruction: "Research the fencing behavior.",
   });
   assert.equal(result.agent, "researcher");
@@ -390,7 +391,7 @@ test("a project-only invocation needs no task fence", async (t) => {
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId: "ses_projectscope0000000000000001",
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
     instruction: "Research without a task.",
   });
   assert.equal(result.scope.taskId, null);
@@ -416,7 +417,7 @@ async function raceOwnershipRevocation(
   const pending = service(fixture, executor).invokeUserAgent({
     sessionId: opened.sessionId,
     agent,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
     instruction: `Run ${agent} across a revocation.`,
   });
   // The fence is captured before execute(); waiting on `started` proves the
@@ -643,7 +644,7 @@ test("an invocation whose session lost its claim fails at preflight, before the 
     service(fixture, executor).invokeUserAgent({
       sessionId: opened.sessionId,
       agent: "researcher",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
       instruction: "Should not reach the provider.",
     }),
     (error: unknown) =>
@@ -672,7 +673,7 @@ test("the ownership token is never exposed through AgentContext or provider inpu
   await service(fixture, executor).invokeUserAgent({
     sessionId: opened.sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
     instruction: "Check token secrecy.",
   });
   const serializedInput = JSON.stringify(executor.calls[0]);
@@ -811,14 +812,14 @@ test("a task-bound helper captures its own fence and cannot commit after revocat
   const parent = await invocation.invokeUserAgent({
     sessionId: opened.sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   const pendingHelper = invocation.executeHelper({
     sessionId: opened.sessionId,
     parentInvocation: parent,
     helperClassification: parent.helperCalls[0]!,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   // The helper captured its OWN fence before executing; revoke it mid-run.
   await executor.helperStarted;
@@ -882,13 +883,13 @@ test("a continuation cannot resurrect authority from an old invocation lineage",
   const parent = await invocation.invokeUserAgent({
     sessionId: opened.sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   const helperExecution = await invocation.executeHelper({
     sessionId: opened.sessionId,
     parentInvocation: parent,
     helperClassification: parent.helperCalls[0]!,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   // The session loses its claim BEFORE the caller resumes. Lineage metadata
@@ -902,7 +903,7 @@ test("a continuation cannot resurrect authority from an old invocation lineage",
     invocation.resumeCaller({
       sessionId: opened.sessionId,
       helperExecution,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) => error instanceof Error,
     "a continuation must not resurrect revoked authority",

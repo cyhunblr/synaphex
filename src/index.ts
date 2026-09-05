@@ -297,7 +297,7 @@ export {
 export {
   PROVIDER_ROUTING_REASONS,
   type ExecutionRoute,
-  type HostRuntime,
+  type McpHostContext,
   type ProviderRouteRequest,
   type ProviderRoutingReason,
   type RuntimeAvailability,
@@ -584,9 +584,9 @@ export {
 } from "./operations/direct-agent-invocation.js";
 export {
   HOST_PROVIDER_FLAG,
-  HOST_SURFACE_FLAG,
+  OBSOLETE_HOST_SURFACE_FLAG,
   InvalidHostContextError,
-  isSupportedHostRuntime,
+  isSupportedMcpHost,
   parseHostContextArguments,
 } from "./mcp/mcp-host-context.js";
 export {

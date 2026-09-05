@@ -30,12 +30,8 @@ const ENTRYPOINT = join(process.cwd(), ".test-dist", "src", "mcp", "stdio-main.j
 // CLI surface: since Phase 6B1.1 no `vscode` host combination is accepted,
 // because providers share one MCP registration between CLI and VS Code and
 // neither surface is distinguishable over the protocol (ADR 0007).
-const HOST_ARGS = [
-  "--host-provider",
-  "anthropic",
-  "--host-surface",
-  "cli",
-] as const;
+// Provider only: MCP host identity no longer asserts a UI surface (ADR 0009).
+const HOST_ARGS = ["--host-provider", "anthropic"] as const;
 const ENTRYPOINT_ARGS = [ENTRYPOINT, ...HOST_ARGS] as const;
 
 async function temporaryStateRoot(t: TestContext): Promise<string> {
@@ -511,41 +507,22 @@ async function startupFailure(
 test("invalid or missing host context is a fatal startup error", async () => {
   const cases: readonly [string, readonly string[]][] = [
     ["missing both", []],
-    ["missing surface", ["--host-provider", "anthropic"]],
-    ["missing provider", ["--host-surface", "vscode"]],
+    ["obsolete surface flag", ["--host-provider", "anthropic", "--host-surface", "cli"]],
+    ["missing provider", []],
     ["invalid provider", ["--host-provider", "acme", "--host-surface", "cli"]],
-    ["invalid surface", ["--host-provider", "openai", "--host-surface", "emacs"]],
-    // google + vscode is not a supported host: Antigravity IDE is not a
-    // Synaphex host integration.
+    ["obsolete surface flag with any value", ["--host-provider", "openai", "--host-surface", "emacs"]],
+    // Any surface assertion is refused outright rather than ignored, so a
+    // stale registration cannot smuggle UI identity back into host authority.
     [
-      "unsupported combination",
+      "google surface assertion",
       ["--host-provider", "google", "--host-surface", "vscode"],
     ],
-    // Every vscode surface now fails closed: one shared registration cannot
-    // truthfully assert a VS Code host context (ADR 0007).
-    [
-      "anthropic vscode",
-      ["--host-provider", "anthropic", "--host-surface", "vscode"],
-    ],
-    [
-      "openai vscode",
-      ["--host-provider", "openai", "--host-surface", "vscode"],
-    ],
+    ["unknown provider", ["--host-provider", "acme"]],
     [
       "duplicate provider flag",
-      [
-        "--host-provider",
-        "anthropic",
-        "--host-provider",
-        "openai",
-        "--host-surface",
-        "cli",
-      ],
+      ["--host-provider", "anthropic", "--host-provider", "openai"],
     ],
-    [
-      "provider flag without value",
-      ["--host-provider", "--host-surface", "cli"],
-    ],
+    ["provider flag without value", ["--host-provider"]],
   ];
   for (const [label, args] of cases) {
     const outcome = await startupFailure(args);
@@ -560,14 +537,14 @@ test("a supported host context starts successfully", async () => {
   const { spawn } = await import("node:child_process");
   const child = spawn(
     process.execPath,
-    [ENTRYPOINT, "--host-provider", "openai", "--host-surface", "cli"],
+    [ENTRYPOINT, "--host-provider", "openai"],
     { stdio: ["pipe", "pipe", "pipe"] },
   );
   let stderr = "";
   child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
   child.stdin.end();
   await new Promise<void>((resolve) => child.on("close", () => resolve()));
-  assert.match(stderr, /host context: openai\/cli/);
+  assert.match(stderr, /host provider: openai/);
   assert.equal(stderr.includes("fatal"), false);
 });
 
@@ -660,10 +637,8 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
     // delegate from the resolved route: the full production dispatch path ran,
     // with only the leaf provider adapter faked.
     assert.equal(observedRoute.delegate, "codex");
-    assert.deepEqual(observedRoute.host, {
-      provider: "anthropic",
-      surface: "cli",
-    });
+    // Provider identity only reaches the executor.
+    assert.deepEqual(observedRoute.host, { provider: "anthropic" });
     assert.equal(observedRoute.provider, "openai");
     assert.equal(observedRoute.effectiveSurface, "cli");
     assert.equal(observedRoute.routingReason, "cross_provider_cli");

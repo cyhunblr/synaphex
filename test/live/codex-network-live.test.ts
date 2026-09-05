@@ -99,7 +99,7 @@ test(
       const input: AgentExecutionInput = {
         route: {
           agent: "coder",
-          host: { provider: "openai", surface: "cli" },
+          host: { provider: "openai" },
           provider: "openai",
           configuredSurface: "cli",
           effectiveSurface: "cli",

@@ -91,7 +91,7 @@ test("the registered launcher starts and serves 29 tools from an unrelated cwd",
   for (const cwd of ["/", tmpdir(), unrelated]) {
     const tools = await toolsFromRegisteredLauncher(
       t,
-      { provider: "openai", surface: "cli" },
+      { provider: "openai" },
       cwd,
     );
     assert.equal(tools.length, 29, `tool count from cwd ${cwd}`);
@@ -105,7 +105,7 @@ test("every supported host registration produces a working server", async (t) =>
     assert.equal(
       tools.length,
       29,
-      `${target.provider}/${target.surface} did not serve the full tool surface`,
+      `${target.provider} did not serve the full tool surface`,
     );
   }
 });

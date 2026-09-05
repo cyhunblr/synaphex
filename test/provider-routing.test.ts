@@ -13,11 +13,11 @@ import {
   type ValidatedAgentConfig,
 } from "../src/domain/agent-config.js";
 import {
-  InvalidProviderRouteError,
+  AgentTargetSurfaceUnsupportedError,
   ProviderCliUnavailableError,
 } from "../src/domain/errors.js";
 import type {
-  HostRuntime,
+  McpHostContext,
   RuntimeAvailability,
 } from "../src/domain/provider-routing.js";
 import { StateStore } from "../src/infrastructure/state-store.js";
@@ -54,192 +54,110 @@ function targetConfig(
   };
 }
 
-function host(
-  provider: AgentProvider,
-  surface: AgentSurface,
-): HostRuntime {
-  return { provider, surface };
+function host(provider: AgentProvider): McpHostContext {
+  return { provider };
 }
 
-test("same-provider routing follows the complete provider and surface matrix", async () => {
-  for (const provider of AGENT_PROVIDERS) {
-    const nativeAvailability = new FakeRuntimeAvailability(false);
-    const native = await new ProviderRouter(nativeAvailability).resolve({
-      host: host(provider, "vscode"),
-      targetConfig: targetConfig(provider, "vscode"),
-    });
-    assert.equal(native.effectiveSurface, "vscode");
-    assert.equal(native.routingReason, "same_provider_native");
-    assert.equal(native.cliForcedByCrossProvider, false);
-    assert.deepEqual(nativeAvailability.checks, []);
-
-    const vscodeToCliAvailability = new FakeRuntimeAvailability(true);
-    const vscodeToCli = await new ProviderRouter(
-      vscodeToCliAvailability,
-    ).resolve({
-      host: host(provider, "vscode"),
-      targetConfig: targetConfig(provider, "cli"),
-    });
-    assert.equal(vscodeToCli.effectiveSurface, "cli");
-    assert.equal(
-      vscodeToCli.routingReason,
-      "same_provider_configured_cli",
-    );
-    assert.deepEqual(vscodeToCliAvailability.checks, [
-      { provider, surface: "cli" },
-    ]);
-
-    const cliAvailability = new FakeRuntimeAvailability(true);
-    const cli = await new ProviderRouter(cliAvailability).resolve({
-      host: host(provider, "cli"),
-      targetConfig: targetConfig(provider, "cli"),
-    });
-    assert.equal(cli.effectiveSurface, "cli");
-    assert.equal(cli.routingReason, "same_provider_configured_cli");
-    assert.deepEqual(cliAvailability.checks, [{ provider, surface: "cli" }]);
-
-    const invalidAvailability = new FakeRuntimeAvailability(true);
-    await assert.rejects(
-      new ProviderRouter(invalidAvailability).resolve({
-        host: host(provider, "cli"),
-        targetConfig: targetConfig(provider, "vscode"),
-      }),
-      (error: unknown) =>
-        error instanceof InvalidProviderRouteError &&
-        error.code === "INVALID_PROVIDER_ROUTE" &&
-        error.details?.hostProvider === provider &&
-        error.details.hostSurface === "cli" &&
-        error.details.provider === provider &&
-        error.details.configuredSurface === "vscode" &&
-        error.details.effectiveSurface === "vscode",
-    );
-    assert.deepEqual(invalidAvailability.checks, []);
-  }
-});
-
-test("cross-provider routing generically forces the target provider CLI", async () => {
+test("every host provider reaches every provider's CLI target", async () => {
+  // Host identity contributes only a provider. Same provider means its own
+  // CLI; a different provider means that provider's CLI. There is no third
+  // outcome, and no UI surface participates.
   for (const hostProvider of AGENT_PROVIDERS) {
-    for (const provider of AGENT_PROVIDERS) {
-      if (hostProvider === provider) {
-        continue;
-      }
-      for (const hostSurface of AGENT_SURFACES) {
-        for (const configuredSurface of AGENT_SURFACES) {
-          const availability = new FakeRuntimeAvailability(true);
-          const route = await new ProviderRouter(availability).resolve({
-            host: host(hostProvider, hostSurface),
-            targetConfig: targetConfig(provider, configuredSurface),
-          });
-
-          assert.equal(route.provider, provider);
-          assert.equal(route.configuredSurface, configuredSurface);
-          assert.equal(route.effectiveSurface, "cli");
-          assert.equal(route.routingReason, "cross_provider_cli");
-          assert.equal(
-            route.cliForcedByCrossProvider,
-            configuredSurface === "vscode",
-          );
-          assert.deepEqual(availability.checks, [
-            { provider, surface: "cli" },
-          ]);
-        }
-      }
+    for (const targetProvider of AGENT_PROVIDERS) {
+      const availability = new FakeRuntimeAvailability(true);
+      const route = await new ProviderRouter(availability).resolve({
+        host: host(hostProvider),
+        targetConfig: targetConfig(targetProvider, "cli"),
+      });
+      assert.equal(route.provider, targetProvider);
+      assert.equal(route.effectiveSurface, "cli");
+      assert.equal(
+        route.routingReason,
+        hostProvider === targetProvider
+          ? "same_provider_configured_cli"
+          : "cross_provider_cli",
+      );
+      // Availability is always checked against the CLI runtime that will run.
+      assert.deepEqual(availability.checks, [
+        { provider: targetProvider, surface: "cli" },
+      ]);
     }
   }
 });
 
-test("cross-provider forced CLI unavailability returns the stable CLI error", async () => {
-  const availability = new FakeRuntimeAvailability(false);
-
-  await assert.rejects(
-    new ProviderRouter(availability).resolve({
-      host: host("anthropic", "vscode"),
-      targetConfig: targetConfig("openai", "vscode"),
-    }),
-    (error: unknown) =>
-      error instanceof ProviderCliUnavailableError &&
-      error.code === "PROVIDER_CLI_UNAVAILABLE" &&
-      error.details?.hostProvider === "anthropic" &&
-      error.details.hostSurface === "vscode" &&
-      error.details.provider === "openai" &&
-      error.details.configuredSurface === "vscode" &&
-      error.details.effectiveSurface === "cli",
-  );
-  assert.deepEqual(availability.checks, [
-    { provider: "openai", surface: "cli" },
-  ]);
+test("a VS Code target is refused for every host, with no silent downgrade", async () => {
+  // The previous model rewrote a cross-provider `vscode` target to `cli` and
+  // executed it -- running something the user never configured. It must now
+  // fail deterministically, before any availability lookup or provider call.
+  for (const hostProvider of AGENT_PROVIDERS) {
+    for (const targetProvider of AGENT_PROVIDERS) {
+      const availability = new FakeRuntimeAvailability(true);
+      await assert.rejects(
+        new ProviderRouter(availability).resolve({
+          host: host(hostProvider),
+          targetConfig: targetConfig(targetProvider, "vscode"),
+        }),
+        (error: unknown) => {
+          assert.ok(error instanceof AgentTargetSurfaceUnsupportedError);
+          assert.equal(
+            (error as { code: string }).code,
+            "AGENT_TARGET_SURFACE_UNSUPPORTED",
+          );
+          return true;
+        },
+        `${hostProvider} host must refuse ${targetProvider}/vscode`,
+      );
+      // Refused before the runtime was even probed.
+      assert.deepEqual(availability.checks, []);
+    }
+  }
 });
 
-test("same-provider configured CLI unavailability returns the stable CLI error", async () => {
-  const availability = new FakeRuntimeAvailability(false);
-
-  await assert.rejects(
-    new ProviderRouter(availability).resolve({
-      host: host("google", "vscode"),
-      targetConfig: targetConfig("google", "cli"),
-    }),
-    (error: unknown) =>
-      error instanceof ProviderCliUnavailableError &&
-      error.code === "PROVIDER_CLI_UNAVAILABLE" &&
-      error.details?.provider === "google" &&
-      error.details.configuredSurface === "cli",
-  );
+test("no reachable route reports a native host execution surface", async () => {
+  for (const hostProvider of AGENT_PROVIDERS) {
+    for (const targetProvider of AGENT_PROVIDERS) {
+      const route = await new ProviderRouter(
+        new FakeRuntimeAvailability(true),
+      ).resolve({
+        host: host(hostProvider),
+        targetConfig: targetConfig(targetProvider, "cli"),
+      });
+      // `same_provider_native` required a VS Code HOST surface, which is no
+      // longer expressible; it was removed rather than left unreachable.
+      assert.notEqual(route.routingReason as string, "same_provider_native");
+      assert.equal(route.cliForcedByCrossProvider, false);
+    }
+  }
 });
 
-test("same-provider active VS Code route needs no availability lookup", async () => {
-  const availability = new FakeRuntimeAvailability(false);
-
-  const route = await new ProviderRouter(availability).resolve({
-    host: host("google", "vscode"),
-    targetConfig: targetConfig("google", "vscode"),
-  });
-
-  assert.equal(route.effectiveSurface, "vscode");
-  assert.deepEqual(availability.checks, []);
+test("an unavailable CLI runtime returns the stable provider error", async () => {
+  for (const hostProvider of AGENT_PROVIDERS) {
+    await assert.rejects(
+      new ProviderRouter(new FakeRuntimeAvailability(false)).resolve({
+        host: host(hostProvider),
+        targetConfig: targetConfig("openai", "cli"),
+      }),
+      ProviderCliUnavailableError,
+    );
+  }
 });
 
-test("an available effective runtime resolves successfully", async () => {
-  const availability = new FakeRuntimeAvailability(true);
-
-  const route = await new ProviderRouter(availability).resolve({
-    host: host("openai", "cli"),
-    targetConfig: targetConfig("anthropic", "vscode"),
-  });
-
-  assert.equal(route.provider, "anthropic");
-  assert.equal(route.effectiveSurface, "cli");
-});
-
-test("route preserves configured surface, model, and settings without mutation", async () => {
-  const settings = Object.freeze({});
-  const config: ValidatedAgentConfig = Object.freeze({
-    agent: "researcher",
-    status: "configured",
-    provider: "openai",
-    surface: "vscode",
-    model: "exact-model-name",
+test("route preserves configured provider, model and settings without mutation", async () => {
+  const settings = Object.freeze({ reasoning: "high" });
+  const config: ValidatedAgentConfig = {
+    ...targetConfig("openai", "cli"),
     settings,
-  });
-
-  const route = await new ProviderRouter(
-    new FakeRuntimeAvailability(true),
-  ).resolve({
-    host: host("anthropic", "cli"),
+  };
+  const route = await new ProviderRouter(new FakeRuntimeAvailability(true)).resolve({
+    host: host("anthropic"),
     targetConfig: config,
   });
-
-  assert.equal(route.configuredSurface, "vscode");
-  assert.equal(route.effectiveSurface, "cli");
-  assert.equal(route.model, "exact-model-name");
-  assert.equal(route.settings, settings);
-  assert.deepEqual(config, {
-    agent: "researcher",
-    status: "configured",
-    provider: "openai",
-    surface: "vscode",
-    model: "exact-model-name",
-    settings: {},
-  });
+  assert.equal(route.model, "openai-model");
+  assert.equal(route.configuredSurface, "cli");
+  assert.deepEqual(route.settings, settings);
+  // The host is copied, never aliased, and carries provider identity only.
+  assert.deepEqual(route.host, { provider: "anthropic" });
+  assert.equal(Object.hasOwn(route.host, "surface"), false);
 });
 
 test("routing neither mutates persisted AgentConfig nor writes Synaphex state", async (t: TestContext) => {
@@ -256,10 +174,15 @@ test("routing neither mutates persisted AgentConfig nor writes Synaphex state", 
   const beforeFiles = await readdir(root);
   const beforeConfig = await readFile(join(root, "agent_config.jsonc"), "utf8");
 
-  await new ProviderRouter(new FakeRuntimeAvailability(true)).resolve({
-    host: host("openai", "vscode"),
-    targetConfig: validated,
-  });
+  // Even a REFUSED route must leave persisted configuration untouched:
+  // Synaphex never rewrites a user's configured surface to make it runnable.
+  await assert.rejects(
+    new ProviderRouter(new FakeRuntimeAvailability(true)).resolve({
+      host: host("openai"),
+      targetConfig: validated,
+    }),
+    AgentTargetSurfaceUnsupportedError,
+  );
 
   assert.deepEqual(await readdir(root), beforeFiles);
   assert.equal(
@@ -272,4 +195,58 @@ test("routing neither mutates persisted AgentConfig nor writes Synaphex state", 
     surface: "vscode",
     model: "gemini-example",
   });
+});
+
+// ---------------------------------------------------------------------------
+// Shared-registration truthfulness (the Phase-8A blocker)
+// ---------------------------------------------------------------------------
+
+test("the same registration is truthful whichever UI launched it", async () => {
+  // A provider's CLI and its VS Code extension load the SAME MCP registration
+  // -- verified directly against both installed extensions. Under the old
+  // model that registration asserted `--host-surface cli`, so a VS Code launch
+  // made the server assert something false. Host identity is now provider-only,
+  // so one registration is correct from either launch origin.
+  const { parseHostContextArguments } = await import(
+    "../src/mcp/mcp-host-context.js"
+  );
+  for (const provider of AGENT_PROVIDERS) {
+    const host = parseHostContextArguments(["--host-provider", provider]);
+    assert.deepEqual(host, { provider });
+    // There is no field in which a UI origin could be recorded at all.
+    assert.deepEqual(Object.keys(host), ["provider"]);
+  }
+});
+
+test("a surface assertion is refused rather than ignored", async () => {
+  // Silently ignoring it would let a stale registration keep implying a
+  // surface Synaphex no longer honours.
+  const { parseHostContextArguments } = await import(
+    "../src/mcp/mcp-host-context.js"
+  );
+  for (const surface of ["cli", "vscode", "emacs"]) {
+    assert.throws(
+      () =>
+        parseHostContextArguments(["--host-provider", "openai", "--host-surface", surface]),
+      /no longer supported/,
+      `--host-surface ${surface} must be refused`,
+    );
+  }
+  assert.throws(() => parseHostContextArguments([]), /required/);
+  assert.throws(
+    () => parseHostContextArguments(["--host-provider", "acme"]),
+    /must be one of/,
+  );
+});
+
+test("no reachable input can express a host UI surface", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const code = (
+    await readFile(join(process.cwd(), "src/core/provider-router.ts"), "utf8")
+  )
+    .replaceAll(/\/\*[\s\S]*?\*\//g, "")
+    .replaceAll(/\/\/.*$/gm, "");
+  // The router must never read a host surface again.
+  assert.equal(code.includes("host.surface"), false);
+  assert.equal(code.includes("same_provider_native"), false);
 });

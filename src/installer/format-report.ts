@@ -50,7 +50,7 @@ export function formatReport(
 }
 
 export function formatPlanConfirmation(
-  targets: readonly { provider: string; surface: string }[],
+  targets: readonly { provider: string }[],
 ): string {
   const lines = ["Synaphex will configure:", ""];
   for (const target of targets) {

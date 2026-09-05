@@ -274,36 +274,37 @@ try {
   section("installed MCP launcher");
   const entrypoint = join(packageRoot, "dist", "mcp", "stdio-main.js");
   for (const provider of ["openai", "anthropic", "google"]) {
-    const probe = await probeMcp(process.execPath, [
-      entrypoint,
-      "--host-provider",
-      provider,
-      "--host-surface",
-      "cli",
-    ], unrelated);
-    check(`${provider}/cli serves tools over MCP`, probe.tools > 0, probe.detail);
+    const probe = await probeMcp(
+      process.execPath,
+      [entrypoint, "--host-provider", provider],
+      unrelated,
+    );
+    check(`${provider} host serves tools over MCP`, probe.tools > 0, probe.detail);
   }
   // The MCP bin is what a provider host actually launches, so its shim must
   // work too -- the same symlink defect made it exit 0 in total silence.
-  const mcpShimValid = run(
-    mcpBin,
-    ["--host-provider", "anthropic", "--host-surface", "cli"],
-    { cwd: unrelated, env: { ...shimEnv, NODE_PATH: "" }, input: "", timeout: 15_000 },
-  );
-  check(
-    "the MCP bin shim starts (not a silent no-op)",
-    /host context: anthropic\/cli/.test(`${mcpShimValid.stdout}${mcpShimValid.stderr}`),
-    "the installed synaphex-mcp-stdio shim produced no output",
-  );
-  const refused = run(mcpBin, ["--host-provider", "anthropic", "--host-surface", "vscode"], {
+  const mcpShimValid = run(mcpBin, ["--host-provider", "anthropic"], {
     cwd: unrelated,
     env: { ...shimEnv, NODE_PATH: "" },
     input: "",
     timeout: 15_000,
   });
   check(
-    "an unsupported vscode host fails closed through the shim",
-    /unsupported host combination/.test(`${refused.stdout}${refused.stderr}`),
+    "the MCP bin shim starts (not a silent no-op)",
+    /host provider: anthropic/.test(`${mcpShimValid.stdout}${mcpShimValid.stderr}`),
+    "the installed synaphex-mcp-stdio shim produced no output",
+  );
+  // An obsolete surface assertion is refused rather than ignored, so a stale
+  // registration cannot smuggle UI identity back into host authority.
+  const refused = run(mcpBin, ["--host-provider", "anthropic", "--host-surface", "cli"], {
+    cwd: unrelated,
+    env: { ...shimEnv, NODE_PATH: "" },
+    input: "",
+    timeout: 15_000,
+  });
+  check(
+    "an obsolete host-surface assertion fails closed through the shim",
+    /no longer supported/.test(`${refused.stdout}${refused.stderr}`),
     `${refused.stdout}${refused.stderr}`.slice(0, 200),
   );
 
@@ -366,11 +367,10 @@ try {
     check(`${flavor}: synaphex registered`, entry !== undefined);
     if (entry !== undefined) {
       check(
-        `${flavor}: registration carries ${provider}/cli host context`,
+        `${flavor}: registration carries the ${provider} host provider only`,
         entry.args?.includes("--host-provider") &&
           entry.args?.includes(provider) &&
-          entry.args?.includes("--host-surface") &&
-          entry.args?.includes("cli"),
+          !entry.args?.includes("--host-surface"),
         JSON.stringify(entry.args),
       );
       check(

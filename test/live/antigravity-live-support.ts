@@ -79,7 +79,7 @@ export function liveInput(options: {
   return {
     route: {
       agent: options.agent,
-      host: { provider: "google", surface: "cli" },
+      host: { provider: "google" },
       provider: "google",
       configuredSurface: "cli",
       effectiveSurface: "cli",

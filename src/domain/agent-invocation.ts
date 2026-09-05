@@ -18,7 +18,7 @@ import type {
   ProcessedAgentResultFor,
 } from "./processed-agent-result.js";
 import type { ExecutionRoute } from "./provider-routing.js";
-import type { HostRuntime } from "./provider-routing.js";
+import type { McpHostContext } from "./provider-routing.js";
 import type { EffectiveRule } from "./rule.js";
 import type { SessionId } from "./session.js";
 import type { SynaphexErrorCode } from "./errors.js";
@@ -40,7 +40,7 @@ export interface UserAgentInvocationRequest<TAgent extends AgentName = AgentName
   readonly sessionId: SessionId;
   readonly agent: TAgent;
   readonly instruction?: string;
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
 }
 
 export type InvocationId = `invocation_${string}`;
@@ -171,7 +171,7 @@ export interface HelperExecutionRequest {
   readonly sessionId: SessionId;
   readonly parentInvocation: AnyAgentInvocationResult;
   readonly helperClassification: HelperCallClassification;
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
   readonly approvalGranted?: boolean;
 }
 
@@ -234,7 +234,7 @@ export interface HelperExecutionResult {
 export interface ResumeCallerRequest {
   readonly sessionId: SessionId;
   readonly helperExecution: HelperExecutionResult;
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
   readonly instruction?: string;
 }
 
@@ -248,7 +248,7 @@ export interface AllowedActionContinuationRequest {
   readonly sessionId: SessionId;
   readonly previousInvocation: AnyAgentInvocationResult;
   readonly actionClassification: ActionClassification;
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
   readonly instruction?: string;
 }
 
@@ -262,7 +262,7 @@ export interface ProviderCapabilityContinuationRequest {
   readonly previousInvocation: AnyAgentInvocationResult;
   readonly actionClassification: ActionClassification;
   readonly approvalGranted: boolean;
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
   readonly instruction?: string;
   readonly authorizationSource: ProviderCapabilityAuthorizationSource;
 }
@@ -272,6 +272,6 @@ export interface ActionApprovalContinuationRequest {
   readonly previousInvocation: AnyAgentInvocationResult;
   readonly actionClassification: ActionClassification;
   readonly approvalGranted: boolean;
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
   readonly instruction?: string;
 }

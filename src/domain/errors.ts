@@ -6,7 +6,7 @@ import type {
 } from "./action.js";
 import type { AgentProvider } from "./agent-config.js";
 import type { AgentSurface } from "./agent-config.js";
-import type { HostRuntime } from "./provider-routing.js";
+import type { McpHostContext } from "./provider-routing.js";
 import type { ProjectId } from "./project.js";
 import type { MemoryScope } from "./memory.js";
 import type {
@@ -95,6 +95,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "INVALID_AGENT_BEHAVIOR",
   "UNSUPPORTED_AGENT_BEHAVIOR",
   "INVALID_PROVIDER_ROUTE",
+  "AGENT_TARGET_SURFACE_UNSUPPORTED",
   "PROVIDER_CLI_UNAVAILABLE",
   "NATIVE_HOST_EXECUTION_UNAVAILABLE",
   "INVALID_AGENT_CONTEXT",
@@ -912,23 +913,40 @@ export class UnsupportedAgentBehaviorError extends SynaphexError<"UNSUPPORTED_AG
   }
 }
 
+/**
+ * A configured agent target names an execution surface Synaphex cannot run.
+ *
+ * v0.1 executes provider CLI targets only. A `vscode` target used to be
+ * silently rewritten to `cli` on a cross-provider route, which executed
+ * something the user never configured; it now fails deterministically before
+ * any provider runs. The user's configuration is never rewritten on their
+ * behalf -- changing `vscode` to `cli` would change their intent.
+ */
+export class AgentTargetSurfaceUnsupportedError extends SynaphexError<"AGENT_TARGET_SURFACE_UNSUPPORTED"> {
+  constructor(agent: string, provider: string, surface: string) {
+    super(
+      "AGENT_TARGET_SURFACE_UNSUPPORTED",
+      `Agent ${agent} is configured for ${provider}/${surface}, but Synaphex v0.1 executes CLI targets only`,
+      { agent, provider, surface },
+    );
+  }
+}
+
 export class InvalidProviderRouteError extends SynaphexError<"INVALID_PROVIDER_ROUTE"> {
   constructor(
-    host: HostRuntime,
+    host: McpHostContext,
     provider: AgentProvider,
     configuredSurface: AgentSurface,
     effectiveSurface: AgentSurface,
   ) {
     super(
       "INVALID_PROVIDER_ROUTE",
-      `A ${host.provider}/${host.surface} host cannot invoke the same provider's ${configuredSurface} surface; configure the target agent for CLI execution`,
+      `A ${host.provider} host cannot dispatch ${provider}/${configuredSurface}`,
       {
         hostProvider: host.provider,
-        hostSurface: host.surface,
         provider,
         configuredSurface,
         effectiveSurface,
-        reason: "same_provider_vscode_target_from_cli",
       },
     );
   }
@@ -936,7 +954,7 @@ export class InvalidProviderRouteError extends SynaphexError<"INVALID_PROVIDER_R
 
 export class ProviderCliUnavailableError extends SynaphexError<"PROVIDER_CLI_UNAVAILABLE"> {
   constructor(
-    host: HostRuntime,
+    host: McpHostContext,
     provider: AgentProvider,
     configuredSurface: AgentSurface,
   ) {
@@ -945,7 +963,6 @@ export class ProviderCliUnavailableError extends SynaphexError<"PROVIDER_CLI_UNA
       `Required provider CLI runtime is unavailable: ${provider}`,
       {
         hostProvider: host.provider,
-        hostSurface: host.surface,
         provider,
         configuredSurface,
         effectiveSurface: "cli",

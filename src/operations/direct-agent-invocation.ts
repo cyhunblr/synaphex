@@ -3,7 +3,7 @@ import type { SessionManager } from "../core/session-manager.js";
 import type { AgentName } from "../domain/agent.js";
 import type { AnyAgentInvocationResult } from "../domain/agent-invocation.js";
 import { UnsupportedAgentInvocationError } from "../domain/errors.js";
-import type { HostRuntime } from "../domain/provider-routing.js";
+import type { McpHostContext } from "../domain/provider-routing.js";
 import { parseSessionId, type SessionId } from "../domain/session.js";
 
 /**
@@ -97,7 +97,7 @@ export interface DirectAgentInvocationPort {
 
 export interface DirectAgentInvocationDependencies {
   /** Immutable, process-bound host identity. Never supplied per request. */
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
   readonly invocations: Pick<AgentInvocationService, "invokeUserAgent">;
   readonly sessions: Pick<SessionManager, "getCurrentBinding">;
   readonly roleContracts: {

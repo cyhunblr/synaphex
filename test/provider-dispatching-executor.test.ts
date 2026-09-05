@@ -76,13 +76,15 @@ function input(
 ): AgentExecutionInput {
   const route: ExecutionRoute = {
     agent: "researcher",
-    host: { provider: "anthropic", surface: "vscode" },
+    host: { provider: "anthropic" },
     provider,
     configuredSurface: effectiveSurface,
     effectiveSurface,
     cliForcedByCrossProvider: false,
-    routingReason:
-      effectiveSurface === "vscode" ? "same_provider_native" : "cross_provider_cli",
+    // A `vscode` effectiveSurface is no longer producible by ProviderRouter;
+    // it is constructed here only to prove the dispatcher still fails closed
+    // as defence in depth if one ever reached it.
+    routingReason: "cross_provider_cli",
     model: `${provider}-model`,
     ...overrides,
   };
@@ -199,7 +201,7 @@ test("the dispatcher never infers a provider from the host or the model", async 
   // says openai -- the route is authoritative.
   await s.dispatcher.execute(
     input("openai", "cli", {
-      host: { provider: "anthropic", surface: "cli" },
+      host: { provider: "anthropic" },
       model: "claude-sonnet-5",
     }),
   );

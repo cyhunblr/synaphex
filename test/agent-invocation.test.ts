@@ -50,7 +50,7 @@ import {
   InvalidActionContinuationError,
   InvalidActionExecutionKindError,
   InvalidHostActionAuthorizationError,
-  InvalidProviderRouteError,
+  AgentTargetSurfaceUnsupportedError,
   NoProjectBoundError,
   NoTaskBoundError,
   PlanDraftPendingError,
@@ -215,7 +215,9 @@ async function configure(
   fixture: Fixture,
   agent: AgentName,
   provider: AgentProvider = "openai",
-  surface: AgentSurface = "vscode",
+  // CLI is the only executable target surface in v0.1. This default used to be
+  // `vscode`, which only ever ran because the router silently downgraded it.
+  surface: AgentSurface = "cli",
 ): Promise<void> {
   await fixture.configs.setConfigured(agent, {
     provider,
@@ -287,11 +289,13 @@ test("USER invokes QUESTIONER once with routed context and persisted working sta
     sessionId,
     agent: "questioner",
     instruction: "Clarify this task.",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 1);
-  assert.equal(result.route.routingReason, "same_provider_native");
+  // Same provider now resolves to that provider's CLI: there is no native
+  // VS Code route, because no VS Code host identity exists.
+  assert.equal(result.route.routingReason, "same_provider_configured_cli");
   assert.equal(result.processedResult.state, "pending_question");
   assert.equal(
     (await fixture.artifacts.getQuestionerContext(taskScope(fixture)))
@@ -304,7 +308,7 @@ test("USER invokes RESEARCHER project-only with cross-provider route and project
   const fixture = await createFixture(t);
   const sessionId = "invoke-research-project";
   await bindProject(fixture, sessionId);
-  await configure(fixture, "researcher", "anthropic", "vscode");
+  await configure(fixture, "researcher", "anthropic", "cli");
   const availability = new FakeRuntimeAvailability(true);
   const executor = new FakeAgentExecutor(({ route, context }) => {
     assert.equal(context.task, null);
@@ -321,7 +325,7 @@ test("USER invokes RESEARCHER project-only with cross-provider route and project
   const result = await service(fixture, executor, availability).invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 1);
@@ -347,7 +351,7 @@ test("USER invokes RESEARCHER task-bound and persists task evidence", async (t) 
   await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 1);
@@ -380,7 +384,7 @@ test("USER invokes EXAMINER project-only and canonical memory changes only throu
   await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "examiner",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 1);
@@ -422,12 +426,12 @@ test("completed bound task remains directly invocable by RESEARCHER and EXAMINER
   await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await invocation.invokeUserAgent({
     sessionId,
     agent: "examiner",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 2);
@@ -460,7 +464,7 @@ test("USER invokes PLANNER and persists only its draft result", async (t) => {
   await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "planner",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 1);
@@ -491,7 +495,7 @@ test("USER invokes CODER in autonomous mode with no plan", async (t) => {
   await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 1);
@@ -521,7 +525,7 @@ test("USER invokes CODER in accepted-plan mode", async (t) => {
   await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 1);
@@ -554,7 +558,7 @@ test("USER invokes REVIEWER only with Coder evidence and persists complete revie
   const result = await invocation.invokeUserAgent({
     sessionId,
     agent: "reviewer",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 1);
@@ -583,7 +587,7 @@ test("configuration failures stop before executor invocation and remain agent-lo
     invocation.invokeUserAgent({
       sessionId,
       agent: "researcher",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentUnconfiguredError,
   );
@@ -594,7 +598,7 @@ test("configuration failures stop before executor invocation and remain agent-lo
     invocation.invokeUserAgent({
       sessionId,
       agent: "planner",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentConfigurationRemovedError,
   );
@@ -621,7 +625,7 @@ test("configuration failures stop before executor invocation and remain agent-lo
     invocation.invokeUserAgent({
       sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     InvalidAgentModelError,
   );
@@ -633,6 +637,7 @@ test("invalid and unavailable provider routes stop before execution", async (t) 
   const fixture = await createFixture(t);
   const sessionId = "invoke-route-failures";
   await bindProject(fixture, sessionId);
+  // An unsupported TARGET surface is refused before any availability lookup.
   await configure(fixture, "researcher", "openai", "vscode");
   const executor = new FakeAgentExecutor(() => {
     throw new Error("must not execute");
@@ -644,17 +649,18 @@ test("invalid and unavailable provider routes stop before execution", async (t) 
     invocation.invokeUserAgent({
       sessionId,
       agent: "researcher",
-      host: { provider: "openai", surface: "cli" },
+      host: { provider: "openai" },
     }),
-    InvalidProviderRouteError,
+    AgentTargetSurfaceUnsupportedError,
   );
 
-  await configure(fixture, "researcher", "anthropic", "vscode");
+  // A supported CLI target whose runtime is unavailable fails differently.
+  await configure(fixture, "researcher", "anthropic", "cli");
   await assert.rejects(
     invocation.invokeUserAgent({
       sessionId,
       agent: "researcher",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     ProviderCliUnavailableError,
   );
@@ -681,7 +687,7 @@ test("missing project or required task fails invocation preflight", async (t) =>
     invocation.invokeUserAgent({
       sessionId: "unbound",
       agent: "researcher",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     NoProjectBoundError,
   );
@@ -691,7 +697,7 @@ test("missing project or required task fails invocation preflight", async (t) =>
     invocation.invokeUserAgent({
       sessionId,
       agent: "planner",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     NoTaskBoundError,
   );
@@ -710,7 +716,7 @@ test("completed task rejects CODER before executor", async (t) => {
     service(fixture, executor).invokeUserAgent({
       sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     TaskCompletedError,
   );
@@ -728,7 +734,7 @@ test("any pending draft blocks CODER with or without an accepted current plan", 
     service(noCurrent, firstExecutor).invokeUserAgent({
       sessionId: noCurrentSession,
       agent: "coder",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof PlanDraftPendingError &&
@@ -747,7 +753,7 @@ test("any pending draft blocks CODER with or without an accepted current plan", 
     service(withCurrent, secondExecutor).invokeUserAgent({
       sessionId: withCurrentSession,
       agent: "coder",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     PlanDraftPendingError,
   );
@@ -771,7 +777,7 @@ test("REVIEWER without persisted Coder evidence fails preflight", async (t) => {
     service(fixture, executor).invokeUserAgent({
       sessionId,
       agent: "reviewer",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof ReviewTargetNotAvailableError &&
@@ -794,7 +800,7 @@ test("executor failure is wrapped and causes no ResultProcessor mutation", async
     service(fixture, executor).invokeUserAgent({
       sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof AgentExecutionFailedError &&
@@ -825,7 +831,7 @@ test("malformed executor output fails read-only validation before mutation", asy
     service(fixture, executor).invokeUserAgent({
       sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     InvalidAgentResultError,
   );
@@ -864,7 +870,7 @@ test("malformed requested helper call fails read-only validation before main-res
     service(fixture, executor).invokeUserAgent({
       sessionId,
       agent: "researcher",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     InvalidAgentResultError,
   );
@@ -900,7 +906,7 @@ test("invalid rule state produces unavailable helper while valid main result sti
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.deepEqual(result.helperCalls, [
@@ -947,7 +953,7 @@ test("unexpected helper-classification exception occurs before ResultProcessor m
     service(fixture, executor).invokeUserAgent({
       sessionId,
       agent: "researcher",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof Error &&
@@ -983,7 +989,7 @@ test("ResultProcessor rechecks a lifecycle race after execution", async (t) => {
     service(fixture, executor).invokeUserAgent({
       sessionId,
       agent: "coder",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     TaskCompletedError,
   );
@@ -1016,7 +1022,7 @@ test("direct USER calls bypass unrelated agent-call deny rules", async (t) => {
   ).invokeUserAgent({
     sessionId: coderSession,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.deepEqual(coderResult.helperCalls, []);
 
@@ -1047,7 +1053,7 @@ test("direct USER calls bypass unrelated agent-call deny rules", async (t) => {
   ).invokeUserAgent({
     sessionId: reviewerSession,
     agent: "reviewer",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.deepEqual(reviewerResult.helperCalls, []);
@@ -1094,7 +1100,7 @@ test("helper calls classify allow, ask, deny, and default deny independently in 
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.deepEqual(
@@ -1158,7 +1164,7 @@ test("task rule overrides project and global during helper classification", asyn
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(result.helperCalls[0]?.status, "allowed");
@@ -1188,7 +1194,7 @@ test("immutable PLANNER to CODER request is forbidden without rolling back main 
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "planner",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(result.helperCalls[0]?.status, "forbidden");
@@ -1227,7 +1233,7 @@ test("CODER to PLANNER uses persisted accepted plan and purpose before configura
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.deepEqual(
@@ -1268,7 +1274,7 @@ test("CODER to PLANNER without accepted plan is immutable-forbidden even when ru
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(result.helperCalls[0]?.status, "forbidden");
@@ -1338,7 +1344,7 @@ test("explicit helper execution enforces allowed and ephemeral ask approval", as
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   const rulesBefore = await fixture.store.readText("rules.jsonc");
 
@@ -1346,7 +1352,7 @@ test("explicit helper execution enforces allowed and ephemeral ask approval", as
     sessionId,
     parentInvocation: parent,
     helperClassification: parent.helperCalls[0]!,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(allowed.helperInvocation.agent, "examiner");
   assert.equal(allowed.helperInvocation.lineage.depth, 1);
@@ -1357,7 +1363,7 @@ test("explicit helper execution enforces allowed and ephemeral ask approval", as
       sessionId,
       parentInvocation: parent,
       helperClassification: parent.helperCalls[1]!,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentCallApprovalRequiredError,
   );
@@ -1368,7 +1374,7 @@ test("explicit helper execution enforces allowed and ephemeral ask approval", as
     parentInvocation: parent,
     helperClassification: parent.helperCalls[1]!,
     approvalGranted: true,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(approved.helperInvocation.agent, "questioner");
   assert.equal(approved.continuation.message, "Please clarify the constraint.");
@@ -1380,7 +1386,7 @@ test("explicit helper execution enforces allowed and ephemeral ask approval", as
       sessionId,
       parentInvocation: parent,
       helperClassification: parent.helperCalls[1]!,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentCallApprovalRequiredError,
   );
@@ -1410,7 +1416,7 @@ test("denied and immutable-forbidden helpers cannot execute even with approval",
   const deniedParent = await deniedService.invokeUserAgent({
     sessionId: deniedSession,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await assert.rejects(
     deniedService.executeHelper({
@@ -1418,7 +1424,7 @@ test("denied and immutable-forbidden helpers cannot execute even with approval",
       parentInvocation: deniedParent,
       helperClassification: deniedParent.helperCalls[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentCallDeniedError,
   );
@@ -1440,7 +1446,7 @@ test("denied and immutable-forbidden helpers cannot execute even with approval",
   const forbiddenParent = await forbiddenService.invokeUserAgent({
     sessionId: forbiddenSession,
     agent: "planner",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await assert.rejects(
     forbiddenService.executeHelper({
@@ -1448,7 +1454,7 @@ test("denied and immutable-forbidden helpers cannot execute even with approval",
       parentInvocation: forbiddenParent,
       helperClassification: forbiddenParent.helperCalls[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentCallForbiddenError,
   );
@@ -1479,7 +1485,7 @@ test("helper execution reclassifies current rule state and reports refusal audit
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await fixture.rules.setRule("task", key, "deny", {
     projectId: fixture.project.id,
@@ -1491,7 +1497,7 @@ test("helper execution reclassifies current rule state and reports refusal audit
       sessionId,
       parentInvocation: parent,
       helperClassification: parent.helperCalls[0]!,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof AgentCallDeniedError &&
@@ -1524,7 +1530,7 @@ test("ask approval cannot override a current deny and unavailable is never execu
   const deniedParent = await deniedService.invokeUserAgent({
     sessionId: deniedSession,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await deniedFixture.rules.setRule("global", key, "deny");
   await assert.rejects(
@@ -1533,7 +1539,7 @@ test("ask approval cannot override a current deny and unavailable is never execu
       parentInvocation: deniedParent,
       helperClassification: deniedParent.helperCalls[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentCallDeniedError,
   );
@@ -1559,7 +1565,7 @@ test("ask approval cannot override a current deny and unavailable is never execu
   const unavailableParent = await unavailableService.invokeUserAgent({
     sessionId: unavailableSession,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await assert.rejects(
     unavailableService.executeHelper({
@@ -1567,7 +1573,7 @@ test("ask approval cannot override a current deny and unavailable is never execu
       parentInvocation: unavailableParent,
       helperClassification: unavailableParent.helperCalls[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentCallUnavailableError,
   );
@@ -1596,7 +1602,7 @@ test("helper target configuration and runtime availability are revalidated", asy
   const configParent = await configService.invokeUserAgent({
     sessionId: configSession,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await configFixture.configs.markUnconfigured("examiner");
   await assert.rejects(
@@ -1604,7 +1610,7 @@ test("helper target configuration and runtime availability are revalidated", asy
       sessionId: configSession,
       parentInvocation: configParent,
       helperClassification: configParent.helperCalls[0]!,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentUnconfiguredError,
   );
@@ -1614,7 +1620,7 @@ test("helper target configuration and runtime availability are revalidated", asy
   const runtimeSession = "helper-runtime-drift";
   await bindTask(runtimeFixture, runtimeSession);
   await configure(runtimeFixture, "researcher");
-  await configure(runtimeFixture, "examiner", "anthropic", "vscode");
+  await configure(runtimeFixture, "examiner", "anthropic", "cli");
   await runtimeFixture.rules.setRule(
     "global",
     { kind: "agent_call", caller: "researcher", target: "examiner" },
@@ -1632,7 +1638,7 @@ test("helper target configuration and runtime availability are revalidated", asy
   const runtimeParent = await runtimeService.invokeUserAgent({
     sessionId: runtimeSession,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   availability.available = false;
   await assert.rejects(
@@ -1640,7 +1646,7 @@ test("helper target configuration and runtime availability are revalidated", asy
       sessionId: runtimeSession,
       parentInvocation: runtimeParent,
       helperClassification: runtimeParent.helperCalls[0]!,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     ProviderCliUnavailableError,
   );
@@ -1716,7 +1722,7 @@ test("CODER explicitly resumes after PLANNER confirms the accepted plan", async 
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(parent.lineage.depth, 0);
   assert.equal(executor.calls.length, 1);
@@ -1725,7 +1731,7 @@ test("CODER explicitly resumes after PLANNER confirms the accepted plan", async 
     sessionId,
     parentInvocation: parent,
     helperClassification: parent.helperCalls[0]!,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(executor.calls.length, 2);
   assert.equal(helper.continuation.status, "ready");
@@ -1750,7 +1756,7 @@ test("CODER explicitly resumes after PLANNER confirms the accepted plan", async 
   const resumed = await invocation.resumeCaller({
     sessionId,
     helperExecution: helper,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 3);
@@ -1806,13 +1812,13 @@ test("PLANNER revision helper persists a draft and blocks CODER resumption", asy
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   const helper = await invocation.executeHelper({
     sessionId,
     parentInvocation: parent,
     helperClassification: parent.helperCalls[0]!,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(executor.calls.length, 2);
@@ -1829,7 +1835,7 @@ test("PLANNER revision helper persists a draft and blocks CODER resumption", asy
     invocation.resumeCaller({
       sessionId,
       helperExecution: helper,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     PlanDraftPendingError,
   );
@@ -1859,7 +1865,7 @@ test("CODER to PLANNER helper loses authority when the accepted plan is removed"
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await fixture.plans.archiveCurrent(fixture.task.id);
 
@@ -1868,7 +1874,7 @@ test("CODER to PLANNER helper loses authority when the accepted plan is removed"
       sessionId,
       parentInvocation: parent,
       helperClassification: parent.helperCalls[0]!,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentCallForbiddenError,
   );
@@ -1939,13 +1945,13 @@ test("helper artifact continuation rebuilds fresh caller context", async (t) => 
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "questioner",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   const helper = await invocation.executeHelper({
     sessionId,
     parentInvocation: parent,
     helperClassification: parent.helperCalls[0]!,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(executor.calls.length, 2);
   assert.equal(helper.continuation.helperArtifactRefs.length, 1);
@@ -1968,7 +1974,7 @@ test("helper artifact continuation rebuilds fresh caller context", async (t) => 
   await invocation.resumeCaller({
     sessionId,
     helperExecution: helper,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(executor.calls.length, 3);
 });
@@ -2019,13 +2025,13 @@ test("nested helpers stay explicit, carry lineage, and obey the maximum depth", 
   const root = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   const helper = await invocation.executeHelper({
     sessionId,
     parentInvocation: root,
     helperClassification: root.helperCalls[0]!,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(executor.calls.length, 2);
   assert.equal(helper.helperInvocation.helperCalls[0]?.status, "allowed");
@@ -2035,7 +2041,7 @@ test("nested helpers stay explicit, carry lineage, and obey the maximum depth", 
     sessionId,
     parentInvocation: helper.helperInvocation,
     helperClassification: helper.helperInvocation.helperCalls[0]!,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(executor.calls.length, 3);
   assert.equal(nested.helperInvocation.lineage.depth, 2);
@@ -2057,7 +2063,7 @@ test("nested helpers stay explicit, carry lineage, and obey the maximum depth", 
       sessionId,
       parentInvocation: deepParent,
       helperClassification: deepParent.helperCalls[0]!,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     AgentInvocationDepthExceededError,
   );
@@ -2066,7 +2072,7 @@ test("nested helpers stay explicit, carry lineage, and obey the maximum depth", 
   const newRoot = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(newRoot.lineage.depth, 0);
   assert.equal(newRoot.lineage.parentInvocationId, null);
@@ -2111,13 +2117,13 @@ test("REVIEWER helper applies its own result but never archives the task", async
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await invocation.executeHelper({
     sessionId,
     parentInvocation: parent,
     helperClassification: parent.helperCalls[0]!,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(
@@ -2191,7 +2197,7 @@ test("action requests classify allow, ask, deny, and default deny in result orde
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.deepEqual(
@@ -2230,7 +2236,7 @@ test("action requests classify allow, ask, deny, and default deny in result orde
   ).invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(defaultResult.actionClassifications[0]?.status, "denied");
   assert.equal(
@@ -2268,7 +2274,7 @@ test("action requests classify allow, ask, deny, and default deny in result orde
   await service(fixture, defaultPolicyExecutor).invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 });
 
@@ -2303,7 +2309,7 @@ test("direct USER invocation applies action rules and action/helper requests coe
   const result = await service(fixture, executor).invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.equal(result.helperCalls[0]?.status, "allowed");
@@ -2327,7 +2333,7 @@ test("malformed requested action and unexpected classification failure mutate no
     service(fixture, malformedExecutor).invokeUserAgent({
       sessionId,
       agent: "researcher",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     InvalidAgentResultError,
   );
@@ -2353,7 +2359,7 @@ test("malformed requested action and unexpected classification failure mutate no
     service(fixture, classificationFailureExecutor).invokeUserAgent({
       sessionId,
       agent: "researcher",
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     SyntaxError,
   );
@@ -2389,7 +2395,7 @@ test("corrupt action rule is unavailable while the valid main result is processe
   const result = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   assert.deepEqual(result.actionClassifications[0], {
@@ -2405,7 +2411,7 @@ test("corrupt action rule is unavailable while the valid main result is processe
       previousInvocation: result,
       actionClassification: result.actionClassifications[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     InvalidActionContinuationError,
   );
@@ -2452,7 +2458,7 @@ test("one-time action approval resumes with fresh context and is never persisted
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   const classification = parent.actionClassifications[0]!;
 
@@ -2465,7 +2471,7 @@ test("one-time action approval resumes with fresh context and is never persisted
         request: requestedAction("ci"),
       },
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     InvalidActionContinuationError,
   );
@@ -2477,7 +2483,7 @@ test("one-time action approval resumes with fresh context and is never persisted
       previousInvocation: parent,
       actionClassification: classification,
       approvalGranted: false,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof ActionApprovalRequiredError &&
@@ -2495,7 +2501,7 @@ test("one-time action approval resumes with fresh context and is never persisted
     previousInvocation: parent,
     actionClassification: classification,
     approvalGranted: true,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(
     resumed.lineage.parentInvocationId,
@@ -2520,7 +2526,7 @@ test("one-time action approval resumes with fresh context and is never persisted
   await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.deepEqual(observedApprovals, [false, true, false]);
   assert.deepEqual(observedNetworkMechanisms, [
@@ -2562,7 +2568,7 @@ test("CODER network allow and one-time approval grant only hosted web search", a
   await service(allowFixture, allowExecutor).invokeUserAgent({
     sessionId: allowSession,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(allowExecutor.calls.length, 1);
 
@@ -2600,7 +2606,7 @@ test("CODER network allow and one-time approval grant only hosted web search", a
   const initial = await askInvocation.invokeUserAgent({
     sessionId: askSession,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.deepEqual(observedNetworkStates, ["disabled"]);
   await askInvocation.resumeCallerWithActionApproval({
@@ -2608,7 +2614,7 @@ test("CODER network allow and one-time approval grant only hosted web search", a
     previousInvocation: initial,
     actionClassification: initial.actionClassifications[0]!,
     approvalGranted: true,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.deepEqual(observedNetworkStates, [
     "disabled",
@@ -2647,7 +2653,7 @@ test("CODER network deny remains disabled and cannot be approved", async (t) => 
   const result = await invocation.invokeUserAgent({
     sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.equal(result.actionClassifications[0]?.status, "denied");
   await assert.rejects(
@@ -2656,7 +2662,7 @@ test("CODER network deny remains disabled and cannot be approved", async (t) => 
       previousInvocation: result,
       actionClassification: result.actionClassifications[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     InvalidActionContinuationError,
   );
@@ -2679,7 +2685,7 @@ test("action approval re-resolves current rules and denied classifications canno
   const askParent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   await fixture.store.writeJson("rules.jsonc", {
@@ -2692,7 +2698,7 @@ test("action approval re-resolves current rules and denied classifications canno
       previousInvocation: askParent,
       actionClassification: askParent.actionClassifications[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof ActionUnavailableError &&
@@ -2715,7 +2721,7 @@ test("action approval re-resolves current rules and denied classifications canno
       previousInvocation: askParent,
       actionClassification: askParent.actionClassifications[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof ActionDeniedError && error.code === "ACTION_DENIED",
@@ -2725,7 +2731,7 @@ test("action approval re-resolves current rules and denied classifications canno
   const deniedParent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await assert.rejects(
     invocation.resumeCallerWithActionApproval({
@@ -2733,7 +2739,7 @@ test("action approval re-resolves current rules and denied classifications canno
       previousInvocation: deniedParent,
       actionClassification: deniedParent.actionClassifications[0]!,
       approvalGranted: true,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
     }),
     (error: unknown) =>
       error instanceof InvalidActionContinuationError &&
@@ -2748,7 +2754,7 @@ test("action approval re-resolves current rules and denied classifications canno
   const secondAskParent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await fixture.rules.setRule(
     "global",
@@ -2760,7 +2766,7 @@ test("action approval re-resolves current rules and denied classifications canno
     previousInvocation: secondAskParent,
     actionClassification: secondAskParent.actionClassifications[0]!,
     approvalGranted: false,
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   assert.deepEqual(allowedResume.executionPolicy.providerCapabilities.network, {
     decision: "allow",
@@ -2798,7 +2804,7 @@ test("allowed host actions produce validated ephemeral authorizations without mo
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "coder",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
 
   const gitAuthorization = await invocation.authorizeHostAction({
@@ -2876,7 +2882,7 @@ test("host ask approval is explicit, does not change rules, and cannot use provi
   const parent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   const rulesBefore = await fixture.store.readText("rules.jsonc");
 
@@ -2907,7 +2913,7 @@ test("host ask approval is explicit, does not change rules, and cannot use provi
         previousInvocation: parent,
         actionClassification,
         approvalGranted: true,
-        host: { provider: "openai", surface: "vscode" },
+        host: { provider: "openai" },
       }),
       (error: unknown) =>
         error instanceof InvalidActionExecutionKindError &&
@@ -2939,7 +2945,7 @@ test("denied and unavailable host actions cannot be authorized", async (t) => {
   const deniedParent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await assert.rejects(
     invocation.authorizeHostAction({
@@ -2960,7 +2966,7 @@ test("denied and unavailable host actions cannot be authorized", async (t) => {
   const askParent = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await fixture.store.writeJson("rules.jsonc", {
     agent_calls: {},
@@ -2997,7 +3003,7 @@ test("host authorization re-resolves ask/allow/deny rule drift", async (t) => {
   const oldAskForDeny = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await fixture.rules.setRule(
     "global",
@@ -3022,7 +3028,7 @@ test("host authorization re-resolves ask/allow/deny rule drift", async (t) => {
   const oldAskForAllow = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await fixture.rules.setRule(
     "global",
@@ -3041,7 +3047,7 @@ test("host authorization re-resolves ask/allow/deny rule drift", async (t) => {
   const oldAllowForAsk = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await fixture.rules.setRule(
     "global",
@@ -3074,7 +3080,7 @@ test("host authorization re-resolves ask/allow/deny rule drift", async (t) => {
   const oldAllowForDeny = await invocation.invokeUserAgent({
     sessionId,
     agent: "researcher",
-    host: { provider: "openai", surface: "vscode" },
+    host: { provider: "openai" },
   });
   await fixture.rules.setRule(
     "global",

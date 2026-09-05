@@ -134,7 +134,7 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
   // server's lifetime. Tool input can never supply or override it.
   const host = parseHostContextArguments(options.argv ?? process.argv.slice(2));
   diagnostic(
-    `[synaphex-mcp] host context: ${host.provider}/${host.surface}`,
+    `[synaphex-mcp] host provider: ${host.provider}`,
   );
   const changeSetApply = new ChangeSetApplyManager(stateStore, tasks);
   const changeSetCommands = new ChangeSetCommands({

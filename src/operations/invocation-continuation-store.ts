@@ -5,7 +5,7 @@ import type {
   HelperCallClassification,
   HelperExecutionResult,
 } from "../domain/agent-invocation.js";
-import type { HostRuntime } from "../domain/provider-routing.js";
+import type { McpHostContext } from "../domain/provider-routing.js";
 import type { SessionId } from "../domain/session.js";
 
 /**
@@ -80,7 +80,7 @@ export class ContinuationCapacityError extends Error {
 export interface ContinuationRecord {
   readonly id: ContinuationId;
   /** Immutable host identity this continuation was created under. */
-  readonly host: HostRuntime;
+  readonly host: McpHostContext;
   readonly sessionId: SessionId;
   readonly invocation: AnyAgentInvocationResult;
   /** Server-stored classified helper requests, addressed by index. */
@@ -143,7 +143,7 @@ export class InvocationContinuationStore {
    * no record is allocated.
    */
   issue(input: {
-    readonly host: HostRuntime;
+    readonly host: McpHostContext;
     readonly sessionId: SessionId;
     readonly invocation: AnyAgentInvocationResult;
   }): ContinuationRecord | null {
@@ -173,16 +173,14 @@ export class InvocationContinuationStore {
   }
 
   /** Looks up a record, enforcing the host binding. */
-  require(id: string, host: HostRuntime): ContinuationRecord {
+  require(id: string, host: McpHostContext): ContinuationRecord {
     const record = this.records.get(id as ContinuationId);
     if (record === undefined) {
       throw new ContinuationNotFoundError();
     }
-    if (
-      record.host.provider !== host.provider ||
-      record.host.surface !== host.surface
-    ) {
-      // A continuation created under one host must not be usable from another.
+    if (record.host.provider !== host.provider) {
+      // A continuation created under one host provider must not be usable from
+      // another. Host identity is provider-only, so that is the whole check.
       throw new ContinuationNotFoundError();
     }
     return record;

@@ -78,7 +78,7 @@ function executionInput(
   return {
     route: {
       agent,
-      host: { provider: "openai", surface: "vscode" },
+      host: { provider: "openai" },
       provider: "anthropic",
       configuredSurface: "cli",
       effectiveSurface: "cli",
