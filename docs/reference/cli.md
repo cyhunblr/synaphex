@@ -18,14 +18,15 @@ Synaphex ships two executables. Only one is a user-facing command.
 
 ## Command index
 
-The complete public command surface is exactly two commands.
+The complete public command surface is exactly three commands.
 
 | Command | Purpose | Mutates provider config? | Mutates `~/.synaphex`? | Touches provider auth? |
 | --- | --- | --- | --- | --- |
 | `synaphex install` | Register Synaphex as an MCP server with selected providers, and initialize local state | Yes, via each provider's own MCP command | Yes, creates/refreshes config and state directories | No |
+| `synaphex configure` | Open a local browser GUI for agent and rule configuration | No | Yes, when you save a change | No |
 | `synaphex uninstall` | Remove Synaphex-owned MCP registrations | Yes, removals only | No, state is preserved | No |
 
-> There is no `synaphex project`, `synaphex task`, `synaphex run`, `synaphex status`, or `synaphex agent`. Orchestration happens through MCP tools inside your host, not through the terminal. `--version` is not implemented either.
+> There is no `synaphex project`, `synaphex task`, `synaphex run`, `synaphex status`, or `synaphex agent`. Orchestration happens through MCP tools inside your host, not through the terminal. `--version` is not implemented either. `configure` edits configuration and never invokes an agent, so it is not a second orchestration surface.
 
 Any other argument prints usage and exits non-zero.
 
@@ -46,6 +47,36 @@ Interactive. It performs, in order:
 
 **What install never does.** It runs no package manager, no `curl`, no VS Code extension install, and no provider login. It will not install, update, or authenticate provider software. Missing or too-old runtimes are reported, not fixed.
 
+## `synaphex configure`
+
+Opens a local configuration GUI in your browser.
+
+```bash
+synaphex configure
+synaphex configure --no-open   # start the server without launching a browser
+```
+
+It prints the URL and keeps running until you stop it with Ctrl+C:
+
+```text
+Synaphex Configure
+http://127.0.0.1:41234
+```
+
+**What it does.** Shows the six agents around you in a hex graph, lets you set
+each agent's provider, surface and model, inspect and edit rules at global,
+project or task scope, and read provider diagnostics and your configuration
+files.
+
+**What it does not do.** It registers no MCP host, installs no provider
+software, manages no credentials, and invokes no agent. Those stay with
+`synaphex install` and your provider applications.
+
+**Security.** The server binds `127.0.0.1` only and mints a fresh session token
+per launch, embedded in the page it serves. Requests without that token, from a
+foreign origin, or under an unexpected `Host` are refused. See
+[the configure guide](../configuration/configure-gui.md).
+
 ## `synaphex uninstall`
 
 Removes MCP registrations that match Synaphex's own ownership fingerprint, using each provider's own removal command.
@@ -65,6 +96,7 @@ Numeric exit codes beyond "zero for success, non-zero for failure" are **not a p
 | Nothing selected | `Nothing selected. No changes were made.` — success status, no mutation |
 | Plan not confirmed | `Cancelled. No changes were made.` — success status, no mutation |
 | Unknown or missing command | Usage written, non-zero status |
+| Unknown `configure` option | Message on stderr, non-zero status |
 | Installation could not start | Message on stderr, non-zero status |
 | Partial provider failure | Per-provider outcomes in the report; overall status reflects failure |
 | Foreign registration conflict | Reported in the summary; that registration is skipped, not replaced |

@@ -94,3 +94,10 @@ An unrecognised key is refused rather than ignored.
 - [Agent behavior](agent-behavior.md)
 - [Rules](rules.md)
 - Related: [first setup](../getting-started/first-setup.md)
+
+## Editing configuration visually
+
+`synaphex configure` opens a local browser GUI over these same files, with the
+agent hex, rule scopes and effective-decision inspector. It uses the same
+validation and atomic writes as the CLI, and these files stay canonical. See
+[the configure guide](configure-gui.md).

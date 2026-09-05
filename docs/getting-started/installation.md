@@ -117,3 +117,9 @@ tasks, plans, change sets, and review history.
 ## Next
 
 - [First setup](first-setup.md) — register provider hosts and configure agents.
+
+## Configuring visually
+
+Once installed, `synaphex configure` opens a local GUI for agent and rule
+configuration. It is optional: the JSONC files remain fully editable by hand.
+See [the configure guide](../configuration/configure-gui.md).

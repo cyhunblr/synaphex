@@ -74,6 +74,7 @@ Exact file formats under `~/.synaphex`.
 - [Agent configuration](configuration/agent-config.md) — provider, surface, model per agent
 - [Agent behaviour](configuration/agent-behavior.md) — `outputFields` for RESEARCHER, CODER, REVIEWER
 - [Rules](configuration/rules.md) — decisions, scopes, and precedence
+- [Configure GUI](configuration/configure-gui.md) — `synaphex configure`, the local configuration app
 
 ## Providers
 
@@ -96,7 +97,7 @@ What Synaphex enforces, what it trusts, and what it does not protect against.
 
 Canonical, exact detail. Look things up here.
 
-- [CLI](reference/cli.md) — `synaphex install`, `synaphex uninstall`
+- [CLI](reference/cli.md) — `synaphex install`, `synaphex configure`, `synaphex uninstall`
 - [MCP tools](reference/mcp-tools.md) — the complete tool surface
 - [Errors](reference/errors.md) — every public error code
 - [Filesystem layout](reference/filesystem-layout.md) — `~/.synaphex`

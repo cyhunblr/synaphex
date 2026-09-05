@@ -185,6 +185,7 @@ new users, provider setup, security review, and maintainers.
 Straight to the useful parts:
 
 - [Installation](docs/getting-started/installation.md) — install and register
+- [Configure GUI](docs/configuration/configure-gui.md) — `synaphex configure`, the local configuration app
 - [First workflow](docs/getting-started/first-workflow.md) — a real task, end to end
 - [Troubleshooting](docs/troubleshooting/installation.md) — when something refuses
 - [Security model](docs/security/security-model.md) — what is and is not guaranteed
