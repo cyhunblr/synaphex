@@ -131,9 +131,11 @@ Rules that matter:
 
 ### `agent_behavior.jsonc`
 
-Lists the `outputFields` each agent is allowed to persist. A result carrying a
-field that is not listed is rejected before anything is written, so narrowing
-this list narrows what an agent can record.
+Lists the `outputFields` that RESEARCHER, CODER, and REVIEWER are allowed to
+persist. Those three are the only agents with behavior entries; QUESTIONER,
+EXAMINER, and PLANNER have fixed result shapes and are not configurable here. A
+result carrying a field that is not listed is rejected before anything is
+written, so narrowing this list narrows what an agent can record.
 
 It cannot widen anything. Role contracts are fixed in code and are not
 configurable here.
