@@ -97,6 +97,10 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "MEMORY_SOURCE_NOT_FOUND",
     "AMBIGUOUS_PROJECT_REFERENCE",
     "AMBIGUOUS_TASK_REFERENCE",
+    // A handoff may cite an artifact whose shape is valid but which does not
+    // exist. Existence is only knowable against persisted state, so this is an
+    // expected refusal a caller can act on -- not an internal fault.
+    "ARTIFACT_NOT_FOUND",
   ] as const satisfies readonly SynaphexErrorCode[]);
 
 export interface McpToolFailure {
@@ -202,6 +206,9 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   AMBIGUOUS_PROJECT_REFERENCE:
     "That project reference matches more than one project.",
   AMBIGUOUS_TASK_REFERENCE: "That task reference matches more than one task.",
+  // Deliberately omits the artifact id: the caller supplied it, and echoing
+  // storage detail back adds nothing.
+  ARTIFACT_NOT_FOUND: "The referenced artifact was not found.",
   REVIEW_TARGET_CHANGED:
     "The applied change set no longer matches the source workspace.",
 });

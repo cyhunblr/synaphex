@@ -509,6 +509,21 @@ test("handoff rejects malformed, missing, cross-project, and other-task artifact
     artifactRefs,
   });
 
+  // A canonical-shaped id that was never persisted: shape validation cannot
+  // catch this, so context building is where it must fail -- before any
+  // provider process is constructed for the helper.
+  await assert.rejects(
+    fixture.builder.build({
+      sessionId,
+      agent: "examiner",
+      handoff: handoff([
+        `artifact_${"c7e72d96c96e46719959066f979f9a69"}` as ArtifactId,
+      ]),
+    }),
+    (error: unknown) =>
+      (error as { code?: string }).code === "ARTIFACT_NOT_FOUND",
+  );
+
   await assert.rejects(
     fixture.builder.build({
       sessionId,

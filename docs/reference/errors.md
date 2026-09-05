@@ -1,7 +1,7 @@
 # Error reference
 
 Synaphex returns a stable `code` you can branch on. This page documents the
-**62 error codes exposed over MCP** — the complete public set.
+**63 error codes exposed over MCP** — the complete public set.
 
 
 ## Reference index
@@ -69,6 +69,7 @@ Only codes on the exposed allowlist are returned. **Anything else collapses to `
 | `PROVIDER_EXECUTION_POLICY_UNSUPPORTED` | Provider cannot enforce the required execution policy for a single invocation | Runtime exposes only persistent, provider-owned policy settings | Use a provider with invocation-scoped policy control; see [compatibility](compatibility.md#google--antigravity) |
 | `AGENT_EXECUTION_FAILED` | Provider execution failed | Provider error, timeout, or crash | Check server stderr; retry |
 | `INVALID_AGENT_RESULT` | Result did not match contract | Provider returned malformed output | Retry; narrow `outputFields` if persistent |
+| `ARTIFACT_NOT_FOUND` | A referenced artifact does not exist | A handoff cited an artifact id that was never persisted | Re-run the requesting agent so it cites a real artifact; never hand-write ids |
 
 ## Rules
 

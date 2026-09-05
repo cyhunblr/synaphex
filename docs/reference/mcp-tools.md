@@ -232,6 +232,10 @@ Executes a helper agent call whose rule decision is already `allow`. No approval
 
 Same input shape. Used when the rule decision is `ask`: this call *is* the approval, and it executes in the same step. Approval is one-time and per-invocation — it is not remembered.
 
+Fails with `ARTIFACT_NOT_FOUND` when the requested handoff cites an artifact
+that does not exist. The refusal happens while the helper's context is built,
+before any provider runs.
+
 **CODER is excluded from helper continuation invocation.** An agent cannot spawn CODER as a helper; CODER runs only through direct top-level invocation.
 
 ### `synaphex_resume_caller`
