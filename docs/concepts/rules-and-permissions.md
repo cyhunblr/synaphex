@@ -53,22 +53,20 @@ your rules or create a standing permission — the next occurrence asks again.
 ## Agent-to-agent permissions
 
 An agent may request help from another. Those requests are rule controlled, and
-Synaphex ships defaults that are deliberately conservative:
+Synaphex ships conservative defaults — most edges require approval, and anything
+unlisted is denied.
 
-| Caller | Target | Default |
+A few examples of the shape:
+
+| Caller | Callee | Default |
 | --- | --- | --- |
 | QUESTIONER | EXAMINER | `allow` |
-| QUESTIONER | RESEARCHER | `ask` |
 | RESEARCHER | EXAMINER | `ask` |
-| EXAMINER | RESEARCHER | `ask` |
-| PLANNER | EXAMINER, RESEARCHER, QUESTIONER | `ask` |
-| **PLANNER** | **CODER** | **`deny`** |
-| CODER | PLANNER | `allow` |
-| CODER | RESEARCHER, QUESTIONER | `ask` |
-| **CODER** | **REVIEWER** | **`deny`** |
-| REVIEWER | EXAMINER, RESEARCHER, PLANNER, CODER | `ask` |
+| **PLANNER** | **CODER** | **`deny`, immutable** |
+| **CODER** | **REVIEWER** | **`deny`, immutable** |
 
-Anything absent from that table is denied by default.
+The complete default table lives in
+[configuration → rules](../configuration/rules.md).
 
 ### Configurable versus immutable
 
@@ -112,4 +110,5 @@ neither in v0.1. A request is classified and reported; nothing runs.
 ## Next
 
 - [Providers and routing](providers-and-routing.md)
+- Reference: [configuration → rules](../configuration/rules.md)
 - Previous: [plans](plans.md)
