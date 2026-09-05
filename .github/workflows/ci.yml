@@ -97,8 +97,12 @@ jobs:
       - name: Packed-product smoke
         run: npm run test:packed-product
 
+      # npm 11.x does not create --pack-destination, so the directory is made
+      # explicitly, matching how release.yml prepares its own artifact path.
       - name: Build tarball for inspection
-        run: npm pack --pack-destination dist-artifact
+        run: |
+          mkdir -p dist-artifact
+          npm pack --pack-destination dist-artifact
 
       # Keeps the exact artifact that passed the gate downloadable. This is
       # NOT publication: Phase 7A deliberately stops short of any release.
