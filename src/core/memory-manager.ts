@@ -30,7 +30,8 @@ interface StoredMemoryReference extends LoadedMemoryReference {
 }
 
 const MEMORY_MUTATION_LOCK_PATH = "state/memory-graph/.mutation-lock.json";
-// TODO: Crash/stale-lock recovery is intentionally deferred to production hardening.
+// Crash/stale-lock recovery is handled by RecoverableProcessLock (ADR 0004):
+// a dead owner's mutex is reclaimed, while domain state is never rolled back.
 
 export class MemoryManager {
   private readonly lock: RecoverableProcessLock;

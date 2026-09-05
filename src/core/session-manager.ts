@@ -73,7 +73,8 @@ function isOwnershipToken(value: unknown): value is string {
 }
 
 const TASK_BINDING_LOCK_PATH = "state/task-bindings/.ownership-lock.json";
-// TODO: Crash/stale-lock recovery is intentionally deferred to production hardening.
+// Crash/stale-lock recovery is handled by RecoverableProcessLock (ADR 0004):
+// a dead owner's mutex is reclaimed, while domain state is never rolled back.
 
 export class SessionManager {
   private readonly lock: RecoverableProcessLock;

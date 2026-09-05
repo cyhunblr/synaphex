@@ -38,8 +38,8 @@ interface DraftRevisionMetadata {
 }
 
 const PLAN_MUTATION_LOCK_PATH = "state/plans/.mutation-lock.json";
-// TODO: Crash/stale-lock recovery is intentionally deferred, matching the
-// existing task-binding and memory mutation locks.
+// Crash/stale-lock recovery is handled by RecoverableProcessLock (ADR 0004):
+// a dead owner's mutex is reclaimed, while domain state is never rolled back.
 
 export class PlanManager {
   private readonly lock: RecoverableProcessLock;
