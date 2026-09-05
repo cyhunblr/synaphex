@@ -10,6 +10,10 @@ import {
 } from "../domain/installation.js";
 import { isProcessEntrypoint } from "../infrastructure/process-entrypoint.js";
 import { StateStore } from "../infrastructure/state-store.js";
+import {
+  parseConfigureArgs,
+  runConfigure,
+} from "../configure/configure-command.js";
 import { createRegistrars } from "./create-registrars.js";
 import { formatPlanConfirmation, formatReport } from "./format-report.js";
 import { InstallationManifestStore } from "./installation-manifest.js";
@@ -20,12 +24,13 @@ import { SynaphexLauncherResolver } from "./synaphex-launcher-resolver.js";
 import { SynaphexStateInitializer } from "./synaphex-state-initializer.js";
 
 /**
- * The ONLY public terminal surface: `synaphex install` and
+ * The public terminal surface: `synaphex install`, `synaphex configure` and
  * `synaphex uninstall`.
  *
- * Project, task and agent operations are deliberately absent: those are MCP /
- * provider-host operations, and adding terminal equivalents would create a
- * second orchestration surface.
+ * Project, task and agent INVOCATION operations are deliberately absent:
+ * those are MCP / provider-host operations, and adding terminal equivalents
+ * would create a second orchestration surface. `configure` is not such a
+ * surface -- it edits agent and rule configuration and never runs an agent.
  *
  * This module is a thin interaction layer. All decisions live in
  * InstallationPlanner and InstallerService so the installer is fully testable
@@ -33,11 +38,24 @@ import { SynaphexStateInitializer } from "./synaphex-state-initializer.js";
  */
 export async function main(argv: readonly string[]): Promise<number> {
   const command = argv[0];
-  if (command !== "install" && command !== "uninstall") {
+  if (
+    command !== "install" &&
+    command !== "uninstall" &&
+    command !== "configure"
+  ) {
     process.stdout.write(
-      "Usage: synaphex install | synaphex uninstall\n",
+      "Usage: synaphex install | synaphex configure | synaphex uninstall\n",
     );
-    return command === undefined ? 1 : 1;
+    return 1;
+  }
+
+  if (command === "configure") {
+    const parsed = parseConfigureArgs(argv.slice(1));
+    if ("error" in parsed) {
+      process.stderr.write(`${parsed.error}\n`);
+      return 1;
+    }
+    return runConfigure({ open: parsed.open });
   }
 
   const runner = new SpawnProviderCommandRunner();
