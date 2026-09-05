@@ -37,13 +37,18 @@ Answering `n` at the confirmation prompt leaves your system untouched.
 
 ### What the installer does
 
-1. Detects which supported provider runtimes are installed, by running their
-   version commands directly.
-2. Builds a plan. Building the plan changes nothing.
-3. Asks you to confirm.
-4. Registers the Synaphex MCP server with each selected provider, using that
-   provider's own official MCP commands.
-5. Creates or refreshes Synaphex's configuration files under `~/.synaphex`.
+```mermaid
+flowchart TD
+    D[Detect installed provider runtimes] --> P[Build installation plan]
+    P --> K{You confirm?}
+    K -- no --> X[Nothing changes]
+    K -- yes --> R[Register Synaphex MCP server]
+    R --> C[Create or refresh ~/.synaphex configs]
+```
+
+Nothing outside Synaphex changes until you confirm. Detection runs the
+providers' own version commands rather than guessing from config files, and
+registration uses each provider's official MCP commands.
 
 Each provider is handled independently. If one fails, the others still complete
 and you get a per-provider summary rather than an all-or-nothing result.
@@ -86,11 +91,14 @@ succeed before you have signed in.
 
 Setup creates three files in `~/.synaphex`:
 
-| File | Purpose |
-| --- | --- |
-| `agent_config.jsonc` | Which provider and model each agent runs on. |
-| `agent_behavior.jsonc` | Which result fields each agent may persist. |
-| `rules.jsonc` | Global permissions for agent-to-agent calls and actions. |
+| File | Purpose | Values owned by | What reinstall changes |
+| --- | --- | --- | --- |
+| `agent_config.jsonc` | Which provider and model each agent runs on | You | Comments and formatting only |
+| `agent_behavior.jsonc` | Which result fields each agent may persist | You | Comments and formatting only |
+| `rules.jsonc` | Permissions for agent-to-agent calls and actions | You | Comments and formatting only |
+
+In every case the **values are yours** and survive reinstall untouched; the
+comments are Synaphex's and are regenerated so they stay accurate.
 
 ### `agent_config.jsonc`
 

@@ -1,5 +1,10 @@
 # Synaphex
 
+[![CI](https://github.com/cyhunblr/synaphex/actions/workflows/ci.yml/badge.svg)](https://github.com/cyhunblr/synaphex/actions/workflows/ci.yml)
+[![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-informational)](#installation)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-informational)](#installation)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-informational)](LICENSE)
+
 Synaphex is a local multi-agent framework for software work. It lets you
 coordinate six specialised agents that run on AI provider runtimes you already
 have installed — OpenAI Codex, Anthropic Claude Code, or Google Antigravity —
@@ -8,6 +13,16 @@ and it keeps their output under explicit, reviewable control.
 You reach Synaphex through the [Model Context Protocol](https://modelcontextprotocol.io):
 `synaphex install` registers a Synaphex MCP server with your provider's CLI, and
 from then on you drive the workflow by talking to that provider.
+
+[Why Synaphex](#why-synaphex) ·
+[Core model](#core-model-you-are-the-orchestrator) ·
+[Agents](#the-six-agents) ·
+[Providers](#provider-support) ·
+[Install](#installation) ·
+[Quick start](#quick-start) ·
+[Safety](#safety-model) ·
+[Docs](#documentation) ·
+[Limitations](#current-limitations-in-v01)
 
 ## Why Synaphex
 
@@ -37,10 +52,23 @@ You choose each step. Synaphex enforces the rules that make each step safe:
 whether a role may run at all, whether one agent may call another, and whether a
 result is allowed to change durable state.
 
-```text
-you ──▶ QUESTIONER ──▶ PLANNER ──▶ accept plan ──▶ CODER ──▶ apply change set ──▶ REVIEWER
-        (any step is yours to choose, skip, or repeat)
+> **You are the orchestrator.** Synaphex does not choose the next agent for you.
+
+Every agent is invoked directly by you. None of them hands off to another:
+
+```mermaid
+flowchart TD
+    U([You]) --> Q[QUESTIONER]
+    U --> RS[RESEARCHER]
+    U --> E[EXAMINER]
+    U --> P[PLANNER]
+    U --> C[CODER]
+    U --> RV[REVIEWER]
 ```
+
+There is no orchestrator agent in that picture, and no arrow between agents.
+You choose each step, in whatever order the work needs — skipping roles you do
+not need and repeating ones you do.
 
 An agent may *request* help from another agent. That request is classified
 against your rules and either allowed, held for one-time approval, or denied —

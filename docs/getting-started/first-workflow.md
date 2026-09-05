@@ -15,7 +15,25 @@ You choose each step. Synaphex enforces what is *allowed* at each step — wheth
 a role may run, whether an agent may call another agent, and whether a result may
 change durable state.
 
-That means there is no mandatory pipeline. All of these are valid:
+> **You are the orchestrator.** Synaphex does not choose the next agent for you.
+
+The walkthrough below follows one common route. It is **an example, not a
+required sequence** — every arrow is a decision you make:
+
+```mermaid
+flowchart TD
+    A[Register project] --> B[Create task]
+    B --> C[Open task session]
+    C --> D[Invoke an agent]
+    D --> E{Coding work?}
+    E -- no --> H[Complete task]
+    E -- yes --> F[Inspect change set]
+    F --> G[Apply or reject]
+    G --> H
+    H --> I[Archive task]
+```
+
+There is no mandatory pipeline. All of these are valid too:
 
 ```text
 QUESTIONER → PLANNER → accept plan → CODER → apply → REVIEWER
@@ -92,12 +110,21 @@ its revision id.
 
 ### Accepting a plan is an explicit act
 
+```mermaid
+flowchart TD
+    P[PLANNER] --> D[Plan draft]
+    D --> A[synaphex_accept_plan_draft<br/>with exact revision id]
+    A --> R[Accepted plan]
+    D -.->|approval in chat| N[No authority granted]
+```
+
 A draft becomes authoritative only through `synaphex_accept_plan_draft`, which
 takes the session id **and the exact `draftRevisionId`** you reviewed. Binding
 acceptance to a revision means you cannot accidentally accept a draft that was
 rewritten after you read it.
 
-Saying "that plan looks good" grants no authority on its own.
+> **A plan draft is not an accepted plan.** Saying "that plan looks good" grants
+> no authority on its own.
 
 > Accept the Synaphex plan draft for this session, using revision
 > `planrev_...`.
@@ -114,7 +141,19 @@ That is deliberate: it stops implementation from racing an undecided plan.
 
 This is where Synaphex's safety model does the most work.
 
-CODER **does not edit your repository**. Synaphex:
+> **CODER does not mutate your repository during execution.**
+
+```mermaid
+flowchart TD
+    S[Registered source<br/>unchanged throughout] -.->|clone at current HEAD| W[Isolated Git clone]
+    W --> X[CODER runs here]
+    X --> CS[Durable change set]
+    CS --> R[Reject: kept for the record]
+    CS --> AP[Apply: explicit, exact]
+    AP --> S2[Registered source<br/>changes staged]
+```
+
+Synaphex:
 
 1. Verifies your worktree is clean, and refuses to start if it is not.
 2. Creates an isolated Git clone at your current `HEAD`, with no remotes.
@@ -122,8 +161,8 @@ CODER **does not edit your repository**. Synaphex:
 4. Captures the result from Git state as an immutable **change set**.
 5. Discards the staging workspace.
 
-Your repository is untouched. `HEAD` has not moved, nothing is staged, and no
-file has changed.
+While CODER runs, your repository is untouched. `HEAD` has not moved, nothing is
+staged, and no file has changed.
 
 > CODER requires a clean worktree. Commit or stash your own work first.
 
@@ -178,6 +217,25 @@ whether to invoke CODER again, adjust the plan, or stop.
 ## 8. Complete and archive
 
 These are two different things.
+
+```mermaid
+flowchart TD
+    RV[REVIEWER] --> P1[PASS]
+    RV --> P2[PASS_WITH_WARNINGS]
+    RV --> F[FAIL]
+    P1 --> M[May complete the task]
+    P2 --> M
+    F --> Y[You decide what happens next]
+```
+
+A `FAIL` does not start CODER, and nothing retries on its own.
+
+Lifecycle is one-way:
+
+```mermaid
+flowchart LR
+    A[active] --> C[completed] --> R[archived]
+```
 
 **Complete** marks the work done:
 

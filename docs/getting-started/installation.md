@@ -5,13 +5,13 @@ comes next, in [first setup](first-setup.md).
 
 ## Requirements
 
-| Requirement | Detail |
-| --- | --- |
-| Operating system | Linux. macOS and Windows are not supported in v0.1. |
-| Node.js | 20 or newer. Verified on Node.js 20 and 22. |
-| npm | Ships with Node.js. |
-| Git | Required for project workflows, including anything involving CODER. |
-| Provider runtime | At least one, if you want Synaphex to be hosted by a provider. |
+| Requirement | Required? | Detail |
+| --- | --- | --- |
+| Linux | Yes | macOS and Windows are not supported in v0.1. |
+| Node.js 20+ | Yes | Verified on Node.js 20 and 22. |
+| npm | Yes | Ships with Node.js. |
+| Git | For project work | Needed for anything involving projects or CODER. |
+| A provider runtime | To host Synaphex | Any **one** of the three below is enough. |
 
 ### Provider runtimes
 
@@ -91,30 +91,24 @@ alone.
 
 ## Removing Synaphex
 
-There are two separate steps, and neither performs the other.
+There are two separate commands, and **neither performs the other**:
 
-**Remove Synaphex's provider registrations:**
-
-```bash
-synaphex uninstall
-```
-
-This removes only the MCP registrations Synaphex provably owns. It leaves alone:
-
-- any MCP server it did not create, even one named `synaphex`;
-- your provider software and authentication;
-- `~/.synaphex`, including your configuration, projects, tasks, plans, change
-  sets, and review history.
-
-**Remove the npm package:**
+| Command | Removes | Leaves alone |
+| --- | --- | --- |
+| `synaphex uninstall` | MCP registrations Synaphex provably owns | The npm package, `~/.synaphex`, provider software and sign-ins, any MCP server it did not create |
+| `npm uninstall -g synaphex` | The npm package and its binaries | Provider registrations, `~/.synaphex` |
 
 ```bash
-npm uninstall -g synaphex
+synaphex uninstall          # unregister from providers
+npm uninstall -g synaphex   # remove the package
 ```
 
-If you want to remove Synaphex's own state as well, delete `~/.synaphex`
-yourself. Nothing does that for you, because that directory holds work you may
-still want.
+Note that `synaphex uninstall` never deletes an MCP server it does not own, even
+one named `synaphex`.
+
+To remove Synaphex's own state as well, delete `~/.synaphex` yourself. Nothing
+does that for you, because that directory holds your configuration, projects,
+tasks, plans, change sets, and review history.
 
 ## Next
 
