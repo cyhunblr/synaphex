@@ -336,10 +336,11 @@ const MAX_INSTRUCTION_LENGTH = 8_000;
 /**
  * Invocation input.
  *
- * The agent enum is exactly the Phase-3A source-read-only targets, so `coder`
- * is rejected by schema validation before any application code runs. Scope is
- * a discriminated union: a caller supplies only a sessionId, never a
- * contradictory projectId+taskId+sessionId triple. There is deliberately no
+ * The agent enum is the direct-invocation set, which includes `coder`: every
+ * CODER invocation stages into an isolated clone, so a user may invoke it
+ * while the registered source stays unchanged. The helper-continuation set is
+ * deliberately narrower. Scope is a discriminated union: a caller supplies
+ * only a sessionId, never a contradictory projectId+taskId+sessionId triple. There is deliberately no
  * hostProvider/hostSurface/caller/directUser field -- host identity is
  * immutable process configuration and the entrypoint is chosen by the server.
  */
@@ -1544,7 +1545,7 @@ export function createSynaphexMcpServer(
     {
       title: "Invoke Synaphex agent",
       description:
-        "Invoke one Synaphex logical agent as a direct user invocation. Available agents: questioner, researcher, examiner, planner, reviewer. CODER is not invocable through MCP. Requested helper calls and actions are returned classified but never executed.",
+        "Invoke one configured Synaphex logical agent as a direct user invocation. Available agents: questioner, researcher, examiner, planner, coder, reviewer. Role contracts, task lifecycle, rules and execution preconditions still apply, so an agent may be refused. Requested helper calls and actions are returned classified but never executed.",
       inputSchema: invokeAgentInputSchema,
       outputSchema: invokeAgentOutputSchema,
       annotations: {

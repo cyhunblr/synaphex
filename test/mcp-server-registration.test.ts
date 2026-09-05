@@ -1,3 +1,4 @@
+import { MCP_DIRECT_INVOCABLE_AGENTS } from "../src/operations/direct-agent-invocation.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/client";
@@ -248,6 +249,49 @@ test("the task lifecycle is one-way: no reopen or un-archive tool exists", async
       ),
       ["projectId", "taskId"],
     );
+  } finally {
+    await close();
+  }
+});
+
+test("invoke_agent's description agrees with the agents its schema accepts", async () => {
+  // A tool description is public product surface: a host shows it verbatim.
+  // This one claimed CODER was not invocable long after staged CODER made it
+  // invocable, so the prose contradicted the schema a caller must satisfy.
+  const { client, close } = await connectedClient();
+  try {
+    const tool = (await client.listTools()).tools.find(
+      (candidate) => candidate.name === "synaphex_invoke_agent",
+    );
+    assert.ok(tool, "synaphex_invoke_agent must be registered");
+
+    const accepted = (
+      tool.inputSchema as { properties?: { agent?: { enum?: string[] } } }
+    ).properties?.agent?.enum;
+    assert.deepEqual(
+      [...(accepted ?? [])].sort(),
+      [...MCP_DIRECT_INVOCABLE_AGENTS].sort(),
+      "the schema must accept exactly the direct-invocable agents",
+    );
+
+    const description = tool.description ?? "";
+    // Every agent the schema accepts is named, so a host can see what it may
+    // ask for without reading the schema.
+    for (const agent of MCP_DIRECT_INVOCABLE_AGENTS) {
+      assert.ok(
+        description.toLowerCase().includes(agent),
+        `description must name ${agent}`,
+      );
+    }
+    // Semantic, not brittle: no wording may claim an accepted agent is
+    // unavailable through this tool.
+    for (const agent of MCP_DIRECT_INVOCABLE_AGENTS) {
+      assert.doesNotMatch(
+        description,
+        new RegExp(`${agent}[^.]*\\b(is not|cannot be|never)\\b[^.]*invo`, "i"),
+        `description must not claim ${agent} is uninvocable`,
+      );
+    }
   } finally {
     await close();
   }
