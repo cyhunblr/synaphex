@@ -83,6 +83,7 @@ import {
   HostActionUnavailableError,
   InvalidHostActionAuthorizationError,
   NativeHostExecutionUnavailableError,
+  ProviderExecutionPolicyUnsupportedError,
   NoProjectBoundError,
   TaskSessionOwnershipLostError,
   NoTaskBoundError,
@@ -607,9 +608,15 @@ export class AgentInvocationService {
                   executionPolicy,
                 });
               } catch (error) {
-                // Tag the provider failure so it still surfaces as
-                // AGENT_EXECUTION_FAILED after staging unwinds, rather than
-                // leaking as a raw staging-path error.
+                // A pre-execution capability refusal keeps its identity here
+                // too, so a staged CODER run reports the same public code as
+                // an unstaged one. Anything else is tagged so it still
+                // surfaces as AGENT_EXECUTION_FAILED after staging unwinds,
+                // rather than leaking as a raw staging-path error.
+                const refusal = preExecutionCapabilityRefusal(error);
+                if (refusal !== null) {
+                  throw refusal;
+                }
                 throw new AgentExecutionFailedError(
                   invocation.agent,
                   route.provider,
@@ -663,12 +670,13 @@ export class AgentInvocationService {
             })
           : stagedCoder.rawResult;
     } catch (error) {
-      // A valid-but-undispatchable route is an infrastructure capability gap,
-      // not a provider execution failure: no provider ever ran. Preserve its
-      // precise identity so a client can distinguish it from a real provider
-      // failure and from an invalid route.
-      if (error instanceof NativeHostExecutionUnavailableError) {
-        throw error;
+      // A refusal raised BEFORE any provider ran is a capability gap, not a
+      // provider execution failure. Preserve its precise identity so a client
+      // can distinguish it from a real provider failure and from an invalid
+      // route; everything else stays wrapped.
+      const refusal = preExecutionCapabilityRefusal(error);
+      if (refusal !== null) {
+        throw refusal;
       }
       throw new AgentExecutionFailedError(
         invocation.agent,
@@ -1478,4 +1486,33 @@ function actionUnavailableErrorCode(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Refusals raised before any provider agent run, whose public identity must
+ * survive the provider-execution boundary.
+ *
+ * Both are decided from configuration and provider capability alone -- the
+ * route is undispatchable, or the provider cannot enforce the required
+ * execution policy for a single invocation. No provider agent executed, so
+ * reporting them as AGENT_EXECUTION_FAILED would describe a failure that never
+ * happened and hide the one thing the user can act on.
+ *
+ * Deliberately a closed list of typed domain errors: an unexpected provider
+ * error still becomes AGENT_EXECUTION_FAILED, so provider internals and
+ * credential-bearing diagnostics never reach a client.
+ */
+function preExecutionCapabilityRefusal(error: unknown): SynaphexError | null {
+  if (error instanceof NativeHostExecutionUnavailableError) {
+    return error;
+  }
+  if (error instanceof ProviderExecutionPolicyUnsupportedError) {
+    return error;
+  }
+  // Provider adapters re-tag an unsupported policy as their own execution
+  // error to keep provider-specific diagnostics, preserving the domain error
+  // as `cause`. Recover that cause so the public code survives; the provider
+  // wrapper itself never reaches the client.
+  const cause: unknown = (error as { cause?: unknown } | null)?.cause;
+  return cause instanceof ProviderExecutionPolicyUnsupportedError ? cause : null;
 }

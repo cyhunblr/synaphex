@@ -44,6 +44,7 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "AGENT_UNCONFIGURED",
     "AGENT_CONFIGURATION_REMOVED",
     "INVALID_PROVIDER_ROUTE",
+    "AGENT_TARGET_SURFACE_UNSUPPORTED",
     "PROVIDER_CLI_UNAVAILABLE",
     "NATIVE_HOST_EXECUTION_UNAVAILABLE",
     "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
@@ -117,6 +118,10 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   AGENT_CONFIGURATION_REMOVED: "Agent configuration was removed.",
   INVALID_PROVIDER_ROUTE:
     "The configured agent cannot be reached from this host.",
+  // The route is legible but not executable: Synaphex v0.1 runs CLI targets
+  // only. Named so a host can tell it apart from an unreachable route.
+  AGENT_TARGET_SURFACE_UNSUPPORTED:
+    "The agent's configured target surface is not executable; configure a CLI target.",
   PROVIDER_CLI_UNAVAILABLE: "The provider CLI runtime is unavailable.",
   NATIVE_HOST_EXECUTION_UNAVAILABLE:
     "The route is valid but native host execution is not available; configure the target agent for CLI execution.",

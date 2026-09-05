@@ -25,6 +25,7 @@ import {
   AntigravityCliExecutionError,
   AgentTargetSurfaceUnsupportedError,
   NativeHostExecutionUnavailableError,
+  ProviderExecutionPolicyUnsupportedError,
   NoTaskBoundError,
   TaskSessionOwnershipLostError,
   UnsupportedAgentInvocationError,
@@ -818,14 +819,14 @@ test("the real Antigravity adapter still fails closed through the dispatcher", a
       scope: { kind: "task_session", sessionId: opened.sessionId },
       instruction: "Research it.",
     }),
-    (error: unknown) => {
-      const cause = (error as { cause?: unknown }).cause;
-      return (
-        error instanceof AgentExecutionFailedError &&
-        cause instanceof AntigravityCliExecutionError &&
-        cause.details?.reason === "unsupported_execution_policy"
-      );
-    },
+    // The refusal keeps its public identity: no provider agent ran, so this is
+    // a capability gap rather than an execution failure. `forbiddenRunner`
+    // above still guarantees `agy` was never spawned.
+    (error: unknown) =>
+      error instanceof ProviderExecutionPolicyUnsupportedError &&
+      error.code === "PROVIDER_EXECUTION_POLICY_UNSUPPORTED" &&
+      error.details?.reason ===
+        "read_only_not_enforceable_without_invocation_scoped_policy",
   );
 });
 
@@ -1054,4 +1055,91 @@ test("neither Core continuation path accepts a host action", async (t) => {
     await assert.rejects(attempt);
   }
   assert.equal(executor.calls.length, 1, "no continuation executed");
+});
+
+test("an unenforceable execution policy keeps its public code through the provider boundary", async (t) => {
+  // Provider adapters re-tag the domain error as their own execution error to
+  // keep provider-specific diagnostics. The public identity must still survive,
+  // otherwise a user sees a generic execution failure for a refusal that is
+  // entirely explained by configuration and provider capability.
+  const fixture = await createFixture(t);
+  await configure(fixture, "researcher", "google", "cli");
+  const opened = await fixture.commands.openTaskSession(
+    fixture.project.id,
+    fixture.task.id,
+  );
+  const executor = new RecordingExecutor(() => {
+    throw new AntigravityCliExecutionError(
+      "unsupported_execution_policy",
+      { policyReason: "read_only_not_enforceable_without_invocation_scoped_policy" },
+      {
+        cause: new ProviderExecutionPolicyUnsupportedError(
+          "google",
+          "read_only_not_enforceable_without_invocation_scoped_policy",
+        ),
+      },
+    );
+  });
+
+  await assert.rejects(
+    invocationPort(fixture, { provider: "anthropic" }, executor).invoke({
+      agent: "researcher",
+      scope: { kind: "task_session", sessionId: opened.sessionId },
+      instruction: "Research it.",
+    }),
+    (error: unknown) =>
+      error instanceof ProviderExecutionPolicyUnsupportedError &&
+      error.code === "PROVIDER_EXECUTION_POLICY_UNSUPPORTED",
+  );
+});
+
+test("an unexpected provider error is still reported as AGENT_EXECUTION_FAILED", async (t) => {
+  // The preservation above is a closed list. Anything else -- a crash, a bug,
+  // a provider error carrying credential-bearing text -- must stay wrapped so
+  // provider internals never reach a client.
+  const fixture = await createFixture(t);
+  await configure(fixture, "researcher", "anthropic", "cli");
+  const opened = await fixture.commands.openTaskSession(
+    fixture.project.id,
+    fixture.task.id,
+  );
+  const executor = new RecordingExecutor(() => {
+    throw new Error("ANTHROPIC_API_KEY=sk-secret leaked in provider stderr");
+  });
+
+  await assert.rejects(
+    invocationPort(fixture, { provider: "anthropic" }, executor).invoke({
+      agent: "researcher",
+      scope: { kind: "task_session", sessionId: opened.sessionId },
+      instruction: "Research it.",
+    }),
+    (error: unknown) =>
+      error instanceof AgentExecutionFailedError &&
+      error.code === "AGENT_EXECUTION_FAILED",
+  );
+});
+
+test("an unexpected error whose cause is unrelated stays wrapped", async (t) => {
+  // Guards the cause-unwrapping specifically: only an unsupported-policy cause
+  // is recovered, never any error that merely has a `cause`.
+  const fixture = await createFixture(t);
+  await configure(fixture, "researcher", "anthropic", "cli");
+  const opened = await fixture.commands.openTaskSession(
+    fixture.project.id,
+    fixture.task.id,
+  );
+  const executor = new RecordingExecutor(() => {
+    throw new Error("provider crashed", { cause: new Error("socket hang up") });
+  });
+
+  await assert.rejects(
+    invocationPort(fixture, { provider: "anthropic" }, executor).invoke({
+      agent: "researcher",
+      scope: { kind: "task_session", sessionId: opened.sessionId },
+      instruction: "Research it.",
+    }),
+    (error: unknown) =>
+      error instanceof AgentExecutionFailedError &&
+      error.code === "AGENT_EXECUTION_FAILED",
+  );
 });
