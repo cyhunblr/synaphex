@@ -83,7 +83,7 @@ test("a missing entrypoint fails closed rather than registering a dead path", as
   );
 });
 
-test("the registered launcher starts and serves 29 tools from an unrelated cwd", async (t) => {
+test("the registered launcher starts and serves 31 tools from an unrelated cwd", async (t) => {
   const unrelated = await mkdtemp(join(tmpdir(), "synaphex-unrelated-"));
   t.after(() => rm(unrelated, { recursive: true, force: true }));
 
@@ -94,7 +94,7 @@ test("the registered launcher starts and serves 29 tools from an unrelated cwd",
       { provider: "openai" },
       cwd,
     );
-    assert.equal(tools.length, 29, `tool count from cwd ${cwd}`);
+    assert.equal(tools.length, 31, `tool count from cwd ${cwd}`);
     assert.equal(tools.includes("synaphex_get_project"), true);
   }
 });
@@ -104,7 +104,7 @@ test("every supported host registration produces a working server", async (t) =>
     const tools = await toolsFromRegisteredLauncher(t, target, "/");
     assert.equal(
       tools.length,
-      29,
+      31,
       `${target.provider} did not serve the full tool surface`,
     );
   }

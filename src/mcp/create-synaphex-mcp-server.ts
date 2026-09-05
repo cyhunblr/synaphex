@@ -1,3 +1,5 @@
+import type { MemoryReferencePort } from "../operations/memory-operations.js";
+import type { LoadedMemoryReference } from "../domain/memory.js";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { AGENT_NAMES } from "../domain/agent.js";
@@ -169,6 +171,15 @@ export const SYNAPHEX_MCP_CONTINUATION_TOOLS = Object.freeze([
 ] as const);
 
 /** Every tool this server registers. */
+/**
+ * Memory reference tools. Loading records provenance so a scope can see
+ * another scope's canonical memory; neither tool writes canonical memory.
+ */
+export const SYNAPHEX_MCP_MEMORY_TOOLS = Object.freeze([
+  "synaphex_load_memory",
+  "synaphex_unload_memory",
+] as const);
+
 export const SYNAPHEX_MCP_TOOLS = Object.freeze([
   ...SYNAPHEX_MCP_PHASE1_TOOLS,
   ...SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
@@ -179,6 +190,7 @@ export const SYNAPHEX_MCP_TOOLS = Object.freeze([
   ...SYNAPHEX_MCP_RECOVERY_TOOLS,
   ...SYNAPHEX_MCP_INVOCATION_TOOLS,
   ...SYNAPHEX_MCP_CONTINUATION_TOOLS,
+  ...SYNAPHEX_MCP_MEMORY_TOOLS,
 ] as const);
 
 export interface CreateSynaphexMcpServerOptions
@@ -220,6 +232,7 @@ export interface CreateSynaphexMcpServerOptions
   /** Narrow change-set review/decision boundary. */
   readonly changeSetCommands: ChangeSetReadPort & ChangeSetDecisionPort;
   readonly taskLifecycleCommands: TaskCompletionPort & TaskArchivePort;
+  readonly memoryReferences: MemoryReferencePort;
   /** Server version; callers pass the package.json version (never duplicated here). */
   readonly version: string;
   /** Diagnostics sink. Defaults to stderr so MCP stdout stays protocol-only. */
@@ -230,6 +243,37 @@ const projectIdSchema = z
   .string()
   .describe("Synaphex project id, e.g. prj_1a2b3c.");
 const taskIdSchema = z.string().describe("Synaphex task id, e.g. task_1a2b3c.");
+
+/**
+ * Memory references are addressed by Synaphex identity only -- never by a
+ * filesystem path -- so no caller can point a reference at arbitrary content.
+ */
+const memoryReferenceInputSchema = z.object({
+  sessionId: z
+    .string()
+    .describe("Synaphex session id; its current binding is the load target."),
+  sourceProjectRef: z
+    .string()
+    .describe("Project whose memory to reference, by Synaphex id or name."),
+  sourceTaskRef: z
+    .string()
+    .optional()
+    .describe(
+      "Task within that project, by Synaphex id or slug. Omit to reference the project's own memory.",
+    ),
+});
+
+const memoryScopeOutputSchema = z.object({
+  kind: z.enum(["project", "task"]),
+  projectId: z.string(),
+  taskId: z.string().optional(),
+});
+
+const loadedMemoryOutputSchema = z.object({
+  target: memoryScopeOutputSchema,
+  source: memoryScopeOutputSchema,
+  loadedAt: z.string(),
+});
 
 const projectOutputSchema = z.object({
   id: z.string(),
@@ -727,6 +771,7 @@ export function createSynaphexMcpServer(
     planCommands,
     changeSetCommands,
     taskLifecycleCommands,
+    memoryReferences,
     version,
     onDiagnostic = defaultDiagnostic,
   } = options;
@@ -1654,6 +1699,67 @@ export function createSynaphexMcpServer(
       ),
   );
 
+  server.registerTool(
+    "synaphex_load_memory",
+    {
+      title: "Load memory into the current scope",
+      description:
+        "Record a managed reference so the session's current scope can see another project's or task's canonical memory. This is NOT a memory write: canonical memory stays the single authority and is never copied, and only EXAMINER may change it.",
+      inputSchema: memoryReferenceInputSchema,
+      outputSchema: loadedMemoryOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId, sourceProjectRef, sourceTaskRef }) =>
+      run(onDiagnostic, "synaphex_load_memory", async () =>
+        presentLoadedMemory(
+          await memoryReferences.loadMemory({
+            sessionId: parseSessionId(sessionId),
+            sourceProjectRef,
+            ...(sourceTaskRef === undefined ? {} : { sourceTaskRef }),
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "synaphex_unload_memory",
+    {
+      title: "Unload memory from the current scope",
+      description:
+        "Remove a previously loaded memory reference from the session's current scope. Canonical memory itself is untouched and remains readable at its own scope.",
+      inputSchema: memoryReferenceInputSchema,
+      outputSchema: z.object({
+        unloaded: z.boolean(),
+        sourceProjectRef: z.string(),
+        sourceTaskRef: z.string().optional(),
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ sessionId, sourceProjectRef, sourceTaskRef }) =>
+      run(onDiagnostic, "synaphex_unload_memory", async () => {
+        await memoryReferences.unloadMemory({
+          sessionId: parseSessionId(sessionId),
+          sourceProjectRef,
+          ...(sourceTaskRef === undefined ? {} : { sourceTaskRef }),
+        });
+        return {
+          unloaded: true,
+          sourceProjectRef,
+          ...(sourceTaskRef === undefined ? {} : { sourceTaskRef }),
+        };
+      }),
+  );
+
   return server;
 }
 
@@ -1800,4 +1906,21 @@ function coderChangeSetSummary(
 
 function defaultDiagnostic(message: string): void {
   process.stderr.write(`${message}\n`);
+}
+
+/**
+ * Presents a loaded reference as scope identity only. Local memory paths stay
+ * server-side; a host needs the identities it can act on, not our layout.
+ */
+function presentLoadedMemory(reference: LoadedMemoryReference) {
+  const scope = (value: LoadedMemoryReference["target"] | LoadedMemoryReference["source"]) => ({
+    kind: value.kind,
+    projectId: value.projectId,
+    ...(value.kind === "task" ? { taskId: value.taskId } : {}),
+  });
+  return {
+    target: scope(reference.target),
+    source: scope(reference.source),
+    loadedAt: reference.loadedAt,
+  };
 }

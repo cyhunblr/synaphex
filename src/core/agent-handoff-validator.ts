@@ -5,7 +5,7 @@ import {
 } from "../domain/agent-context.js";
 import { isAgentName, type AgentName } from "../domain/agent.js";
 import { InvalidAgentHandoffError } from "../domain/errors.js";
-import type { ArtifactId } from "../domain/artifact.js";
+import { isArtifactId, type ArtifactId } from "../domain/artifact.js";
 
 export function parseAgentHandoff(
   value: unknown,
@@ -89,9 +89,7 @@ function isAgentCallPurpose(value: unknown): value is AgentCallPurpose {
   );
 }
 
-function isArtifactId(value: unknown): value is ArtifactId {
-  return typeof value === "string" && /^artifact_[a-f0-9]{32}$/.test(value);
-}
+
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;

@@ -6,6 +6,7 @@ import {
   SYNAPHEX_MCP_BOOTSTRAP_TOOLS,
   SYNAPHEX_MCP_CHANGE_SET_TOOLS,
   SYNAPHEX_MCP_LIFECYCLE_TOOLS,
+  SYNAPHEX_MCP_MEMORY_TOOLS,
   SYNAPHEX_MCP_PLAN_TOOLS,
   SYNAPHEX_MCP_CONTINUATION_TOOLS,
   SYNAPHEX_MCP_INVOCATION_TOOLS,
@@ -64,7 +65,8 @@ test("MCP handler modules never import a broad mutation, invocation or provider 
             specifier.endsWith("project-task-commands.js") ||
             specifier.endsWith("plan-decision-commands.js") ||
             specifier.endsWith("change-set-commands.js") ||
-            specifier.endsWith("task-lifecycle-commands.js"),
+            specifier.endsWith("task-lifecycle-commands.js") ||
+            specifier.endsWith("memory-operations.js"),
           `${name} may only import narrow operations ports (${specifier})`,
         );
       }
@@ -198,7 +200,8 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
         SYNAPHEX_MCP_BOOTSTRAP_TOOLS.length +
         SYNAPHEX_MCP_PLAN_TOOLS.length +
         SYNAPHEX_MCP_CHANGE_SET_TOOLS.length +
-        SYNAPHEX_MCP_LIFECYCLE_TOOLS.length,
+        SYNAPHEX_MCP_LIFECYCLE_TOOLS.length +
+        SYNAPHEX_MCP_MEMORY_TOOLS.length,
     );
     const mutating = tools
       .filter((tool) => tool.annotations?.readOnlyHint !== true)
@@ -219,6 +222,7 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
       "synaphex_execute_helper",
       "synaphex_force_release_task_session",
       "synaphex_invoke_agent",
+      "synaphex_load_memory",
       "synaphex_open_project_session",
       "synaphex_open_task_session",
       "synaphex_reconcile_interrupted_apply",
@@ -226,6 +230,7 @@ test("the tool surface is exactly reads, session lifecycle, recovery, invocation
       "synaphex_reject_change_set",
       "synaphex_reject_plan_draft",
       "synaphex_resume_caller",
+      "synaphex_unload_memory",
     ]);
     // Host actions, cancellation, status and plan acceptance stay absent:
     // git_push/ci have no real executor, so an approval tool would be

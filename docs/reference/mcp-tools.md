@@ -1,6 +1,6 @@
 # MCP tools reference
 
-Synaphex exposes **29 MCP tools**. This page is the canonical list. Every name
+Synaphex exposes **31 MCP tools**. This page is the canonical list. Every name
 below is registered by the running server; nothing here is aspirational.
 
 
@@ -39,6 +39,7 @@ See [security model](../security/security-model.md) and [permissions](../securit
 | [Change sets](#change-sets) | `get_change_set`, `read_change_set_patch`, `apply_change_set`, `reject_change_set` | 4 |
 | [Interrupted-apply recovery](#interrupted-apply-recovery) | `get_apply_recovery_state`, `reconcile_interrupted_apply` | 2 |
 | [Task lifecycle](#task-lifecycle) | `complete_task`, `archive_task` | 2 |
+| [Memory references](#memory-references) | `load_memory`, `unload_memory` | 2 |
 
 All names carry the `synaphex_` prefix.
 
@@ -67,6 +68,7 @@ Destructive tools are marked. `R` = read-only, `D` = destructive, `I` = idempote
 | `register_project`, `create_task`, `open_project_session`, `open_task_session` | | | | |
 | `close_session` | | | ✓ | |
 | `apply_change_set`, `reject_change_set`, `reconcile_interrupted_apply` | | ✓ | | |
+| `load_memory`, `unload_memory` | | | | |
 | `accept_plan_draft`, `reject_plan_draft` | | ✓ | | |
 | `complete_task`, `archive_task` | | ✓ | | |
 | `force_release_task_session` | | ✓ | ✓ | |
@@ -376,6 +378,44 @@ Moves the task from `tasks/open/` to `tasks/archive/`. **Archiving releases the 
 This authority difference is deliberate: completion is done by whoever is doing the work, archival is an administrative action that does not require holding the claim.
 
 Fails with `INVALID_TASK_TRANSITION` when the task is not completed.
+
+## Memory references
+
+Canonical memory is written only by EXAMINER. These two tools do something
+different: they record or remove a **reference** so the session's current scope
+can see another scope's memory.
+
+> **Loading is not a memory write.** The canonical document is never copied and
+> never altered. Both tools are addressed by Synaphex identity only — there is
+> no filesystem path input, so a reference cannot point at arbitrary content.
+
+### `synaphex_load_memory`
+
+```json
+{
+  "sessionId": "ses_example",
+  "sourceProjectRef": "prj_example",
+  "sourceTaskRef": "task_example"
+}
+```
+
+`sourceTaskRef` is optional: omit it to reference the project's own memory.
+Project and task references accept an id or a name/slug. The target is the
+session's current binding — its task if one is bound, otherwise its project.
+
+Returns the reference: `target` and `source` scopes plus `loadedAt`.
+
+Fails with `MEMORY_ALREADY_LOADED` if that source is already loaded,
+`MEMORY_LOAD_CYCLE` if the reference would form a cycle,
+`MEMORY_SOURCE_NOT_FOUND` if the source does not exist, and
+`AMBIGUOUS_PROJECT_REFERENCE` / `AMBIGUOUS_TASK_REFERENCE` if a name matches
+more than one. An archived task cannot be a load target.
+
+### `synaphex_unload_memory`
+
+Same input shape. Removes the reference; canonical memory is untouched and
+remains readable at its own scope. Fails with `MEMORY_NOT_LOADED` if that
+source was not loaded.
 
 ## Error handling
 

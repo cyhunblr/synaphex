@@ -22,7 +22,21 @@ export interface MemoryOperationsOptions {
   readonly homeDirectory?: string;
 }
 
-export class MemoryOperations {
+/**
+ * The memory surface Synaphex exposes over MCP.
+ *
+ * Loading is deliberately NOT canonical memory mutation: it records a managed
+ * reference so the current scope can see another scope's memory. Writing
+ * canonical memory stays an EXAMINER-only capability enforced by role
+ * contract, and nothing here grants it.
+ */
+export interface MemoryReferencePort {
+  loadMemory(request: MemoryLoadRequest): Promise<LoadedMemoryReference>;
+  unloadMemory(request: MemoryUnloadRequest): Promise<void>;
+  listLoadedMemory(sessionId: SessionId): Promise<LoadedMemoryReference[]>;
+}
+
+export class MemoryOperations implements MemoryReferencePort {
   private readonly projectManager: ProjectManager;
   private readonly sessionManager: SessionManager;
   private readonly taskManager: TaskManager;

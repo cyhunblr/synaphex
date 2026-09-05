@@ -54,8 +54,14 @@ Canonical memory exists at two scopes:
 | **Project memory** | Knowledge about the project as a whole | Beyond any single task |
 | **Task memory** | Knowledge specific to one task | Tied to that task |
 
-Memory from one scope can be **loaded** into a session so an agent can use it,
-which is a read operation and changes nothing.
+Memory from one scope can be **loaded** into another so an agent working there
+can use it. Loading records a managed reference — identity and provenance
+only. **Canonical memory is never copied and never modified by a load**, so the
+original stays the single authority, and only EXAMINER can change its content.
+
+Loading is explicit: you call [`synaphex_load_memory`](../reference/mcp-tools.md#memory-references),
+and [`synaphex_unload_memory`](../reference/mcp-tools.md#memory-references)
+removes the reference again. Nothing loads memory automatically.
 
 Archiving a task preserves its memory. Nothing is discarded.
 

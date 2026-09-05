@@ -88,6 +88,15 @@ export const MCP_EXPOSED_ERROR_CODES: readonly SynaphexErrorCode[] =
     "REVIEW_TARGET_REJECTED",
     "REVIEW_TARGET_APPLY_INTERRUPTED",
     "REVIEW_TARGET_CHANGED",
+    // Memory references became a public operation; these are the outcomes a
+    // caller can actually act on. Lock-timeout and internal reference-shape
+    // errors stay unexposed.
+    "MEMORY_ALREADY_LOADED",
+    "MEMORY_NOT_LOADED",
+    "MEMORY_LOAD_CYCLE",
+    "MEMORY_SOURCE_NOT_FOUND",
+    "AMBIGUOUS_PROJECT_REFERENCE",
+    "AMBIGUOUS_TASK_REFERENCE",
   ] as const satisfies readonly SynaphexErrorCode[]);
 
 export interface McpToolFailure {
@@ -184,6 +193,15 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   REVIEW_TARGET_REJECTED: "The change set under review was rejected.",
   REVIEW_TARGET_APPLY_INTERRUPTED:
     "The change set under review was not successfully applied.",
+  MEMORY_ALREADY_LOADED:
+    "That memory is already loaded into the current scope.",
+  MEMORY_NOT_LOADED: "That memory is not loaded into the current scope.",
+  MEMORY_LOAD_CYCLE:
+    "Loading that memory would create a reference cycle.",
+  MEMORY_SOURCE_NOT_FOUND: "The referenced memory source was not found.",
+  AMBIGUOUS_PROJECT_REFERENCE:
+    "That project reference matches more than one project.",
+  AMBIGUOUS_TASK_REFERENCE: "That task reference matches more than one task.",
   REVIEW_TARGET_CHANGED:
     "The applied change set no longer matches the source workspace.",
 });

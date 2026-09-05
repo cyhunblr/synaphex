@@ -782,7 +782,7 @@ test("the lock primitive is TTL-free and expiry-free by construction", async () 
 
 test("the MCP surface gains no lock tool in this slice", async () => {
   const { SYNAPHEX_MCP_TOOLS } = await import("../src/index.js");
-  assert.equal(SYNAPHEX_MCP_TOOLS.length, 29);
+  assert.equal(SYNAPHEX_MCP_TOOLS.length, 31);
   for (const absent of [
     "synaphex_force_unlock",
     "synaphex_delete_lock",

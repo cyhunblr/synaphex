@@ -22,6 +22,7 @@ import type {
   RunArtifactCategory,
   TaskArtifactScope,
 } from "../domain/artifact.js";
+import { isArtifactId } from "../domain/artifact.js";
 import {
   REVIEWER_FAILURE_ORIGINS,
   REVIEWER_STATUSES,
@@ -486,10 +487,6 @@ function createArtifactId(): ArtifactId {
 
 function isRunArtifactCategory(value: unknown): value is RunArtifactCategory {
   return value === "researcher" || value === "coder" || value === "reviewer";
-}
-
-function isArtifactId(value: unknown): value is ArtifactId {
-  return typeof value === "string" && /^artifact_[a-f0-9]{32}$/.test(value);
 }
 
 function isStoredArtifact(value: unknown): value is StoredArtifact {

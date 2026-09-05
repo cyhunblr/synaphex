@@ -138,6 +138,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_get_plan_state",
       "synaphex_get_task_session_owner",
       "synaphex_invoke_agent",
+      "synaphex_load_memory",
       "synaphex_open_project_session",
       "synaphex_open_task_session",
       "synaphex_read_change_set_patch",
@@ -145,6 +146,7 @@ test("Synaphex MCP serves session lifecycle and cross-process recovery over real
       "synaphex_register_project",
       "synaphex_reject_change_set",
       "synaphex_reject_plan_draft",
+      "synaphex_unload_memory",
       "synaphex_resume_caller",
     ].sort());
 
@@ -585,7 +587,7 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
       (candidate) => candidate.name === "synaphex_invoke_agent",
     );
     assert.notEqual(invokeTool, undefined);
-    assert.equal(tools.length, 29);
+    assert.equal(tools.length, 31);
 
     // 5: the enum is exactly the six logical agents.
     const agentEnum =

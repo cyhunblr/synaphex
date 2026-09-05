@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { MemoryOperations } from "../operations/memory-operations.js";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { AgentConfigManager } from "../core/agent-config-manager.js";
 import { ArtifactManager } from "../core/artifact-manager.js";
@@ -154,6 +155,7 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
     applyManager: changeSetApply,
     sessions,
   });
+  const memoryReferences = new MemoryOperations({});
   const planCommands = new PlanDecisionCommands({
     plans,
     tasks,
@@ -196,6 +198,7 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
     agentContinuation,
     projectTaskCommands,
     planCommands,
+    memoryReferences,
     changeSetCommands,
     taskLifecycleCommands,
     onDiagnostic: diagnostic,

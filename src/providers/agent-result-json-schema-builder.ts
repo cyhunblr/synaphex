@@ -1,3 +1,4 @@
+import { ARTIFACT_ID_PATTERN } from "../domain/artifact.js";
 import { AGENT_NAMES, type AgentName } from "../domain/agent.js";
 import { AGENT_CALL_PURPOSES } from "../domain/agent-context.js";
 import {
@@ -110,7 +111,7 @@ function requestedCallSchema(caller: AgentName): JsonSchema {
       question: nullable(nonEmptyStringSchema()),
       artifactRefs: nullable({
         type: "array",
-        items: { type: "string" },
+        items: { type: "string", pattern: ARTIFACT_ID_PATTERN },
       }),
     }),
   });

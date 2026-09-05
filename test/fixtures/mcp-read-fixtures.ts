@@ -571,6 +571,15 @@ export async function connectedClient(
 ): Promise<ConnectedClient> {
   const server = createSynaphexMcpServer({
     ...reads.ports,
+    memoryReferences: {
+      loadMemory: async () => {
+        throw new Error("memory references are not exercised in this fixture");
+      },
+      unloadMemory: async () => {
+        throw new Error("memory references are not exercised in this fixture");
+      },
+      listLoadedMemory: async () => [],
+    },
     sessionCommands: reads.sessionCommands,
     sessionRecovery: reads.sessionRecovery,
     agentInvocation: reads.agentInvocation,

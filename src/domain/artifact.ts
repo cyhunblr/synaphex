@@ -15,6 +15,20 @@ export const ARTIFACT_CATEGORIES = [
 export type ArtifactCategory = (typeof ARTIFACT_CATEGORIES)[number];
 export type RunArtifactCategory = Exclude<ArtifactCategory, "questioner">;
 export type ArtifactId = `artifact_${string}`;
+
+/**
+ * The one canonical artifact-id shape: `artifact_` plus 32 lowercase hex.
+ *
+ * Kept here as a single source so the provider-facing JSON Schema and the
+ * result-validation path cannot drift. A schema that accepted a looser value
+ * than the parser promised providers something the ResultProcessor would then
+ * reject, which is exactly the failure this constant prevents.
+ */
+export const ARTIFACT_ID_PATTERN = "^artifact_[a-f0-9]{32}$";
+
+export function isArtifactId(value: unknown): value is ArtifactId {
+  return typeof value === "string" && new RegExp(ARTIFACT_ID_PATTERN).test(value);
+}
 export type ArtifactPayload = Readonly<Record<string, unknown>>;
 
 export interface ProjectArtifactScope {

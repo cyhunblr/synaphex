@@ -26,7 +26,7 @@ test("the server registers exactly the accepted tool surface", async () => {
     for (const phase1Tool of SYNAPHEX_MCP_PHASE1_TOOLS) {
       assert.ok(names.includes(phase1Tool), `${phase1Tool} must remain`);
     }
-    assert.equal(names.length, 29);
+    assert.equal(names.length, 31);
   } finally {
     await close();
   }
@@ -109,6 +109,10 @@ test("annotations describe each tool honestly and are closed-world throughout", 
         // A second call raises INVALID_TASK_TRANSITION rather than succeeding.
         "synaphex_complete_task",
         "synaphex_archive_task",
+        // A repeated load raises MEMORY_ALREADY_LOADED and a repeated unload
+        // raises MEMORY_NOT_LOADED, so neither is a repeatable no-op.
+        "synaphex_load_memory",
+        "synaphex_unload_memory",
       ];
       assert.equal(
         tool.annotations?.idempotentHint,
@@ -157,6 +161,15 @@ test("server identity uses the package name and the injected package version", a
   const reads: FakeReads = fakeReadDependencies();
   const server = createSynaphexMcpServer({
     ...reads.ports,
+    memoryReferences: {
+      loadMemory: async () => {
+        throw new Error("memory references are not exercised in this fixture");
+      },
+      unloadMemory: async () => {
+        throw new Error("memory references are not exercised in this fixture");
+      },
+      listLoadedMemory: async () => [],
+    },
     sessionCommands: reads.sessionCommands,
     sessionRecovery: reads.sessionRecovery,
     agentInvocation: reads.agentInvocation,

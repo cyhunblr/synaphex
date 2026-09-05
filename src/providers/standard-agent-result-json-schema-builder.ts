@@ -1,3 +1,4 @@
+import { ARTIFACT_ID_PATTERN } from "../domain/artifact.js";
 import { AGENT_NAMES, type AgentName } from "../domain/agent.js";
 import { AGENT_CALL_PURPOSES } from "../domain/agent-context.js";
 import type { AgentContext } from "../domain/agent-context.js";
@@ -158,7 +159,7 @@ function requestedCallSchema(caller: AgentName): JsonSchema {
           question: nonEmptyStringSchema(),
           artifactRefs: {
             type: "array",
-            items: nonEmptyStringSchema(),
+            items: artifactIdSchema(),
           },
         },
         ["caller", "target", "purpose", "summary"],
@@ -239,6 +240,15 @@ function strictObjectSchema(
 
 function stringEnumSchema(values: readonly string[]): JsonSchema {
   return { type: "string", enum: [...values] };
+}
+
+/**
+ * Artifact references must match the same shape the handoff parser enforces,
+ * so a provider cannot emit a reference that validates here and is rejected
+ * downstream.
+ */
+function artifactIdSchema(): JsonSchema {
+  return { type: "string", pattern: ARTIFACT_ID_PATTERN };
 }
 
 function nonEmptyStringSchema(): JsonSchema {

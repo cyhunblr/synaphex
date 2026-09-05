@@ -1,7 +1,7 @@
 # Error reference
 
 Synaphex returns a stable `code` you can branch on. This page documents the
-**56 error codes exposed over MCP** — the complete public set.
+**62 error codes exposed over MCP** — the complete public set.
 
 
 ## Reference index
@@ -125,6 +125,20 @@ Only codes on the exposed allowlist are returned. **Anything else collapses to `
 | `REVIEW_TARGET_CHANGED` | Target changed since capture | Source moved under the review | Re-read the current target |
 | `REVIEW_TARGET_REJECTED` | Target was rejected | Reviewing rejected work | Re-run CODER |
 | `REVIEW_TARGET_APPLY_INTERRUPTED` | Target's apply was interrupted | Unreconciled apply | Reconcile first |
+
+## Memory references
+
+| Code | Meaning | Typical cause | Safe next action |
+| --- | --- | --- | --- |
+| `MEMORY_ALREADY_LOADED` | That source is already loaded here | Duplicate load | No action needed; it is already visible |
+| `MEMORY_NOT_LOADED` | That source is not loaded here | Unloading something never loaded | Check what is loaded first |
+| `MEMORY_LOAD_CYCLE` | The reference would form a cycle | Loading a scope that already references this one | Load a different source |
+| `MEMORY_SOURCE_NOT_FOUND` | The referenced memory source does not exist | Wrong project or task reference | Re-read the id |
+| `AMBIGUOUS_PROJECT_REFERENCE` | A project name matches more than one project | Ambiguous name used | Use the project id |
+| `AMBIGUOUS_TASK_REFERENCE` | A task reference matches more than one task | Ambiguous slug used | Use the task id |
+
+> Loading records a reference; it never writes canonical memory. Canonical
+> memory changes remain EXAMINER-only.
 
 ## Related pages
 
