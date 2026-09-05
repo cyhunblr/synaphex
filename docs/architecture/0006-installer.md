@@ -30,9 +30,14 @@ schema and may migrate it.
 
 ## Host matrix
 
+> **Superseded by ADR 0007 (Phase 6B1.1).** The VS Code surfaces claimed below
+> were withdrawn: a shared per-provider MCP registration cannot truthfully
+> encode a VS Code host context. The supported matrix is CLI-only —
+> `openai/cli`, `anthropic/cli`, `google/cli`.
+
 ```text
-OpenAI     CLI, VS Code
-Anthropic  CLI, VS Code
+OpenAI     CLI            (VS Code withdrawn, see ADR 0007)
+Anthropic  CLI            (VS Code withdrawn, see ADR 0007)
 Google     CLI            (Antigravity / agy)
 ```
 
@@ -61,10 +66,13 @@ of its own, and Synaphex therefore never edits VS Code's `settings.json` or
 A consequence had to be handled honestly: the registration name is a single key
 in one shared config, and registering `--host-surface vscode` after
 `--host-surface cli` **replaces** the first entry (verified directly). Two
-distinct host contexts cannot coexist for one provider. So selecting both
-surfaces collapses to one registration — the CLI context is kept, and the VS
-Code selection is reported as *covered by* it rather than silently clobbering.
-A VS Code-only selection still registers with the `vscode` context.
+distinct host contexts cannot coexist for one provider.
+
+Phase 6B1 first handled this by collapsing a both-surfaces selection onto the
+CLI registration. ADR 0007 replaced that with the stricter and more honest
+answer: since no VS Code host context can be truthfully encoded at all, the VS
+Code surface is simply unsupported, and the MCP server fails closed if launched
+with one.
 
 ## Launcher: absolute interpreter, absolute entrypoint
 

@@ -32,20 +32,26 @@ export class InvalidHostContextError extends Error {
 /**
  * Host provider/surface combinations Synaphex supports as an interactive host.
  *
- * `google + vscode` is absent: Antigravity IDE is not a Synaphex callable or
- * host integration (see ADR 0001), and Google VS Code support is not invented
- * here. `google + cli` is a legitimate host surface even though every
- * Antigravity ExecutionPolicy is currently unsupported as a *target* -- host
- * identity and target executability are separate questions.
+ * CLI surfaces only. Every `vscode` combination is deliberately absent, and
+ * the server FAILS CLOSED if one is supplied.
+ *
+ * The reason is an identity limit, not a preference (ADR 0007). Each provider
+ * shares ONE MCP registration store between its CLI and its VS Code extension,
+ * with no per-surface scope, and both surfaces present the same MCP
+ * `clientInfo` (`codex-mcp-client`, `claude-code`). A registration asserting
+ * `--host-surface vscode` would therefore also be loaded by a CLI session, and
+ * nothing in the protocol could detect the mismatch. Since Synaphex cannot
+ * truthfully encode a VS Code host context, it refuses to claim one.
+ *
+ * `google + vscode` is absent for a separate reason: Antigravity IDE is not a
+ * Synaphex host integration at all (ADR 0001).
+ *
+ * This bounds HOST identity only. `openai`, `anthropic` and `google` all
+ * remain callable agent TARGETS -- host identity and target executability are
+ * separate questions.
  */
 const SUPPORTED_HOST_COMBINATIONS: readonly `${AgentProvider}/${AgentSurface}`[] =
-  Object.freeze([
-    "openai/cli",
-    "openai/vscode",
-    "anthropic/cli",
-    "anthropic/vscode",
-    "google/cli",
-  ]);
+  Object.freeze(["openai/cli", "anthropic/cli", "google/cli"]);
 
 export function isSupportedHostRuntime(host: HostRuntime): boolean {
   return SUPPORTED_HOST_COMBINATIONS.includes(

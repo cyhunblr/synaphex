@@ -124,7 +124,10 @@ export async function main(argv: readonly string[]): Promise<number> {
 /**
  * Providers first, then only the surfaces that provider actually supports.
  *
- * Google offers CLI only, so no VS Code question is ever asked for it.
+ * Every supported target is currently a CLI surface, so the surface question
+ * never appears. The TUI derives its options from
+ * SUPPORTED_INSTALLATION_TARGETS rather than a hardcoded list, so it cannot
+ * offer a VS Code surface Synaphex is unable to encode (ADR 0007).
  */
 async function promptForSelection(): Promise<readonly InstallationTarget[]> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });

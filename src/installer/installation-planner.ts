@@ -1,5 +1,5 @@
 import {
-  formatTarget,
+  VSCODE_SURFACE_UNSUPPORTED_REASON,
   isSupportedTarget,
   type HostAvailability,
   type InstallationTarget,
@@ -70,7 +70,10 @@ export class InstallationPlanner {
       if (!isSupportedTarget(target)) {
         skipped.push({
           target,
-          reason: "this provider and surface combination is not supported",
+          reason:
+            target.surface === "vscode"
+              ? VSCODE_SURFACE_UNSUPPORTED_REASON
+              : "this provider and surface combination is not supported",
         });
         continue;
       }
@@ -123,72 +126,6 @@ export class InstallationPlanner {
       }
     }
 
-    return {
-      selected,
-      detected,
-      ...collapseSharedSurfaces(mutations, skipped, warnings),
-    };
+    return { selected, detected, mutations, skipped, warnings };
   }
-}
-
-
-/**
- * Collapses the two surfaces of a provider that share ONE configuration.
- *
- * The OpenAI and Anthropic VS Code extensions read the same global config
- * their CLI writes, and the registration name is a single key in it. Verified
- * directly: registering `--host-surface vscode` after `--host-surface cli`
- * silently REPLACES the first entry, so only the last one survives.
- *
- * Selecting both surfaces therefore cannot honestly produce two distinct host
- * contexts. Rather than let one silently clobber the other, the CLI surface is
- * kept -- it is the one that provably works headlessly -- and the VS Code
- * selection is reported as covered by it. A VS Code-only selection still
- * registers, carrying the vscode host context.
- */
-function collapseSharedSurfaces(
-  mutations: readonly PlannedMutation[],
-  skipped: readonly SkippedTarget[],
-  warnings: readonly string[],
-): Pick<InstallationPlan, "mutations" | "skipped" | "warnings"> {
-  const kept: PlannedMutation[] = [];
-  const extraSkipped = [...skipped];
-  const extraWarnings = [...warnings];
-
-  for (const mutation of mutations) {
-    const sharesConfig =
-      mutation.target.provider === "openai" ||
-      mutation.target.provider === "anthropic";
-    const cliAlsoSelected = mutations.some(
-      (other) =>
-        other.target.provider === mutation.target.provider &&
-        other.target.surface === "cli",
-    );
-    if (
-      sharesConfig &&
-      mutation.target.surface === "vscode" &&
-      cliAlsoSelected
-    ) {
-      extraSkipped.push({
-        target: mutation.target,
-        reason:
-          "covered by the CLI registration; this provider's VS Code extension reads the same configuration",
-      });
-      continue;
-    }
-    kept.push(mutation);
-  }
-  for (const provider of ["openai", "anthropic"] as const) {
-    if (
-      kept.some((m) => m.target.provider === provider) &&
-      extraSkipped.some(
-        (s) => s.target.provider === provider && s.target.surface === "vscode",
-      )
-    ) {
-      extraWarnings.push(
-        `${formatTarget({ provider, surface: "vscode" })} shares one configuration with the CLI; a single registration serves both.`,
-      );
-    }
-  }
-  return { mutations: kept, skipped: extraSkipped, warnings: extraWarnings };
 }

@@ -27,11 +27,14 @@ const ENTRYPOINT = join(process.cwd(), ".test-dist", "src", "mcp", "stdio-main.j
  * Immutable host context supplied at process startup. The server refuses to
  * start without it, and no tool call can override it.
  */
+// CLI surface: since Phase 6B1.1 no `vscode` host combination is accepted,
+// because providers share one MCP registration between CLI and VS Code and
+// neither surface is distinguishable over the protocol (ADR 0007).
 const HOST_ARGS = [
   "--host-provider",
   "anthropic",
   "--host-surface",
-  "vscode",
+  "cli",
 ] as const;
 const ENTRYPOINT_ARGS = [ENTRYPOINT, ...HOST_ARGS] as const;
 
@@ -518,6 +521,16 @@ test("invalid or missing host context is a fatal startup error", async () => {
       "unsupported combination",
       ["--host-provider", "google", "--host-surface", "vscode"],
     ],
+    // Every vscode surface now fails closed: one shared registration cannot
+    // truthfully assert a VS Code host context (ADR 0007).
+    [
+      "anthropic vscode",
+      ["--host-provider", "anthropic", "--host-surface", "vscode"],
+    ],
+    [
+      "openai vscode",
+      ["--host-provider", "openai", "--host-surface", "vscode"],
+    ],
     [
       "duplicate provider flag",
       [
@@ -649,7 +662,7 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
     assert.equal(observedRoute.delegate, "codex");
     assert.deepEqual(observedRoute.host, {
       provider: "anthropic",
-      surface: "vscode",
+      surface: "cli",
     });
     assert.equal(observedRoute.provider, "openai");
     assert.equal(observedRoute.effectiveSurface, "cli");
@@ -691,8 +704,12 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
 });
 
 test("a native VS Code target fails closed through the production dispatch path", async (t) => {
-  // host = anthropic/vscode, target = anthropic/vscode -> same_provider_native.
+  // host = anthropic/cli, target = anthropic/vscode -> native VS Code route.
   // The dispatcher must refuse rather than silently running a provider CLI.
+  //
+  // Note the asymmetry this preserves: a VS Code TARGET is still a legitimate
+  // agent configuration, even though VS Code is no longer a supported MCP HOST
+  // surface. Target executability and host identity are separate questions.
   const home = await temporaryStateRoot(t);
   const { projectId, taskId } = await fixtureProjectAndTask(home);
   const routeSink = join(home, "route.json");

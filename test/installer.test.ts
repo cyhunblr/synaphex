@@ -161,19 +161,79 @@ function codexRegistrar(runner: FakeRunner): CodexMcpRegistrar {
 // Host matrix
 // ---------------------------------------------------------------------------
 
-test("the supported host matrix is exactly the audited one", () => {
+test("the supported host matrix is CLI-only, as the audit established", () => {
   assert.deepEqual(
     SUPPORTED_INSTALLATION_TARGETS.map((t) => `${t.provider}/${t.surface}`).sort(),
-    [
-      "anthropic/cli",
-      "anthropic/vscode",
-      "google/cli",
-      "openai/cli",
-      "openai/vscode",
-    ],
+    ["anthropic/cli", "google/cli", "openai/cli"],
   );
-  // Google is Antigravity CLI only: no IDE surface.
-  assert.equal(isSupportedTarget({ provider: "google", surface: "vscode" }), false);
+  // No VS Code surface can be truthfully encoded: each provider shares ONE MCP
+  // registration between its CLI and its extension, with no per-surface scope,
+  // and both surfaces present the same MCP clientInfo (ADR 0007).
+  for (const provider of ["openai", "anthropic", "google"] as const) {
+    assert.equal(
+      isSupportedTarget({ provider, surface: "vscode" }),
+      false,
+      `${provider}/vscode must not be claimed as supported`,
+    );
+  }
+});
+
+test("the installer cannot register a VS Code host context anywhere", async () => {
+  // Structural, not conventional: no registrar exists for any vscode target,
+  // so there is no code path that could write one.
+  const registrars = createRegistrars(new SpawnProviderCommandRunner());
+  for (const provider of ["openai", "anthropic", "google"] as const) {
+    assert.equal(registrars.get(`${provider}/vscode`), undefined);
+  }
+  // And every registrar that does exist carries a cli surface.
+  for (const registrar of registrars.values()) {
+    assert.equal(registrar.target.surface, "cli");
+  }
+});
+
+test("a VS Code selection is reported unsupported with the audited reason", async () => {
+  const runner = new FakeRunner();
+  const planner = plannerWith([[OPENAI_CLI, codexRegistrar(runner)]]);
+  const plan = await planner.planInstall(
+    [{ provider: "openai", surface: "vscode" }],
+    LAUNCHER,
+  );
+  assert.deepEqual(plan.mutations, []);
+  assert.equal(plan.skipped.length, 1);
+  assert.match(plan.skipped[0]!.reason, /shares one MCP registration/);
+  // Nothing was touched.
+  assert.equal(runner.entries().size, 0);
+});
+
+test("the MCP server refuses to start with a VS Code host context", async () => {
+  const { parseHostContextArguments } = await import(
+    "../src/mcp/mcp-host-context.js"
+  );
+  for (const provider of ["openai", "anthropic", "google"] as const) {
+    assert.throws(
+      () =>
+        parseHostContextArguments([
+          "--host-provider",
+          provider,
+          "--host-surface",
+          "vscode",
+        ]),
+      /unsupported host combination/,
+      `${provider}/vscode must fail closed`,
+    );
+  }
+  // CLI surfaces still start.
+  for (const provider of ["openai", "anthropic", "google"] as const) {
+    assert.deepEqual(
+      parseHostContextArguments([
+        "--host-provider",
+        provider,
+        "--host-surface",
+        "cli",
+      ]),
+      { provider, surface: "cli" },
+    );
+  }
 });
 
 test("no Gemini runtime appears anywhere in the installer", async () => {
@@ -322,42 +382,6 @@ test("planning performs no mutation", async () => {
   assert.equal(runner.calls.some((c) => c.args[1] === "add"), false);
 });
 
-test("selecting both surfaces of a shared-config provider registers once", async () => {
-  // Verified against the real runtimes: the OpenAI and Anthropic VS Code
-  // extensions read the same global config their CLI writes, and a second
-  // registration REPLACES the first. Two registrations cannot coexist.
-  const runner = new FakeRunner();
-  const vscode: InstallationTarget = { provider: "openai", surface: "vscode" };
-  const planner = plannerWith([
-    [OPENAI_CLI, codexRegistrar(runner)],
-    [vscode, new CodexMcpRegistrar(vscode, runner)],
-  ]);
-  const plan = await planner.planInstall([OPENAI_CLI, vscode], LAUNCHER);
-
-  assert.deepEqual(plan.mutations.map((m) => m.target.surface), ["cli"]);
-  assert.equal(
-    plan.skipped.some(
-      (s) => s.target.surface === "vscode" && s.reason.includes("covered by the CLI"),
-    ),
-    true,
-  );
-  assert.equal(plan.warnings.length > 0, true);
-});
-
-test("a VS Code-only selection still registers with the vscode host context", async (t) => {
-  const runner = new FakeRunner();
-  const home = await temporaryHome(t);
-  const vscode: InstallationTarget = { provider: "anthropic", surface: "vscode" };
-  await new ClaudeMcpRegistrar(vscode, runner).register(LAUNCHER, home);
-  assert.deepEqual(runner.entries().get(SYNAPHEX_MCP_SERVER_REGISTRATION_NAME)?.args, [
-    LAUNCHER.args[0],
-    "--host-provider",
-    "anthropic",
-    "--host-surface",
-    "vscode",
-  ]);
-});
-
 test("an unsupported provider/surface combination is refused by the plan", async () => {
   const plan = await plannerWith([]).planInstall(
     [{ provider: "google", surface: "vscode" }],
@@ -365,7 +389,7 @@ test("an unsupported provider/surface combination is refused by the plan", async
   );
   assert.deepEqual(plan.mutations, []);
   assert.equal(plan.skipped.length, 1);
-  assert.match(plan.skipped[0]!.reason, /not supported/);
+  assert.match(plan.skipped[0]!.reason, /shares one MCP registration/);
 });
 
 // ---------------------------------------------------------------------------

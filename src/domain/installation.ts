@@ -13,20 +13,48 @@ export interface InstallationTarget {
 }
 
 /**
- * The accepted installer host matrix.
+ * The accepted installer host matrix: CLI surfaces only.
  *
  * Every entry is verified against a real installed runtime; nothing here is
  * assumed. `google` means Antigravity (`agy`) -- Gemini CLI is deliberately
  * absent, and so is an Antigravity IDE surface.
+ *
+ * VS Code surfaces are deliberately ABSENT because Synaphex cannot truthfully
+ * encode them (see {@link VSCODE_SURFACE_UNSUPPORTED_REASON} and ADR 0007).
+ * That is a limitation of MCP host identity, NOT of provider execution:
+ * `openai`, `anthropic` and `google` all remain callable agent targets.
  */
 export const SUPPORTED_INSTALLATION_TARGETS: readonly InstallationTarget[] =
   Object.freeze([
     { provider: "openai", surface: "cli" },
-    { provider: "openai", surface: "vscode" },
     { provider: "anthropic", surface: "cli" },
-    { provider: "anthropic", surface: "vscode" },
     { provider: "google", surface: "cli" },
   ] as const);
+
+/**
+ * Why no VS Code surface can be registered.
+ *
+ * Established by direct audit of the installed runtimes:
+ *
+ * 1. Each provider keeps ONE MCP registration store shared by its CLI and its
+ *    VS Code extension, keyed by server name. Registering a second surface
+ *    under the same name REPLACES the first, so two host contexts cannot
+ *    coexist.
+ * 2. Two differently-named registrations CAN coexist, but neither runtime
+ *    offers any per-surface filter: a CLI session loads BOTH, and would
+ *    connect to a server asserting `--host-surface vscode`. That is exactly
+ *    the false host identity the Phase-3A trust model forbids.
+ * 3. MCP `clientInfo` cannot disambiguate. Codex reports `codex-mcp-client`
+ *    from both surfaces (only the build version differs), and Claude Code
+ *    reports `claude-code` from both. The only observed surface signal is the
+ *    `CLAUDE_CODE_ENTRYPOINT` environment variable, which is host-controlled
+ *    ambient state rather than MCP protocol identity -- not authority.
+ *
+ * Rather than relabel VS Code as CLI, or infer a surface from a signal that
+ * cannot bear that weight, the surface is reported unsupported.
+ */
+export const VSCODE_SURFACE_UNSUPPORTED_REASON =
+  "this provider shares one MCP registration between its CLI and VS Code extension, and neither exposes a per-surface scope or a distinguishable MCP client identity, so Synaphex cannot truthfully encode a VS Code host context";
 
 export function isSupportedTarget(target: InstallationTarget): boolean {
   return SUPPORTED_INSTALLATION_TARGETS.some(
