@@ -1,3 +1,16 @@
+/**
+ * INTERNAL compilation barrel -- NOT a published API.
+ *
+ * The npm package declares `"exports": {}`, so neither this module nor any
+ * deep path is importable by a consumer: `import "synaphex"` fails with
+ * ERR_PACKAGE_PATH_NOT_EXPORTED. Synaphex v0.1 ships two binaries and an MCP
+ * server, not a Node SDK.
+ *
+ * Re-exporting a symbol here therefore creates no support obligation. Exposing
+ * a real library API would be a deliberate decision requiring its own public
+ * surface and versioning design (ADR 0010).
+ */
+
 export {
   AgentConfigurationRemovedError,
   AgentCallApprovalRequiredError,

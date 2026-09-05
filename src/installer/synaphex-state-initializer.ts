@@ -1,14 +1,19 @@
 import type { AgentConfigManager } from "../core/agent-config-manager.js";
 import type { StateStore } from "../infrastructure/state-store.js";
+import { ConfigLifecycle } from "./config-lifecycle.js";
 
 export interface SynaphexStateInitializerDependencies {
   readonly stateStore: StateStore;
   readonly agentConfigs: Pick<AgentConfigManager, "getAllConfigs">;
+  /** Seeds the accepted initial global rule document. */
+  readonly seedGlobalRules: () => Promise<void>;
 }
 
 export interface StateInitializationResult {
   readonly created: readonly string[];
   readonly preserved: boolean;
+  /** Managed files whose maintainer comments were regenerated. */
+  readonly refreshed: readonly string[];
 }
 
 /**
@@ -40,15 +45,25 @@ export class SynaphexStateInitializer {
     ]) {
       await this.dependencies.stateStore.ensureDirectory(directory);
     }
-    // Touching the managers is enough: each lazily creates its own defaults
-    // exclusively, so this both initializes and preserves.
+    // Let the owning components seed their own authoritative defaults first:
+    // AgentConfigManager for agent state, RuleStore for the initial rule
+    // document. ConfigLifecycle then renders the canonical JSONC around
+    // whatever values exist, so seeding and comment refresh stay separate.
     const existedBefore = await this.dependencies.stateStore.exists(
       "agent_config.jsonc",
     );
     await this.dependencies.agentConfigs.getAllConfigs();
-    if (!existedBefore) {
-      created.push("agent_config.jsonc");
-    }
-    return { created, preserved: existedBefore };
+    await this.dependencies.seedGlobalRules();
+
+    const lifecycle = await new ConfigLifecycle(
+      this.dependencies.stateStore,
+    ).apply();
+    created.push(...lifecycle.created);
+
+    return {
+      created: [...new Set(created)],
+      preserved: existedBefore,
+      refreshed: lifecycle.refreshed,
+    };
   }
 }

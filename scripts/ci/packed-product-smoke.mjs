@@ -454,14 +454,60 @@ try {
   const userConfig = readFileSync(configPath, "utf8");
   check("install created agent_config.jsonc", userConfig.length > 0);
 
+  // All three managed configs exist and carry maintainer comments.
+  for (const file of ["agent_config.jsonc", "agent_behavior.jsonc", "rules.jsonc"]) {
+    const path = join(stateRoot, file);
+    const present = existsSync(path);
+    check(`install created ${file}`, present);
+    if (present) {
+      const contents = readFileSync(path, "utf8");
+      check(
+        `${file} carries maintainer comments`,
+        contents.includes("Synaphex-managed comments"),
+      );
+    }
+  }
+
+  // Mutate a representative USER VALUE, then reinstall.
+  const parsedConfig = JSON.parse(
+    userConfig
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("//"))
+      .join("\n"),
+  );
+  parsedConfig.agents.researcher = {
+    status: "configured",
+    provider: "openai",
+    surface: "cli",
+    model: "gpt-5.6-sol",
+  };
+  writeFileSync(
+    configPath,
+    `// OLD-MARKER stale text\n${JSON.stringify(parsedConfig, null, 2)}\n`,
+  );
+
   const reinstall2 = run(synaphexBin, ["install"], {
     env: productEnv,
     input: "y\ny\ny\ny\n",
   });
   void reinstall2;
+  const afterConfig = readFileSync(configPath, "utf8");
+  const afterValues = JSON.parse(
+    afterConfig
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("//"))
+      .join("\n"),
+  );
+  // Values survive; comments are regenerated. Compared by value, never bytes.
   check(
-    "reinstall preserved user config bytes",
-    readFileSync(configPath, "utf8") === userConfig,
+    "reinstall preserved the user's configured agent",
+    afterValues.agents?.researcher?.model === "gpt-5.6-sol",
+    JSON.stringify(afterValues.agents?.researcher),
+  );
+  check("reinstall dropped the stale comment", !afterConfig.includes("OLD-MARKER"));
+  check(
+    "reinstall restored canonical comments",
+    afterConfig.includes("Synaphex-managed comments"),
   );
   run(synaphexBin, ["uninstall"], { env: productEnv });
   check(

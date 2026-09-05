@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline";
 import { AgentConfigManager } from "../core/agent-config-manager.js";
+import { ensureGlobalRuleState } from "../core/rule-store.js";
 import { SynaphexError } from "../domain/errors.js";
 import {
   SUPPORTED_INSTALLATION_TARGETS,
@@ -101,10 +102,19 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   const report = await service.apply(plan, launcher);
-  await new SynaphexStateInitializer({
-    stateStore,
-    agentConfigs: new AgentConfigManager(stateStore),
-  }).initialize();
+  // Provider registration already succeeded; a bad local config must not be
+  // reported as an installation failure, and must not stop the summary the
+  // user needs to see.
+  let configProblem: string | null = null;
+  try {
+    await new SynaphexStateInitializer({
+      stateStore,
+      agentConfigs: new AgentConfigManager(stateStore),
+      seedGlobalRules: async () => ensureGlobalRuleState(stateStore),
+    }).initialize();
+  } catch (error) {
+    configProblem = safeMessage(error);
+  }
   await manifest.record(
     report.outcomes
       .filter(
@@ -121,10 +131,17 @@ export async function main(argv: readonly string[]): Promise<number> {
         configuredAt: new Date().toISOString(),
       })),
   );
+  const stateLine =
+    configProblem === null
+      ? "Synaphex state    ready"
+      : `Synaphex state    ${configProblem}`;
   process.stdout.write(
-    `${formatReport(report, "Synaphex installation")}\n\nSynaphex state    ready\n`,
+    `${formatReport(report, "Synaphex installation")}\n\n${stateLine}\n`,
   );
-  return report.outcomes.some((outcome) => outcome.status === "failed") ? 1 : 0;
+  return report.outcomes.some((outcome) => outcome.status === "failed") ||
+    configProblem !== null
+    ? 1
+    : 0;
 }
 
 /**

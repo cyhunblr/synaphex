@@ -537,7 +537,10 @@ test("installer sources reference no package manager or credential operation", a
       "shell: true",
       "bash",
       "sh -c",
-      "credential",
+      // "credential" is deliberately absent from this list: config templates
+      // legitimately TELL the user that Synaphex stores none. The rendered
+      // output is separately audited for credential FIELDS in
+      // config-lifecycle.test.ts.
       "apiKey",
       "ANTHROPIC_API_KEY",
       "OPENAI_API_KEY",

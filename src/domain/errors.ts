@@ -96,6 +96,7 @@ export const SYNAPHEX_ERROR_CODES = [
   "UNSUPPORTED_AGENT_BEHAVIOR",
   "INVALID_PROVIDER_ROUTE",
   "AGENT_TARGET_SURFACE_UNSUPPORTED",
+  "INVALID_CONFIGURATION_FILE",
   "PROVIDER_CLI_UNAVAILABLE",
   "NATIVE_HOST_EXECUTION_UNAVAILABLE",
   "INVALID_AGENT_CONTEXT",
@@ -922,6 +923,23 @@ export class UnsupportedAgentBehaviorError extends SynaphexError<"UNSUPPORTED_AG
  * any provider runs. The user's configuration is never rewritten on their
  * behalf -- changing `vscode` to `cli` would change their intent.
  */
+/**
+ * A managed configuration file cannot be parsed or is semantically invalid.
+ *
+ * Raised BEFORE any write. Regenerating the file from defaults would discard
+ * configuration the user deliberately wrote, so the original bytes are left
+ * exactly as they are and the problem is reported instead.
+ */
+export class InvalidConfigurationFileError extends SynaphexError<"INVALID_CONFIGURATION_FILE"> {
+  constructor(file: string, detail: string) {
+    super(
+      "INVALID_CONFIGURATION_FILE",
+      `${file} could not be used: ${detail}. It was left unchanged.`,
+      { file, detail },
+    );
+  }
+}
+
 export class AgentTargetSurfaceUnsupportedError extends SynaphexError<"AGENT_TARGET_SURFACE_UNSUPPORTED"> {
   constructor(agent: string, provider: string, surface: string) {
     super(
