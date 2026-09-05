@@ -56,8 +56,33 @@ function writeServers(servers) {
   writeFileSync(path, `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`);
 }
 
-if (argv[0] === "--version") {
-  process.stdout.write(`${flavor === "claude" ? `${version} (Claude Code)` : version}\n`);
+if (
+  argv[0] === "--version" ||
+  (flavor === "claude" && argv.includes("--version"))
+) {
+  const rendered =
+    flavor === "claude"
+      ? `${version} (Claude Code)`
+      : flavor === "codex"
+        ? `codex-cli ${version}`
+        : version;
+  process.stdout.write(`${rendered}\n`);
+  process.exit(0);
+}
+
+if (flavor === "agy" && argv[0] === "--help") {
+  process.stdout.write(
+    [
+      "-p Short alias for --print",
+      "--output-format text json stream-json",
+      "--json-schema schema",
+      "--model model",
+      "--mode accept-edits plan",
+      "--sandbox sandbox",
+      "--print-timeout timeout",
+      "--disable-slash-commands disabled",
+    ].join("\n"),
+  );
   process.exit(0);
 }
 

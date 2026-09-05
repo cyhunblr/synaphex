@@ -73,6 +73,12 @@ export interface ProviderDiagnostic {
   targetUnavailableReason?: string;
 }
 
+export interface DiagnosticsModel {
+  platform: string;
+  nodeVersion: string;
+  providers: ProviderDiagnostic[];
+}
+
 export interface StatusModel {
   agents: number;
   configured: number;
@@ -142,9 +148,7 @@ export const api = {
     ),
   projects: () => request<{ projects: ProjectModel[] }>("/api/projects"),
   diagnostics: () =>
-    request<{ platform: string; nodeVersion: string; providers: ProviderDiagnostic[] }>(
-      "/api/diagnostics",
-    ),
+    request<DiagnosticsModel>("/api/diagnostics"),
   configPreview: () =>
     request<{
       documents: { file: string; path: string; content: string | null }[];

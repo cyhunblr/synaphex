@@ -4,6 +4,7 @@ import {
   api,
   type AgentModel,
   type AgentName,
+  type DiagnosticsModel,
   type EdgeModel,
   type ProjectModel,
   type ProviderDiagnostic,
@@ -11,6 +12,7 @@ import {
   type ScopeSelection,
   type StatusModel,
 } from "./api";
+import { DiagnosticsView } from "./DiagnosticsView";
 import { AGENT_ORDER, HexGraph } from "./HexGraph";
 
 type View = "overview" | "rules" | "projects" | "diagnostics" | "files";
@@ -26,7 +28,7 @@ export function App() {
   const [agents, setAgents] = useState<AgentModel[]>([]);
   const [edges, setEdges] = useState<EdgeModel[]>([]);
   const [projects, setProjects] = useState<ProjectModel[]>([]);
-  const [providers, setProviders] = useState<ProviderDiagnostic[]>([]);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsModel | null>(null);
   const [selected, setSelected] = useState<AgentName | "user" | null>(null);
   const [scope, setScope] = useState<ScopeSelection>({ scope: "global" });
   const [toast, setToast] = useState<Toast | null>(null);
@@ -48,7 +50,7 @@ export function App() {
     setAgents(a.agents);
     setEdges(r.edges);
     setProjects(p.projects);
-    setProviders(d.providers);
+    setDiagnostics(d);
     setLoading(false);
   }, [scope]);
 
@@ -72,6 +74,7 @@ export function App() {
         : null,
     [agents, selected],
   );
+  const providers = diagnostics?.providers ?? [];
 
   const act = async (work: () => Promise<unknown>, success: string) => {
     try {
@@ -137,7 +140,9 @@ export function App() {
           ) : view === "projects" ? (
             <ProjectsView projects={projects} />
           ) : view === "diagnostics" ? (
-            <DiagnosticsView providers={providers} status={status} />
+            diagnostics === null ? null : (
+              <DiagnosticsView diagnostics={diagnostics} status={status} />
+            )
           ) : (
             <FilesView />
           )}
@@ -596,61 +601,6 @@ function ProjectsView({ projects }: { projects: ProjectModel[] }) {
           </table>
         </section>
       ))}
-    </>
-  );
-}
-
-function DiagnosticsView({
-  providers,
-  status,
-}: {
-  providers: ProviderDiagnostic[];
-  status: StatusModel | null;
-}) {
-  return (
-    <>
-      <div className="notice">
-        Diagnostics are read-only probes: presence, version and registration
-        shape. No model request is made, so nothing here costs a provider call.
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Provider</th><th>Runtime</th><th>Installed</th><th>Version</th>
-            <th>Registration min</th><th>Registered</th><th>As target</th>
-          </tr>
-        </thead>
-        <tbody>
-          {providers.map((entry) => (
-            <tr key={entry.provider}>
-              <td>{entry.provider}</td>
-              <td><code>{entry.runtime}</code></td>
-              <td>
-                <span className="badge" data-tone={entry.available ? "ok" : "bad"}>
-                  {entry.available ? "yes" : "no"}
-                </span>
-              </td>
-              <td>{entry.version ?? "—"}</td>
-              <td>{entry.registrationMinimum}</td>
-              <td>
-                <span className="badge" data-tone={entry.registered ? "ok" : "warn"}>
-                  {entry.registered ? "registered" : "not registered"}
-                </span>
-              </td>
-              <td>
-                <span className="badge" data-tone={entry.supportedAsTarget ? "ok" : "bad"}>
-                  {entry.supportedAsTarget ? "supported" : "unavailable"}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {status !== null ? (
-        <p className="muted" style={{ marginTop: 14 }}>
-          Config version <code>{status.configVersion}</code>
-        </p>
-      ) : null}
     </>
   );
 }

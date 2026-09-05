@@ -26,7 +26,7 @@ class FakeRunner implements ProcessRunner {
 const availableResult: ProcessResult = {
   exitCode: 0,
   signal: null,
-  stdout: "codex-cli 0.146.0",
+  stdout: "codex-cli 0.153.0",
   stderr: "",
   timedOut: false,
 };
@@ -37,15 +37,34 @@ test("Codex availability checks only the safe version command", async () => {
     processRunner: runner,
   });
 
+  assert.deepEqual(await availability.probe(), {
+    available: true,
+    version: "0.153.0",
+  });
   assert.equal(await availability.isAvailable("openai", "cli"), true);
   assert.equal(await availability.isAvailable("openai", "vscode"), false);
   assert.equal(await availability.isAvailable("anthropic", "cli"), false);
-  assert.equal(runner.calls.length, 1);
+  assert.equal(runner.calls.length, 2);
   assert.equal(runner.calls[0]?.executable, "codex");
-  assert.deepEqual(runner.calls[0]?.args, ["--version"]);
-  assert.equal(runner.calls[0]?.stdin, "");
-  assert.equal(runner.calls[0]?.args.includes("exec"), false);
-  assert.equal(JSON.stringify(runner.calls[0]).includes("auth"), false);
+  for (const call of runner.calls) {
+    assert.deepEqual(call.args, ["--version"]);
+    assert.equal(call.stdin, "");
+    assert.equal(call.args.includes("exec"), false);
+    assert.equal(JSON.stringify(call).includes("auth"), false);
+  }
+});
+
+test("a successful malformed Codex version remains available without a version", async () => {
+  for (const stdout of [
+    "codex-cli unknown",
+    "codex-cli 0.153",
+    "unrelated 0.153.0",
+  ]) {
+    const availability = new CodexCliRuntimeAvailability({
+      processRunner: new FakeRunner({ ...availableResult, stdout }),
+    });
+    assert.deepEqual(await availability.probe(), { available: true }, stdout);
+  }
 });
 
 test("non-zero, timeout, and missing executable are unavailable", async () => {
@@ -54,11 +73,14 @@ test("non-zero, timeout, and missing executable are unavailable", async () => {
     { ...availableResult, timedOut: true },
     Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
   ];
-  for (const outcome of cases) {
+  for (const [index, outcome] of cases.entries()) {
     const availability = new CodexCliRuntimeAvailability({
       processRunner: new FakeRunner(outcome),
       executable: "/custom/codex",
     });
-    assert.equal(await availability.isAvailable("openai", "cli"), false);
+    assert.deepEqual(await availability.probe(), {
+      available: false,
+      reason: index === 2 ? "executable_missing" : "version_probe_failed",
+    });
   }
 });

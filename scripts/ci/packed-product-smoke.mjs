@@ -579,6 +579,38 @@ try {
     const payload = await status.json();
     check("configure API reports six agents", payload.agents === 6);
 
+    const diagnosticsResponse = await fetch(`${url}/api/diagnostics`, {
+      headers: { "x-synaphex-configure-token": token, origin: url },
+    });
+    const diagnostics = await diagnosticsResponse.json();
+    check("configure API serves diagnostics", diagnosticsResponse.status === 200);
+    check(
+      "configure diagnostics include Node and platform",
+      /^v\d+\.\d+\.\d+/.test(diagnostics.nodeVersion) &&
+        typeof diagnostics.platform === "string" &&
+        diagnostics.platform.length > 0,
+    );
+    const diagnosticProviders = new Map(
+      (diagnostics.providers ?? []).map((entry) => [entry.provider, entry]),
+    );
+    check(
+      "configure diagnostics include provider versions",
+      diagnosticProviders.get("openai")?.version === "0.153.0" &&
+        diagnosticProviders.get("anthropic")?.version === "2.1.260" &&
+        diagnosticProviders.get("google")?.version === "1.1.26",
+    );
+    check(
+      "configure diagnostics distinguish host and target support",
+      diagnosticProviders.get("google")?.supportedAsHost === true &&
+        diagnosticProviders.get("google")?.supportedAsTarget === false,
+    );
+    check(
+      "configure diagnostics report registration state",
+      [...diagnosticProviders.values()].every(
+        (entry) => entry.registered === false,
+      ),
+    );
+
     const unauthorized = await fetch(`${url}/api/status`);
     check("configure API refuses an untokened request", unauthorized.status === 401);
   } finally {
