@@ -36,7 +36,8 @@ MCP registration behaviour was verified directly.
 `anthropic` + `cli` is executable. Synaphex launches the Claude Code CLI as an
 external process for that invocation.
 
-**Minimum version for agent execution:** `claude` 2.1.248.
+**Minimum version for agent execution:** `claude` 2.1.248. See
+[compatibility](../reference/compatibility.md) for the canonical version matrix.
 
 > The two minimums differ on purpose. Hosting Synaphex and executing agents are
 > different capabilities with independently verified requirements. Meeting the

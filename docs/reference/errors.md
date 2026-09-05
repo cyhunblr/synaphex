@@ -81,7 +81,7 @@ Only codes on the exposed allowlist are returned. **Anything else collapses to `
 
 | Code | Meaning | Typical cause | Safe next action |
 | --- | --- | --- | --- |
-| `PLAN_DRAFT_PENDING` | A draft awaits decision | Proceeding before deciding | Accept or reject the draft |
+| `PLAN_DRAFT_PENDING` | A draft awaits decision, blocking CODER | Invoking CODER, or completing the task, before deciding the draft | Accept or reject the draft |
 | `NO_PLAN_DRAFT` | No draft exists | Deciding with nothing pending | Run PLANNER first |
 | `PLAN_ALREADY_ACCEPTED` | Plan already accepted | Duplicate acceptance | Read plan state |
 | `PLAN_DRAFT_REVISION_MISMATCH` | Revision id is stale | Draft changed after you read it | Re-read and review the current draft before deciding |

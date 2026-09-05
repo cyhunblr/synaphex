@@ -179,9 +179,16 @@ The guarantees that shape day-to-day use:
 
 ## Documentation
 
-- [Installation](docs/getting-started/installation.md)
-- [First setup](docs/getting-started/first-setup.md)
-- [First workflow](docs/getting-started/first-workflow.md)
+**[Documentation home](docs/README.md)** — the full map, with reading paths for
+new users, provider setup, security review, and maintainers.
+
+Straight to the useful parts:
+
+- [Installation](docs/getting-started/installation.md) — install and register
+- [First workflow](docs/getting-started/first-workflow.md) — a real task, end to end
+- [Troubleshooting](docs/troubleshooting/installation.md) — when something refuses
+- [Security model](docs/security/security-model.md) — what is and is not guaranteed
+- [Compatibility](docs/reference/compatibility.md) — canonical support matrix
 
 ## Current limitations in v0.1
 

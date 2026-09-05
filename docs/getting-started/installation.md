@@ -28,6 +28,10 @@ Those minimums are the versions whose MCP registration behaviour Synaphex has
 verified directly. Install providers using their own documentation, and sign in
 to them before expecting agent execution to work.
 
+Registering a provider as a host and running an agent *on* it are separate
+requirements with separate minimums; [compatibility](../reference/compatibility.md)
+holds the canonical matrix.
+
 You can install the Synaphex package without any provider present. The
 [setup step](first-setup.md) simply reports which runtimes it found.
 

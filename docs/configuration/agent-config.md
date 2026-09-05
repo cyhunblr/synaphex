@@ -88,7 +88,8 @@ contacted (`AGENT_TARGET_SURFACE_UNSUPPORTED`).
 ### Optional settings
 
 `settings` exists in the domain model, but **v0.1 supports no optional settings
-for any provider**. Supplying one is refused (`INVALID_AGENT_SETTING`).
+for any provider**. Supplying one is rejected when the configuration is
+validated, naming the offending agent and setting.
 
 Omit the field. Agents run with their provider's own defaults.
 

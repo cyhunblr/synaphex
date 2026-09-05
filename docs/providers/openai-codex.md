@@ -20,7 +20,8 @@ can launch the same Synaphex server — and Synaphex does not infer, or claim to
 know, which one did.
 
 **Minimum version for host registration:** `codex` 0.153.0. That is the version
-whose MCP registration behaviour was verified directly.
+whose MCP registration behaviour was verified directly. See
+[compatibility](../reference/compatibility.md) for the canonical version matrix.
 
 ## OpenAI as an agent target
 

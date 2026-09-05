@@ -22,7 +22,8 @@ Supported and verified end to end.
 management commands. Host identity is **provider-only**: the registration says
 `google`.
 
-**Minimum version for host registration:** `agy` 1.1.26.
+**Minimum version for host registration:** `agy` 1.1.26. See
+[compatibility](../reference/compatibility.md) for the canonical version matrix.
 
 ### Headless approval behaviour
 
