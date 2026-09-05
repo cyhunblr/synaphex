@@ -123,9 +123,75 @@ test("publish metadata requires the canonical repository for provenance", async 
 test("an unresolved licensing decision blocks publication", async () => {
   const { checkLicensePolicy } = await import(preflightModule);
   // Public source visibility does not itself choose a distribution licence.
-  assert.match(checkLicensePolicy({ license: "UNLICENSED" }).join(" "), /licensing decision/);
-  assert.match(checkLicensePolicy({}).join(" "), /no license/);
-  assert.deepEqual(checkLicensePolicy({ license: "MIT" }), []);
+  assert.match(
+    checkLicensePolicy({ license: "UNLICENSED" }, true).join(" "),
+    /licensing decision/,
+  );
+  assert.match(checkLicensePolicy({}, true).join(" "), /no license/);
+  assert.deepEqual(checkLicensePolicy({ license: "Apache-2.0" }, true), []);
+  // A declared identifier without the licence text would publish an
+  // unsubstantiated claim.
+  assert.match(
+    checkLicensePolicy({ license: "Apache-2.0" }, false).join(" "),
+    /no LICENSE file/,
+  );
+});
+
+test("the package is Apache-2.0 with the licence text present", async () => {
+  const packageJson = JSON.parse(await readFile(join(REPO, "package.json"), "utf8"));
+  assert.equal(packageJson.license, "Apache-2.0");
+
+  const license = await readFile(join(REPO, "LICENSE"), "utf8");
+  // The standard text, unmodified: no paraphrase, no added restriction and no
+  // dual licensing.
+  for (const section of [
+    "Apache License",
+    "Version 2.0, January 2004",
+    "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
+    "1. Definitions.",
+    "2. Grant of Copyright License.",
+    "3. Grant of Patent License.",
+    "9. Accepting Warranty or Additional Liability.",
+    "END OF TERMS AND CONDITIONS",
+    "APPENDIX: How to apply the Apache License",
+  ]) {
+    assert.ok(license.includes(section), `LICENSE is missing: ${section}`);
+  }
+  // Word-boundary matching: the standard text contains "individual", which a
+  // naive substring check for "dual" would flag.
+  for (const forbidden of [/\bMIT License\b/i, /\bdual[- ]licen[sc]/i, /\badditional restrictions\b/i]) {
+    assert.equal(
+      forbidden.test(license),
+      false,
+      `LICENSE must not match ${forbidden}`,
+    );
+  }
+  // Exactly the canonical byte length of the upstream Apache-2.0 text.
+  assert.equal(Buffer.byteLength(license, "utf8"), 11_358);
+  // The live policy gate is now clear.
+  const { checkLicensePolicy } = await import(preflightModule);
+  assert.deepEqual(checkLicensePolicy(packageJson), []);
+});
+
+test("package identity is the unscoped name at the first version", async () => {
+  const packageJson = JSON.parse(await readFile(join(REPO, "package.json"), "utf8"));
+  const lockfile = JSON.parse(await readFile(join(REPO, "package-lock.json"), "utf8"));
+
+  // Unscoped and unchanged: this repository is the new Synaphex product, not a
+  // continuation of the unrelated package that formerly held this name.
+  assert.equal(packageJson.name, "synaphex");
+  assert.equal(packageJson.name.startsWith("@"), false, "must not be scoped");
+  assert.equal(packageJson.version, "0.1.0");
+  assert.equal(lockfile.version, "0.1.0");
+  assert.equal(lockfile.packages?.[""]?.version, "0.1.0");
+  assert.equal(lockfile.name, "synaphex");
+
+  // The user-facing CLI name is part of that identity.
+  assert.ok(Object.hasOwn(packageJson.bin, "synaphex"));
+  // An unscoped package is public by default, so publishConfig would be
+  // redundant configuration rather than a policy statement.
+  assert.equal(packageJson.publishConfig, undefined);
+  assert.notEqual(packageJson.private, true);
 });
 
 test("the repository's own metadata satisfies the provenance requirement", async () => {
@@ -305,4 +371,108 @@ test("the release workflow invokes no provider or model command", async () => {
   for (const forbidden of ["codex ", "claude ", "agy ", "--dangerously"]) {
     assert.equal(release.includes(forbidden), false, `must not run ${forbidden}`);
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// Bootstrap and registry-state expectations
+// ---------------------------------------------------------------------------
+
+test("an absent registry version is bootstrap-ready, not publish-authorised", async () => {
+  const { classifyRegistryState } = await import(registryModule);
+  // After a full unpublish the package itself is gone, so a version query
+  // reports absent. That is the expected BOOTSTRAP state -- it says nothing
+  // about whether a Trusted Publisher exists or whether npm's 24-hour
+  // name cooldown has elapsed, and must never be read as "publish now".
+  assert.deepEqual(
+    classifyRegistryState({
+      viewResult: {
+        status: 1,
+        stdout: "",
+        stderr: "npm error code E404\nnpm error 404 Unpublished on 2026-09-05T09:35:17.872Z",
+      },
+      localIntegrity: "sha512-AAAA",
+    }),
+    { state: "absent" },
+  );
+});
+
+test("release tooling never selects a version from registry history", async () => {
+  // Historical 1.x/2.x/3.x versions belonged to an unrelated product and must
+  // never be reused. Version authority is package.json alone, so no release
+  // script may query the registry for a version to publish.
+  for (const file of [
+    "scripts/release/release-preflight.mjs",
+    "scripts/release/registry-state.mjs",
+  ]) {
+    const code = (await readFile(join(REPO, file), "utf8"))
+      .replaceAll(/\/\*[\s\S]*?\*\//g, "")
+      .replaceAll(/\/\/.*$/gm, "");
+    for (const forbidden of ["dist-tags", "versions", "latest", "semver.inc", "maxSatisfying"]) {
+      assert.equal(
+        code.includes(forbidden),
+        false,
+        `${file} must not derive a version from registry state (${forbidden})`,
+      );
+    }
+  }
+});
+
+test("bootstrap documentation never recommends publishing from the checkout", async () => {
+  const adr = await readFile(join(REPO, "docs/architecture/0008-release.md"), "utf8");
+  // `npm publish .` repacks, shipping bytes nothing validated. The exact-tarball
+  // rule applies to the one-time manual bootstrap exactly as it does to CD.
+  assert.equal(/npm publish\s+\.(\s|$)/m.test(adr), false);
+  assert.match(adr, /npm publish <exact/i);
+});
+
+test("no test reads real credentials", async () => {
+  const { readdir } = await import("node:fs/promises");
+  const directory = join(REPO, "test");
+  // Assembled so this audit does not flag its own literals, and skipping this
+  // file, which necessarily names what it forbids.
+  const forbidden = [
+    [".", "npmrc"].join(""),
+    ["NPM", "TOKEN"].join("_"),
+    ["NODE", "AUTH", "TOKEN"].join("_"),
+    ["_auth", "Token"].join(""),
+  ];
+  const names = (await readdir(directory)).filter(
+    (n) => n.endsWith(".ts") && n !== "release-tooling.test.ts",
+  );
+  assert.ok(names.length > 0, "expected test files to audit");
+  for (const name of names) {
+    const code = (await readFile(join(directory, name), "utf8"))
+      .replaceAll(/\/\*[\s\S]*?\*\//g, "")
+      .replaceAll(/\/\/.*$/gm, "");
+    for (const secret of forbidden) {
+      assert.equal(code.includes(secret), false, `${name} must not touch ${secret}`);
+    }
+  }
+});
+
+test("the release helper cannot publish, tag or authenticate", async () => {
+  const code = (
+    await readFile(join(REPO, "scripts/release/release-prepare.mjs"), "utf8")
+  )
+    .replaceAll(/\/\*[\s\S]*?\*\//g, "")
+    .replaceAll(/\/\/.*$/gm, "");
+  // It prepares a candidate for a human to review; every irreversible or
+  // credential-bearing action stays outside the tooling.
+  for (const forbidden of [
+    '"publish"',
+    "npm login",
+    "adduser",
+    '"version"',
+    "git tag",
+    "dist-tag",
+    "unpublish",
+    ["_auth", "Token"].join(""),
+    ["NPM", "TOKEN"].join("_"),
+    [".", "npmrc"].join(""),
+  ]) {
+    assert.equal(code.includes(forbidden), false, `helper must not use ${forbidden}`);
+  }
+  // It packs exactly once, so the validated artifact is the published one.
+  assert.equal((code.match(/"pack"/g) ?? []).length, 1);
 });

@@ -12,4 +12,5 @@ export declare function checkPublishMetadata(
 ): string[];
 export declare function checkLicensePolicy(
   packageJson: Record<string, unknown>,
+  licenseFileExists?: boolean,
 ): string[];

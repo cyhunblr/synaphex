@@ -112,7 +112,7 @@ export function checkPublishMetadata(packageJson) {
  * Reported separately so the mechanics can be verified today while the policy
  * gate stays visibly unresolved.
  */
-export function checkLicensePolicy(packageJson) {
+export function checkLicensePolicy(packageJson, licenseFileExists = undefined) {
   const license = packageJson.license;
   if (typeof license !== "string" || license.trim().length === 0) {
     return ["package.json declares no license"];
@@ -121,6 +121,14 @@ export function checkLicensePolicy(packageJson) {
     return [
       "package.json license is UNLICENSED; public npm distribution requires an explicit maintainer licensing decision",
     ];
+  }
+  // A declared SPDX identifier without the licence text would publish a claim
+  // the package cannot substantiate. npm always includes a root LICENSE file
+  // regardless of the `files` allowlist, so requiring it here is sufficient.
+  const present =
+    licenseFileExists ?? existsSync(resolve(REPO, "LICENSE"));
+  if (!present) {
+    return [`package.json declares ${license} but no LICENSE file is present`];
   }
   return [];
 }

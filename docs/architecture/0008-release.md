@@ -1,7 +1,8 @@
 # ADR 0008: Release and CD
 
-Status: accepted (Phase 7B) — machinery implemented and locally verified; **no
-release has been performed**, and out-of-band configuration remains.
+Status: accepted (Phase 7B; identity and licensing resolved in Phase 7C) —
+machinery implemented and locally verified; **no release has been performed**,
+and out-of-band configuration remains.
 
 ```text
 CI   every PR and main push        fork-safe, zero secrets
@@ -123,48 +124,84 @@ No automatic rollback. `npm unpublish`, `npm deprecate` and dist-tag rollback
 are audited as absent. A published version is a permanent release record; the
 operational response to a bad release is **fix forward with a new version**.
 
-## First-ever publish bootstrap
-
-npm reports that **`synaphex` already exists**, owned by `ceyhunbilir`, at
-version `3.2.0` — a *different* product ("Project memory management for Claude
-Code"), last published 2026-04-20. No `0.x` version exists.
-
-This is a product-identity decision, not an implementation detail: publishing
-this Synaphex into that package would replace an unrelated package's meaning at
-a *lower* version than its `latest`. The maintainer must decide whether to reuse
-the name (and how to sequence versions against 3.2.0), or publish under a
-different or scoped name.
-
-A trusted publisher cannot be configured before a package exists — but this
-package does exist, so the bootstrap is simpler than the general case:
+## Package identity
 
 ```text
-1. resolve the package-identity decision above
-2. resolve the licensing decision (below)
-3. build and validate the exact tarball locally
-     npm run build && npm pack
-     node scripts/release/release-preflight.mjs --tag vX.Y.Z --tarball <tgz>
-     npm run test:packed-product -- --tarball <tgz>
-4. maintainer authenticates to npm interactively, with 2FA, and publishes
-   THAT exact tarball (never `npm publish .`)
-5. configure npm Trusted Publishing for:
+product   Synaphex
+GitHub    cyhunblr/synaphex
+npm       synaphex          (unscoped, public)
+CLI       synaphex
+licence   Apache-2.0
+```
+
+The name stays **unscoped**. This repository is the new Synaphex product; it is
+not a semantic continuation of anything that previously held the name.
+
+### Why 0.1.0 despite historical 1.x–3.x
+
+The npm name `synaphex` was previously used by the same maintainer for an
+unrelated product ("Project memory management for Claude Code"), reaching
+`3.2.0` across 36 versions. That package has since been **fully unpublished**
+(registry reports `Unpublished on 2026-09-05T09:35:17.872Z`).
+
+This product therefore starts at `0.1.0`. A Phase-7B registry snapshot recorded
+that no `0.x` version had ever existed — that is **historical evidence gathered
+before the unpublish**, and the now-absent registry entry cannot re-prove it.
+The actual first publish is the final authority.
+
+npm never permits reusing a previously published `name@version`, so no
+historical version may be selected. Nothing in the release tooling derives a
+version from registry state; `package.json` is the sole authority, and a test
+asserts the release scripts never consult `dist-tags`, `versions` or `latest`.
+
+## Licensing
+
+Apache-2.0, declared as the SPDX identifier in `package.json` with the
+unmodified standard text in a root `LICENSE`. npm includes a root `LICENSE` in
+the tarball regardless of the `files` allowlist, and both the preflight and the
+packed-product gate assert it ships — a declared identifier without the text
+would publish a claim the package cannot substantiate.
+
+No paraphrase, no added restrictions, no dual licensing.
+
+## First-ever publish bootstrap
+
+The package must exist before a Trusted Publisher can be configured for it, so
+the first publish is deliberately outside automated CD. There is **no
+token-based fallback branch in CI** — adding one would put a long-lived
+credential into the exact place this design keeps it out of.
+
+A full unpublish also starts an npm **24-hour cooldown** before the name accepts
+a new version. That window is not modelled, detected or guessed from local
+state: npm is authoritative and simply rejects an early attempt.
+
+```text
+1. wait out npm's 24-hour post-unpublish cooldown
+2. produce and validate the exact candidate
+      npm run release:prepare
+   which builds, packs ONCE, runs the preflight and the packed-product gate
+   against that exact tarball, and prints its sha256 and SRI
+3. review the printed checksum and package contents
+4. publish that exact artifact from a maintainer-authenticated npm CLI:
+      npm publish <exact .tgz>
+   never `npm publish` from the checkout, which would repack
+5. package `synaphex` now exists
+6. configure npm Trusted Publishing for:
         owner       cyhunblr
         repository  synaphex
         workflow    .github/workflows/release.yml
         environment npm-release
-6. restrict or remove classic publish tokens on the npm account
-7. every subsequent release runs through OIDC CD
+7. create/review the GitHub `npm-release` Environment and its reviewers
+8. every subsequent release runs through tokenless OIDC CD
 ```
 
-## Licensing is an unresolved policy gate
+### Credential policy
 
-`license` is currently `UNLICENSED`. Public source visibility does not itself
-choose a distribution licence, and no licence was invented here. The preflight
-reports this as a **POLICY** blocker and exits non-zero, so automation cannot
-make an irreversible public-distribution decision on the maintainer's behalf.
-
-Once a licence is chosen, adding it to `package.json` (and a `LICENSE` file)
-clears the gate with no tooling change.
+Bootstrap authentication is a **maintainer-authenticated npm CLI** and nothing
+more. Whatever credential the maintainer's own npm security policy requires
+stays entirely outside this project: Synaphex does not store it, read it, place
+it in scripts or CI, or record its value anywhere. Automated CD remains
+tokenless OIDC.
 
 ## What is NOT automated
 

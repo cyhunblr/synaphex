@@ -185,6 +185,9 @@ try {
     "package/dist/mcp/stdio-main.js",
     "package/dist/index.js",
     "package/package.json",
+    // npm includes a root LICENSE regardless of the `files` allowlist, but the
+    // declared SPDX identifier is only substantiated if it actually ships.
+    "package/LICENSE",
   ]) {
     check(`contains ${required}`, listing.includes(required));
   }
