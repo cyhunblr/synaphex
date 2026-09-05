@@ -21,6 +21,7 @@ import { CodexCliAgentExecutor } from "../providers/codex-cli-agent-executor.js"
 import { CodexCliRuntimeAvailability } from "../providers/codex-cli-runtime-availability.js";
 import { ProviderDispatchingAgentExecutor } from "../providers/provider-dispatching-agent-executor.js";
 import { RoleContractRegistry } from "../core/role-contract-registry.js";
+import { isProcessEntrypoint } from "../infrastructure/process-entrypoint.js";
 import { StateStore } from "../infrastructure/state-store.js";
 import { DirectAgentInvocation } from "../operations/direct-agent-invocation.js";
 import { InvocationContinuationCommands } from "../operations/invocation-continuation-commands.js";
@@ -205,11 +206,7 @@ export async function main(options: StdioMainOptions = {}): Promise<void> {
   diagnostic("[synaphex-mcp] ready on stdio");
 }
 
-const isDirectInvocation =
-  process.argv[1] !== undefined &&
-  import.meta.url === new URL(`file://${process.argv[1]}`).href;
-
-if (isDirectInvocation) {
+if (isProcessEntrypoint(import.meta.url)) {
   main().catch((error: unknown) => {
     // Fatal initialization failure: diagnostics to stderr, non-zero exit.
     diagnostic(

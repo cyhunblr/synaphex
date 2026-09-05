@@ -1,0 +1,111 @@
+name: CI
+
+# Fork- and PR-safe: no provider API keys, no npm token, no model invocation.
+# The only network access is the dependency install itself.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer commit on the same ref supersedes an in-flight run. This is CI
+# execution hygiene only; it has nothing to do with Synaphex cancellation
+# semantics, which deliberately do not exist.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Layer 1: does the SOURCE tree hold up?
+  source-validation:
+    name: Source validation (Node ${{ matrix.node }})
+    # Linux only. Synaphex's infrastructure is POSIX-specific by design:
+    # `process.kill(pid, 0)` liveness probing, hardlink-based atomic lock
+    # publication, `HOME`-override provider isolation and a `/dev/null`
+    # Git hooksPath. A Windows port needs its own probe implementation
+    # (ADR 0004), so claiming a matrix CI does not verify would be dishonest.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both ends of the supported range, verified by running the full
+        # suite on each rather than assumed from `engines`.
+        node: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # The full suite is canonical: it carries the security, race and
+      # crash-recovery coverage. It is deliberately not split into subsets
+      # that could quietly stop running those.
+      - name: Test
+        run: npm test
+
+      - name: MCP stdio protocol tests
+        run: npm run test:mcp-stdio
+
+      - name: Whitespace check
+        run: git diff --check
+
+      - name: Package dry run
+        run: npm pack --dry-run
+
+  # Layer 2: does the ARTIFACT A USER INSTALLS actually work?
+  #
+  # This exists because three real defects were invisible to layer 1 and
+  # appeared only under `npm pack` -> `npm install -g` -> global bin shim.
+  packed-product:
+    name: Packed product (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: source-validation
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Packs the real tarball, installs it into an isolated npm prefix, and
+      # drives the actual `synaphex` and `synaphex-mcp-stdio` bins against
+      # fake provider CLIs under a temporary HOME. Runnable locally too.
+      - name: Packed-product smoke
+        run: npm run test:packed-product
+
+      - name: Build tarball for inspection
+        run: npm pack --pack-destination dist-artifact
+
+      # Keeps the exact artifact that passed the gate downloadable. This is
+      # NOT publication: Phase 7A deliberately stops short of any release.
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: synaphex-package-node${{ matrix.node }}
+          path: dist-artifact/*.tgz
+          retention-days: 7
+          if-no-files-found: error

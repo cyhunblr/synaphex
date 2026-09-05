@@ -1,7 +1,5 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
 import { AgentConfigManager } from "../core/agent-config-manager.js";
 import { SynaphexError } from "../domain/errors.js";
 import {
@@ -9,6 +7,7 @@ import {
   formatTarget,
   type InstallationTarget,
 } from "../domain/installation.js";
+import { isProcessEntrypoint } from "../infrastructure/process-entrypoint.js";
 import { StateStore } from "../infrastructure/state-store.js";
 import { createRegistrars } from "./create-registrars.js";
 import { formatPlanConfirmation, formatReport } from "./format-report.js";
@@ -207,27 +206,7 @@ function safeMessage(error: unknown): string {
     : "Synaphex installation could not start.";
 }
 
-/**
- * True when this module is the process entrypoint.
- *
- * Compares RESOLVED paths rather than matching a filename: npm installs the
- * `synaphex` bin as a symlink (`bin/synaphex -> ../lib/.../cli-main.js`), so
- * `argv[1]` is the symlink path and a `endsWith("cli-main.js")` check silently
- * never fires -- the command would exit 0 printing nothing.
- */
-function isProcessEntrypoint(): boolean {
-  const entry = process.argv[1];
-  if (entry === undefined) {
-    return false;
-  }
-  try {
-    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (isProcessEntrypoint()) {
+if (isProcessEntrypoint(import.meta.url)) {
   main(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;

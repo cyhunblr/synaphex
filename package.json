@@ -12,7 +12,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.map"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -20,6 +21,7 @@
     "test:compile": "tsc -p tsconfig.test.json",
     "test": "npm run test:compile && node --test .test-dist/test/*.test.js",
     "test:mcp-stdio": "npm run test:compile && node --test .test-dist/test/mcp-stdio-smoke.test.js",
+    "test:packed-product": "npm run build && node scripts/ci/packed-product-smoke.mjs",
     "test:codex-live": "npm run test:compile && node .test-dist/test/live/codex-live.test.js",
     "test:codex-coder-web-search-live": "npm run test:compile && node .test-dist/test/live/codex-network-live.test.js",
     "test:codex-web-search-live": "npm run test:compile && node .test-dist/test/live/codex-web-search-live.test.js",

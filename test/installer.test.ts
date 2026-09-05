@@ -667,6 +667,38 @@ test("an empty provider config file means absent, not unverifiable", async (t) =
   }
 });
 
+test("both bins share one symlink-safe entrypoint guard", async () => {
+  // Two separate defects of the same family: the installer bin matched on a
+  // filename suffix, and the MCP bin compared `import.meta.url` against an
+  // unresolved `argv[1]`. npm installs both as symlinks, so each exited 0 in
+  // total silence -- and running the built file directly still worked, which
+  // is why the source suite never saw it.
+  for (const file of ["src/installer/cli-main.ts", "src/mcp/stdio-main.ts"]) {
+    const code = (await readFile(join(process.cwd(), file), "utf8"))
+      .replaceAll(/\/\*[\s\S]*?\*\//g, "")
+      .replaceAll(/\/\/.*$/gm, "");
+    assert.match(
+      code,
+      /isProcessEntrypoint\(import\.meta\.url\)/,
+      `${file} must use the shared symlink-safe guard`,
+    );
+    // Neither of the two broken shapes may come back.
+    assert.equal(code.includes('endsWith("cli-main.js")'), false, file);
+    assert.equal(
+      /import\.meta\.url === new URL\(`file:\/\/\$\{process\.argv\[1\]\}`\)/.test(code),
+      false,
+      `${file} must not compare an unresolved argv[1]`,
+    );
+  }
+  // The shared helper resolves symlinks on both sides.
+  const helper = await readFile(
+    join(process.cwd(), "src/infrastructure/process-entrypoint.ts"),
+    "utf8",
+  );
+  assert.match(helper, /realpathSync\(entry\)/);
+  assert.match(helper, /realpathSync\(fileURLToPath\(moduleUrl\)\)/);
+});
+
 test("the CLI entrypoint guard survives npm's bin symlink", async () => {
   // Found on a real machine: npm installs `synaphex` as a symlink to
   // cli-main.js, so process.argv[1] is the SYMLINK path. A guard matching
@@ -684,9 +716,8 @@ test("the CLI entrypoint guard survives npm's bin symlink", async () => {
     false,
     "entrypoint detection must not match on a filename suffix",
   );
-  // It must compare resolved paths instead.
-  assert.match(code, /realpathSync/);
-  assert.match(code, /fileURLToPath\(import\.meta\.url\)/);
+  // It must delegate to the shared symlink-safe helper instead.
+  assert.match(code, /isProcessEntrypoint/);
 });
 
 test("the installer asks every provider through one prompt channel", async () => {
