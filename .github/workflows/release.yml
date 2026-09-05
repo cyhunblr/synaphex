@@ -1,0 +1,161 @@
+name: Release
+
+# CD is deliberately separate from CI and never runs on an ordinary merge.
+# Authority is a maintainer-created tag whose name must match the version
+# already committed in package.json.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# Least privilege by default; the publish job adds only `id-token: write`,
+# and only the GitHub Release job may write contents.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Independently re-verifies the tagged commit. Passing CI earlier is not
+  # release authority: this runs the same gates at a higher boundary and packs
+  # the ONE artifact everything downstream consumes.
+  verify:
+    name: Verify release candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so tag ancestry against origin/main is checkable.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          # Trusted Publishing needs a recent runtime; application support
+          # remains Node 20 and 22, which ci.yml continues to prove.
+          node-version: "22"
+          cache: npm
+
+      # Pinned rather than `latest`: Trusted Publishing behaviour depends on
+      # the npm version, and a publish-critical job must not drift.
+      - name: Pin npm
+        run: npm install -g npm@11.10.0
+
+      - name: Report toolchain
+        run: node --version && npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Release preflight
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/release/release-preflight.mjs --tag "$RELEASE_TAG"
+
+      - name: Resolve release identity
+        id: identity
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: MCP stdio protocol tests
+        run: npm run test:mcp-stdio
+
+      # Packed exactly once. Everything after this validates and publishes THIS
+      # file; re-packing later would publish something never validated.
+      - name: Pack release artifact
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifact
+          FILE=$(npm pack --silent --pack-destination release-artifact)
+          PATH_TO_TARBALL="release-artifact/${FILE}"
+          sha256sum "${PATH_TO_TARBALL}" > release-artifact/SHA256SUMS
+          echo "tarball=${PATH_TO_TARBALL}" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "${PATH_TO_TARBALL}" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate the exact release artifact
+        run: npm run test:packed-product -- --tarball "${{ steps.pack.outputs.tarball }}"
+
+      - name: Confirm the version is not already published
+        run: |
+          node scripts/release/registry-state.mjs \
+            --name "$(node -p "require('./package.json').name")" \
+            --version "${{ steps.identity.outputs.version }}" \
+            --tarball "${{ steps.pack.outputs.tarball }}"
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          path: release-artifact/*
+          retention-days: 30
+          if-no-files-found: error
+
+  # Registry mutation. Gated behind a protected GitHub Environment so a human
+  # approves before anything irreversible happens.
+  publish:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm-release
+    permissions:
+      contents: read
+      # OIDC for npm Trusted Publishing. There is deliberately no NPM_TOKEN
+      # anywhere in this workflow.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      - name: Pin npm
+        run: npm install -g npm@11.10.0
+
+      - name: Download the verified release candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: release-artifact
+
+      # The artifact must be byte-identical to what `verify` validated.
+      - name: Verify artifact integrity
+        run: |
+          set -euo pipefail
+          cd release-artifact
+          sha256sum --check SHA256SUMS
+          echo "expected ${{ needs.verify.outputs.sha256 }}"
+
+      # A rerun after a successful publish must not attempt the immutable
+      # version again; this fails closed when registry state is ambiguous.
+      - name: Re-check registry state
+        run: |
+          node scripts/release/registry-state.mjs \
+            --name "$(node -p "require('./package.json').name")" \
+            --version "${{ needs.verify.outputs.version }}" \
+            --tarball "release-artifact/synaphex-${{ needs.verify.outputs.version }}.tgz"
+
+      # Publishes the EXACT validated tarball, not the working directory.
+      # Provenance is generated automatically by Trusted Publishing and is
+      # deliberately never disabled.
+      - name: Publish
+        run: npm publish "release-artifact/synaphex-${{ needs.verify.outputs.version }}.tgz"

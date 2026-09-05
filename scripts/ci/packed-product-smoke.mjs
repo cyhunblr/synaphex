@@ -30,6 +30,17 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+/**
+ * Optional `--tarball <path>`: validate an already-built artifact instead of
+ * packing a fresh one. The release pipeline packs exactly once and then
+ * validates and publishes that same file, so nothing can drift between what
+ * was checked and what the registry receives.
+ */
+const suppliedTarball = (() => {
+  const index = process.argv.indexOf("--tarball");
+  return index >= 0 ? process.argv[index + 1] : undefined;
+})();
 const STEP_TIMEOUT_MS = 120_000;
 
 let failures = 0;
@@ -141,15 +152,29 @@ const workspace = mkdtempSync(join(tmpdir(), "synaphex-packed-"));
 let exitCode = 0;
 
 try {
-  // --- 1. Build the real tarball ------------------------------------------
+  // --- 1. Obtain the tarball ----------------------------------------------
+  //
+  // A release must validate the EXACT artifact it will publish, so the caller
+  // can supply one. Packing again here would produce a different file and
+  // validate something the registry never receives.
   section("packing the product");
-  const packDir = join(workspace, "pack");
-  mkdirSync(packDir, { recursive: true });
-  const packed = run("npm", ["pack", "--silent", "--pack-destination", packDir]);
-  const tarball = join(packDir, packed.stdout.trim().split("\n").pop() ?? "");
-  check("npm pack produced a tarball", packed.status === 0 && existsSync(tarball), tarball);
-  if (!existsSync(tarball)) {
-    throw new Error("cannot continue without a tarball");
+  let tarball;
+  if (suppliedTarball !== undefined) {
+    tarball = resolve(suppliedTarball);
+    check("supplied tarball exists", existsSync(tarball), tarball);
+    if (!existsSync(tarball)) {
+      throw new Error(`no tarball at ${tarball}`);
+    }
+    process.stdout.write(`  note validating supplied tarball ${tarball}\n`);
+  } else {
+    const packDir = join(workspace, "pack");
+    mkdirSync(packDir, { recursive: true });
+    const packed = run("npm", ["pack", "--silent", "--pack-destination", packDir]);
+    tarball = join(packDir, packed.stdout.trim().split("\n").pop() ?? "");
+    check("npm pack produced a tarball", packed.status === 0 && existsSync(tarball), tarball);
+    if (!existsSync(tarball)) {
+      throw new Error("cannot continue without a tarball");
+    }
   }
 
   // --- 2. Package contents -------------------------------------------------

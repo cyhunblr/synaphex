@@ -2,6 +2,13 @@
   "name": "synaphex",
   "version": "0.1.0",
   "description": "Foundational project and session state for Synaphex",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cyhunblr/synaphex.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cyhunblr/synaphex/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,6 +29,8 @@
     "test": "npm run test:compile && node --test .test-dist/test/*.test.js",
     "test:mcp-stdio": "npm run test:compile && node --test .test-dist/test/mcp-stdio-smoke.test.js",
     "test:packed-product": "npm run build && node scripts/ci/packed-product-smoke.mjs",
+    "release:preflight": "node scripts/release/release-preflight.mjs",
+    "release:registry-state": "node scripts/release/registry-state.mjs",
     "test:codex-live": "npm run test:compile && node .test-dist/test/live/codex-live.test.js",
     "test:codex-coder-web-search-live": "npm run test:compile && node .test-dist/test/live/codex-network-live.test.js",
     "test:codex-web-search-live": "npm run test:compile && node .test-dist/test/live/codex-web-search-live.test.js",
