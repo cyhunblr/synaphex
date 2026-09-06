@@ -75,7 +75,7 @@ export class ClaudeCliAgentExecutor implements AgentExecutor {
   }
 
   async execute(input: AgentExecutionInput): Promise<unknown> {
-    assertSupportedRoute(input);
+    const modelSettingArguments = assertSupportedRoute(input);
     const executionPolicy = resolveSupportedExecutionPolicy(input);
     await assertWorkspace(input.context.project.sourcePath);
 
@@ -91,6 +91,7 @@ export class ClaudeCliAgentExecutor implements AgentExecutor {
     const result = await this.runClaude(
       input,
       executionPolicy,
+      modelSettingArguments,
       JSON.stringify(schema),
       prompt,
     );
@@ -101,6 +102,7 @@ export class ClaudeCliAgentExecutor implements AgentExecutor {
   private async runClaude(
     input: AgentExecutionInput,
     policy: ResolvedClaudeExecutionPolicy,
+    modelSettingArguments: readonly string[],
     schema: string,
     prompt: string,
   ): Promise<ProcessResult> {
@@ -116,6 +118,7 @@ export class ClaudeCliAgentExecutor implements AgentExecutor {
       schema,
       "--model",
       input.route.model,
+      ...modelSettingArguments,
       "--no-session-persistence",
       "--disable-slash-commands",
       "--permission-mode",
@@ -176,7 +179,7 @@ function resolveSupportedExecutionPolicy(
   }
 }
 
-function assertSupportedRoute(input: AgentExecutionInput): void {
+function assertSupportedRoute(input: AgentExecutionInput): string[] {
   const { route, context } = input;
   if (
     route.provider !== "anthropic" ||
@@ -206,6 +209,17 @@ function assertSupportedRoute(input: AgentExecutionInput): void {
       setting: invalid.setting,
     });
   }
+  if (route.settings === undefined) return [];
+  return Object.entries(route.settings).flatMap(([key, value]) => {
+    const setting = model.settings.find((entry) => entry.key === key)!;
+    const binding = setting.executorBinding;
+    if (binding.kind !== "claude_argument" || binding.flag !== "--effort") {
+      throw new ClaudeCliExecutionError("unsupported_settings", {
+        setting: key,
+      });
+    }
+    return [binding.flag, String(value)];
+  });
 }
 
 async function assertWorkspace(sourcePath: string): Promise<void> {

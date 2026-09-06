@@ -49,10 +49,15 @@ export interface ExecutionPolicyCapability {
   readonly toolRestrictions: "invocation_scoped" | "unavailable";
 }
 
-export type SettingExecutorBinding = Readonly<{
-  readonly kind: "codex_config";
-  readonly key: string;
-}>;
+export type SettingExecutorBinding =
+  | Readonly<{
+      readonly kind: "codex_config";
+      readonly key: string;
+    }>
+  | Readonly<{
+      readonly kind: "claude_argument";
+      readonly flag: "--effort";
+    }>;
 
 export interface SettingCapability {
   readonly key: string;

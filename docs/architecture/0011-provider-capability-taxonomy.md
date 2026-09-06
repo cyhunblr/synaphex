@@ -41,6 +41,8 @@ target ID is internal.
   and unchanged, but are non-executable; new authoring rejects them.
 - Configure projects the canonical catalog and observations but is not itself
   capability authority.
+- Model-specific Codex and Claude effort domains and their invocation bindings
+  live in the same registry used by authoring and runtime validation; provider
+  generic enums cannot widen a model's certified values.
 
 See [the catalog evidence](../reference/model-catalog.md).
-

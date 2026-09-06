@@ -33,8 +33,14 @@ MCP registration behaviour was verified directly.
 }
 ```
 
-This target currently declares no optional model settings in Synaphex. The
-provider-native defaults apply.
+Effort-compatible models expose a model-scoped `effort` setting. An explicit
+value maps to exactly `--effort <value>` for the invocation. Omission emits no
+flag and preserves provider-native behavior; Synaphex never writes Claude's
+global settings. The exact per-model domain is documented in the
+[catalog evidence](../reference/model-catalog.md): every compatible model has
+`low`, `medium`, and `high`, while only documented models add `xhigh` and/or
+`max`. Sonnet 4.5 and Haiku 4.5 expose no effort setting. `ultracode` is not a
+plain effort scalar and is deliberately not exposed.
 
 Catalog version 1 recommends `claude-opus-5` and `claude-sonnet-5`. It also
 supports the current Fable 5/5.1, Opus 4.5-4.8, Sonnet 4.5/4.6, and Haiku 4.5

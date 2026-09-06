@@ -92,19 +92,31 @@ refused at routing before any provider is contacted
 
 ### Optional settings
 
-Settings are scoped to one execution target or model. This version supports
-one optional setting on every accepted OpenAI model:
+Settings are scoped to one execution target or model. Every accepted OpenAI
+model supports:
 
 ```jsonc
 "settings": { "reasoning_effort": "high" }
 ```
 
 Allowed values are `low`, `medium`, `high`, and `xhigh`. Synaphex maps an
-explicit value to Codex's `model_reasoning_effort` invocation override. If the
-field or setting is omitted, no override is emitted and the provider's native
-default applies. Anthropic's supported models currently expose no optional
-setting. Unknown names, invalid values, and settings copied to an incompatible
-model are rejected.
+explicit value to Codex's `model_reasoning_effort` invocation override.
+
+Compatible Anthropic models support model-specific subsets of:
+
+```jsonc
+"settings": { "effort": "medium" }
+```
+
+The base domain is `low`, `medium`, and `high`; only explicitly certified
+models add `xhigh` and/or `max`. Sonnet 4.5 and Haiku 4.5 expose no `effort`
+setting. See the [validated model catalog](../reference/model-catalog.md) for
+the exact matrix. An explicit value maps to `--effort <value>` for that Claude
+invocation.
+
+If the field or setting is omitted, no override or flag is emitted and the
+provider's native default applies. Unknown names, invalid values, and settings
+copied to an incompatible model are rejected.
 
 ## Examples
 

@@ -28,6 +28,7 @@ const OPENAI_MODELS = [
   "gpt-6-astra",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
+  "gpt-5.5",
 ] as const;
 
 const ANTHROPIC_MODELS = [
@@ -43,6 +44,34 @@ const ANTHROPIC_MODELS = [
   "claude-sonnet-4-5",
   "claude-haiku-4-5-20251001",
 ] as const;
+
+const OPENAI_EFFORT_MATRIX: Record<
+  (typeof OPENAI_MODELS)[number],
+  readonly string[]
+> = {
+  "gpt-5.6-sol": ["low", "medium", "high", "xhigh"],
+  "gpt-6-astra": ["low", "medium", "high", "xhigh"],
+  "gpt-5.6-terra": ["low", "medium", "high", "xhigh"],
+  "gpt-5.6-luna": ["low", "medium", "high", "xhigh"],
+  "gpt-5.5": ["low", "medium", "high", "xhigh"],
+};
+
+const ANTHROPIC_EFFORT_MATRIX: Record<
+  (typeof ANTHROPIC_MODELS)[number],
+  readonly string[]
+> = {
+  "claude-opus-5": ["low", "medium", "high", "xhigh", "max"],
+  "claude-sonnet-5": ["low", "medium", "high", "xhigh", "max"],
+  "claude-fable-5-1": ["low", "medium", "high", "xhigh", "max"],
+  "claude-fable-5": ["low", "medium", "high", "xhigh", "max"],
+  "claude-opus-4-8": ["low", "medium", "high", "xhigh", "max"],
+  "claude-opus-4-7": ["low", "medium", "high", "xhigh", "max"],
+  "claude-opus-4-6": ["low", "medium", "high", "max"],
+  "claude-opus-4-5-20251101": ["low", "medium", "high"],
+  "claude-sonnet-4-6": ["low", "medium", "high", "max"],
+  "claude-sonnet-4-5": [],
+  "claude-haiku-4-5-20251001": [],
+};
 
 test("the versioned authority separates provider integrations, hosts, and targets", () => {
   assert.equal(PROVIDER_CAPABILITY_CATALOG_VERSION, 1);
@@ -114,7 +143,7 @@ test("every active model carries complete compatibility evidence and a support t
   }
 });
 
-test("reasoning effort is allowlisted only on certified OpenAI models", () => {
+test("each OpenAI model exposes only its certified Codex reasoning effort domain", () => {
   for (const modelId of OPENAI_MODELS) {
     const setting = getProviderModelCapability(
       "openai",
@@ -137,7 +166,7 @@ test("reasoning effort is allowlisted only on certified OpenAI models", () => {
         key: "reasoning_effort",
         scope: "model",
         type: "enum",
-        values: ["low", "medium", "high", "xhigh"],
+        values: OPENAI_EFFORT_MATRIX[modelId],
         required: false,
         omission: "provider_native",
         executorBinding: {
@@ -147,10 +176,106 @@ test("reasoning effort is allowlisted only on certified OpenAI models", () => {
       },
     );
   }
+});
+
+test("each Anthropic model exposes its exact certified effort domain", () => {
   for (const modelId of ANTHROPIC_MODELS) {
+    const expectedValues = ANTHROPIC_EFFORT_MATRIX[modelId];
+    const setting = getProviderModelCapability(
+      "anthropic",
+      "cli",
+      modelId,
+    )?.settings[0];
+    if (expectedValues.length === 0) {
+      assert.deepEqual(
+        getProviderModelCapability("anthropic", "cli", modelId)?.settings,
+        [],
+      );
+      continue;
+    }
     assert.deepEqual(
-      getProviderModelCapability("anthropic", "cli", modelId)?.settings,
-      [],
+      setting === undefined
+        ? undefined
+        : {
+            key: setting.key,
+            scope: setting.scope,
+            type: setting.type,
+            values: setting.values.map((value) => value.value),
+            required: setting.required,
+            omission: setting.omission,
+            executorBinding: setting.executorBinding,
+          },
+      {
+        key: "effort",
+        scope: "model",
+        type: "enum",
+        values: expectedValues,
+        required: false,
+        omission: "provider_native",
+        executorBinding: {
+          kind: "claude_argument",
+          flag: "--effort",
+        },
+      },
+    );
+  }
+});
+
+test("gpt-5.5 is supported explicitly but is not a recommended default", () => {
+  const model = getProviderModelCapability("openai", "cli", "gpt-5.5");
+  assert.equal(model?.supportTier, "supported");
+  assert.deepEqual(
+    model?.settings[0]?.values.map((entry) => entry.value),
+    OPENAI_EFFORT_MATRIX["gpt-5.5"],
+  );
+});
+
+test("retired, deprecated, preview, and duplicate OpenAI IDs are not authorable", () => {
+  for (const model of [
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.2",
+    "gpt-5.3-codex",
+    "gpt-5.3-codex-spark",
+    "gpt-5.6",
+  ]) {
+    assert.throws(
+      () => authoring.validateForAuthoring("coder", {
+        status: "configured",
+        provider: "openai",
+        surface: "cli",
+        model,
+      }),
+      InvalidAgentModelError,
+      model,
+    );
+  }
+});
+
+test("authoring accepts every active model with a value from its own setting domain", () => {
+  for (const model of OPENAI_MODELS) {
+    assert.equal(
+      authoring.validateForAuthoring("researcher", {
+        status: "configured",
+        provider: "openai",
+        surface: "cli",
+        model,
+        settings: { reasoning_effort: OPENAI_EFFORT_MATRIX[model][0]! },
+      }).model,
+      model,
+    );
+  }
+  for (const model of ANTHROPIC_MODELS) {
+    const effort = ANTHROPIC_EFFORT_MATRIX[model][0];
+    assert.equal(
+      authoring.validateForAuthoring("researcher", {
+        status: "configured",
+        provider: "anthropic",
+        surface: "cli",
+        model,
+        ...(effort === undefined ? {} : { settings: { effort } }),
+      }).model,
+      model,
     );
   }
 });
@@ -165,6 +290,16 @@ test("authoring accepts supported models and rejects unknown, VS Code, and Googl
       settings: { reasoning_effort: "high" },
     }).model,
     "gpt-5.6-terra",
+  );
+  assert.equal(
+    authoring.validateForAuthoring("researcher", {
+      status: "configured",
+      provider: "openai",
+      surface: "cli",
+      model: "gpt-5.5",
+      settings: { reasoning_effort: "xhigh" },
+    }).model,
+    "gpt-5.5",
   );
   assert.throws(
     () => authoring.validateForAuthoring("coder", {
@@ -234,24 +369,54 @@ test("runtime defensively revalidates target, model, and settings", () => {
   );
 });
 
-test("mutation guard: moving an exposed setting to an incompatible model fails closed", () => {
+test("mutation guard: OpenAI model constraints reject API-only and uncertified values", () => {
+  for (const [model, value] of [
+    ["gpt-6-astra", "max"],
+    ["gpt-5.6-sol", "none"],
+    ["gpt-5.5", "minimal"],
+  ] as const) {
+    assert.throws(
+      () => runtime.validateForExecution("coder", {
+        status: "configured",
+        provider: "openai",
+        surface: "cli",
+        model,
+        settings: { reasoning_effort: value },
+      }),
+      InvalidAgentSettingError,
+      `${model}:${value}`,
+    );
+  }
+});
+
+test("mutation guard: Anthropic xhigh/max constraints and no-effort models fail closed", () => {
   assert.throws(
     () => authoring.validateForAuthoring("coder", {
       status: "configured",
       provider: "anthropic",
       surface: "cli",
-      model: "claude-sonnet-5",
-      settings: { reasoning_effort: "high" },
+      model: "claude-opus-4-6",
+      settings: { effort: "xhigh" },
+    }),
+    InvalidAgentSettingError,
+  );
+  assert.throws(
+    () => authoring.validateForAuthoring("coder", {
+      status: "configured",
+      provider: "anthropic",
+      surface: "cli",
+      model: "claude-opus-4-5-20251101",
+      settings: { effort: "max" },
     }),
     InvalidAgentSettingError,
   );
   assert.throws(
     () => runtime.validateForExecution("coder", {
       status: "configured",
-      provider: "openai",
+      provider: "anthropic",
       surface: "cli",
-      model: "gpt-5.6-luna",
-      settings: { reasoning_effort: "maximum" },
+      model: "claude-sonnet-4-5",
+      settings: { effort: "low" },
     }),
     InvalidAgentSettingError,
   );

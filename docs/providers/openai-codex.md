@@ -39,11 +39,16 @@ whose MCP registration behaviour was verified directly. See
 Synaphex's offline catalog supports optional `reasoning_effort` values `low`,
 `medium`, `high`, and `xhigh` for this target. An explicit value is passed as a
 Codex `model_reasoning_effort` config override; omission passes no override and
-keeps the provider-native default.
+keeps the provider-native default. This is the certified intersection of each
+model's documented reasoning domain with the Codex CLI configuration contract:
+API-only `none`/`max` and uncertified generic `minimal` are not authorable.
 
 Catalog version 1 recommends `gpt-5.6-sol` and also supports `gpt-6-astra`,
-`gpt-5.6-terra`, and `gpt-5.6-luna`. Runtime/account availability is observed
-separately and never adds models to this list. See the
+`gpt-5.6-terra`, `gpt-5.6-luna`, and the current previous-generation
+`gpt-5.5`. The `gpt-5.6` convenience alias is omitted to avoid a duplicate Sol
+choice. Retired/deprecated ChatGPT-sign-in Codex models are preserve-only, not
+active authoring choices. Runtime/account availability is observed separately
+and never adds models to this list. See the
 [catalog evidence](../reference/model-catalog.md).
 
 `openai` + `cli` is executable. Synaphex launches the Codex CLI as an external

@@ -187,6 +187,7 @@ test("every supported Codex model is passed unchanged through the structured-res
     "gpt-6-astra",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
+    "gpt-5.5",
   ];
   const runner = new FakeProcessRunner(async (call) => {
     await writeFile(optionValue(call.args, "--output-last-message"), JSON.stringify({
@@ -358,6 +359,19 @@ test("unsupported routes, settings, and workspaces fail before process execution
     executor.execute(executionInput("coder", sourcePath, { temperature: 1 })),
     failureReason("unsupported_settings"),
   );
+  for (const [model, reasoningEffort] of [
+    ["gpt-6-astra", "max"],
+    ["gpt-5.6-sol", "none"],
+    ["gpt-5.5", "minimal"],
+  ] as const) {
+    const input = executionInput("coder", sourcePath, {
+      reasoning_effort: reasoningEffort,
+    });
+    await assert.rejects(
+      executor.execute({ ...input, route: { ...input.route, model } }),
+      failureReason("unsupported_settings"),
+    );
+  }
   await assert.rejects(
     executor.execute(executionInput("coder", missingPath)),
     failureReason("invalid_workspace"),

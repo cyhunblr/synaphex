@@ -159,10 +159,13 @@ test("model capability endpoint exposes the versioned offline catalog", async (t
   const serialized = JSON.stringify(body);
   assert.match(serialized, /gpt-5\.6-sol/);
   assert.match(serialized, /gpt-5\.6-terra/);
+  assert.match(serialized, /gpt-5\.5/);
   assert.match(serialized, /claude-sonnet-4-5/);
   assert.match(serialized, /claude-opus-5/);
   assert.match(serialized, /reasoning_effort/);
+  assert.match(serialized, /"effort"/);
   assert.equal(serialized.includes("model_reasoning_effort"), false);
+  assert.equal(serialized.includes("claude_argument"), false);
   assert.equal(serialized.toLowerCase().includes("credential"), false);
 });
 

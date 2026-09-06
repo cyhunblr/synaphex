@@ -31,24 +31,69 @@ const COMPATIBILITY_EVIDENCE: ModelCompatibilityEvidence = Object.freeze({
   deterministicAdapterCoverage: true,
 });
 
-const OPENAI_REASONING_EFFORT: SettingCapability = Object.freeze({
-  key: "reasoning_effort",
-  label: "Reasoning effort",
-  description: "Controls how much reasoning effort Codex applies.",
-  scope: "model",
-  type: "enum",
-  values: Object.freeze(
-    ["low", "medium", "high", "xhigh"].map((value) =>
-      Object.freeze({ value, label: value }),
-    ),
-  ),
-  required: false,
-  omission: "provider_native",
-  executorBinding: Object.freeze({
-    kind: "codex_config",
-    key: "model_reasoning_effort",
-  }),
+const OPENAI_REASONING_EFFORT_LEVELS = Object.freeze({
+  "gpt-5.6-sol": Object.freeze(["low", "medium", "high", "xhigh"]),
+  "gpt-6-astra": Object.freeze(["low", "medium", "high", "xhigh"]),
+  "gpt-5.6-terra": Object.freeze(["low", "medium", "high", "xhigh"]),
+  "gpt-5.6-luna": Object.freeze(["low", "medium", "high", "xhigh"]),
+  "gpt-5.5": Object.freeze(["low", "medium", "high", "xhigh"]),
 });
+
+function openAiReasoningEffort(
+  values: readonly string[],
+): SettingCapability {
+  return Object.freeze({
+    key: "reasoning_effort",
+    label: "Reasoning effort",
+    description: "Controls how much reasoning effort Codex applies.",
+    scope: "model",
+    type: "enum",
+    values: Object.freeze(
+      values.map((value) => Object.freeze({ value, label: value })),
+    ),
+    required: false,
+    omission: "provider_native",
+    executorBinding: Object.freeze({
+      kind: "codex_config",
+      key: "model_reasoning_effort",
+    }),
+  });
+}
+
+const CLAUDE_EFFORT_LEVELS = Object.freeze({
+  base: Object.freeze(["low", "medium", "high"]),
+  baseAndMax: Object.freeze(["low", "medium", "high", "max"]),
+  extended: Object.freeze(["low", "medium", "high", "xhigh", "max"]),
+});
+
+function claudeEffort(
+  values: readonly string[],
+): SettingCapability {
+  return Object.freeze({
+    key: "effort",
+    label: "Effort",
+    description: "Controls Claude's effort for this invocation.",
+    scope: "model",
+    type: "enum",
+    values: Object.freeze(
+      values.map((value) => Object.freeze({ value, label: value })),
+    ),
+    required: false,
+    omission: "provider_native",
+    executorBinding: Object.freeze({
+      kind: "claude_argument",
+      flag: "--effort",
+    }),
+  });
+}
+
+const CLAUDE_EFFORT_BASE = claudeEffort(CLAUDE_EFFORT_LEVELS.base);
+const CLAUDE_EFFORT_BASE_AND_MAX = claudeEffort(
+  CLAUDE_EFFORT_LEVELS.baseAndMax,
+);
+const CLAUDE_EFFORT_EXTENDED = claudeEffort(
+  CLAUDE_EFFORT_LEVELS.extended,
+);
 
 export const GOOGLE_EXECUTION_UNAVAILABLE_REASON =
   "Antigravity exposes no invocation-scoped execution policy, so Synaphex cannot enforce its immutable role contract for a single invocation.";
@@ -74,28 +119,39 @@ const HOST_SURFACES: readonly HostSurfaceCapability[] = Object.freeze([
 ]);
 
 const OPENAI_MODELS: readonly ModelCapability[] = Object.freeze([
-  model("gpt-5.6-sol", "GPT-5.6 Sol", "codex_cli", "recommended", [OPENAI_REASONING_EFFORT]),
-  model("gpt-6-astra", "GPT-6 Astra", "codex_cli", "supported", [OPENAI_REASONING_EFFORT]),
-  model("gpt-5.6-terra", "GPT-5.6 Terra", "codex_cli", "supported", [OPENAI_REASONING_EFFORT]),
-  model("gpt-5.6-luna", "GPT-5.6 Luna", "codex_cli", "supported", [OPENAI_REASONING_EFFORT]),
+  model("gpt-5.6-sol", "GPT-5.6 Sol", "codex_cli", "recommended", [
+    openAiReasoningEffort(OPENAI_REASONING_EFFORT_LEVELS["gpt-5.6-sol"]),
+  ]),
+  model("gpt-6-astra", "GPT-6 Astra", "codex_cli", "supported", [
+    openAiReasoningEffort(OPENAI_REASONING_EFFORT_LEVELS["gpt-6-astra"]),
+  ]),
+  model("gpt-5.6-terra", "GPT-5.6 Terra", "codex_cli", "supported", [
+    openAiReasoningEffort(OPENAI_REASONING_EFFORT_LEVELS["gpt-5.6-terra"]),
+  ]),
+  model("gpt-5.6-luna", "GPT-5.6 Luna", "codex_cli", "supported", [
+    openAiReasoningEffort(OPENAI_REASONING_EFFORT_LEVELS["gpt-5.6-luna"]),
+  ]),
+  model("gpt-5.5", "GPT-5.5", "codex_cli", "supported", [
+    openAiReasoningEffort(OPENAI_REASONING_EFFORT_LEVELS["gpt-5.5"]),
+  ]),
 ]);
 
 const ANTHROPIC_MODELS: readonly ModelCapability[] = Object.freeze([
-  model("claude-opus-5", "Claude Opus 5", "claude_code_cli", "recommended", []),
-  model("claude-sonnet-5", "Claude Sonnet 5", "claude_code_cli", "recommended", []),
-  model("claude-fable-5-1", "Claude Fable 5.1", "claude_code_cli", "supported", []),
-  model("claude-fable-5", "Claude Fable 5", "claude_code_cli", "supported", []),
-  model("claude-opus-4-8", "Claude Opus 4.8", "claude_code_cli", "supported", []),
-  model("claude-opus-4-7", "Claude Opus 4.7", "claude_code_cli", "supported", []),
-  model("claude-opus-4-6", "Claude Opus 4.6", "claude_code_cli", "supported", []),
+  model("claude-opus-5", "Claude Opus 5", "claude_code_cli", "recommended", [CLAUDE_EFFORT_EXTENDED]),
+  model("claude-sonnet-5", "Claude Sonnet 5", "claude_code_cli", "recommended", [CLAUDE_EFFORT_EXTENDED]),
+  model("claude-fable-5-1", "Claude Fable 5.1", "claude_code_cli", "supported", [CLAUDE_EFFORT_EXTENDED]),
+  model("claude-fable-5", "Claude Fable 5", "claude_code_cli", "supported", [CLAUDE_EFFORT_EXTENDED]),
+  model("claude-opus-4-8", "Claude Opus 4.8", "claude_code_cli", "supported", [CLAUDE_EFFORT_EXTENDED]),
+  model("claude-opus-4-7", "Claude Opus 4.7", "claude_code_cli", "supported", [CLAUDE_EFFORT_EXTENDED]),
+  model("claude-opus-4-6", "Claude Opus 4.6", "claude_code_cli", "supported", [CLAUDE_EFFORT_BASE_AND_MAX]),
   model(
     "claude-opus-4-5-20251101",
     "Claude Opus 4.5",
     "claude_code_cli",
     "supported",
-    [],
+    [CLAUDE_EFFORT_BASE],
   ),
-  model("claude-sonnet-4-6", "Claude Sonnet 4.6", "claude_code_cli", "supported", []),
+  model("claude-sonnet-4-6", "Claude Sonnet 4.6", "claude_code_cli", "supported", [CLAUDE_EFFORT_BASE_AND_MAX]),
   // This official alias is the existing live-validated v0.1 value. Removing
   // it in a later catalog preserves it as historical rather than rewriting it.
   model(

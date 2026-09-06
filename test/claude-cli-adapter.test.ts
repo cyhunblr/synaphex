@@ -216,6 +216,48 @@ test("every supported Claude model is passed unchanged through the structured-re
   for (const call of runner.calls) {
     assert.ok(call.args.includes("--json-schema"));
     assert.ok(call.args.includes("--restricted"));
+    assert.equal(call.args.includes("--effort"), false);
+  }
+});
+
+test("Claude maps every certified model-specific effort value to the exact invocation flag", async (t) => {
+  const sourcePath = await workspace(t);
+  const matrix = {
+    "claude-opus-5": ["low", "medium", "high", "xhigh", "max"],
+    "claude-sonnet-5": ["low", "medium", "high", "xhigh", "max"],
+    "claude-fable-5-1": ["low", "medium", "high", "xhigh", "max"],
+    "claude-fable-5": ["low", "medium", "high", "xhigh", "max"],
+    "claude-opus-4-8": ["low", "medium", "high", "xhigh", "max"],
+    "claude-opus-4-7": ["low", "medium", "high", "xhigh", "max"],
+    "claude-opus-4-6": ["low", "medium", "high", "max"],
+    "claude-opus-4-5-20251101": ["low", "medium", "high"],
+    "claude-sonnet-4-6": ["low", "medium", "high", "max"],
+  } as const;
+  const runner = new FakeRunner(() => success());
+  const executor = new ClaudeCliAgentExecutor({ processRunner: runner });
+
+  for (const [model, values] of Object.entries(matrix)) {
+    for (const effort of values) {
+      const input = executionInput("researcher", sourcePath);
+      await executor.execute({
+        ...input,
+        route: {
+          ...input.route,
+          model,
+          settings: { effort },
+        },
+      });
+    }
+  }
+
+  let callIndex = 0;
+  for (const [model, values] of Object.entries(matrix)) {
+    for (const effort of values) {
+      const args = runner.calls[callIndex++]!.args;
+      assert.equal(optionValue(args, "--model"), model);
+      assert.equal(optionValue(args, "--effort"), effort);
+      assert.equal(args.filter((arg) => arg === "--effort").length, 1);
+    }
   }
 });
 
@@ -328,6 +370,22 @@ test("Claude adapter rejects unsupported routes, settings, policies, and workspa
     executor.execute(executionInput("researcher", sourcePath, { temperature: 1 })),
     failure("unsupported_settings"),
   );
+  for (const [model, effort] of [
+    ["claude-opus-4-6", "xhigh"],
+    ["claude-opus-4-5-20251101", "max"],
+    ["claude-sonnet-4-5", "low"],
+    ["claude-haiku-4-5-20251001", "high"],
+    ["claude-opus-5", "ultracode"],
+  ] as const) {
+    const input = executionInput("researcher", sourcePath);
+    await assert.rejects(
+      executor.execute({
+        ...input,
+        route: { ...input.route, model, settings: { effort } },
+      }),
+      failure("unsupported_settings"),
+    );
+  }
   await assert.rejects(
     executor.execute({
       ...base,

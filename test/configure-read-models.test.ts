@@ -86,6 +86,7 @@ test("configure projects the canonical target/model catalog without executor int
     "gpt-6-astra",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
+    "gpt-5.5",
   ]);
   assert.equal(openai.models[0]?.supportTier, "recommended");
   assert.deepEqual(openai.models[0]!.settings[0], {
@@ -99,6 +100,24 @@ test("configure projects the canonical target/model catalog without executor int
     omission: "provider_native",
   });
   assert.equal("executorBinding" in openai.models[0]!.settings[0]!, false);
+  const anthropic = catalog.targets.find(
+    (target) => target.provider === "anthropic" && target.persistedSurface === "cli",
+  )!;
+  const opus = anthropic.models.find((model) => model.id === "claude-opus-5")!;
+  assert.deepEqual(opus.settings[0], {
+    key: "effort",
+    label: "Effort",
+    description: "Controls Claude's effort for this invocation.",
+    scope: "model",
+    type: "enum",
+    values: ["low", "medium", "high", "xhigh", "max"].map((value) => ({
+      value,
+      label: value,
+    })),
+    required: false,
+    omission: "provider_native",
+  });
+  assert.equal("executorBinding" in opus.settings[0]!, false);
   assert.equal(catalog.targets.some((target) => target.label.includes("VS Code")), false);
 });
 

@@ -93,6 +93,10 @@ an independently authenticated CLI execution target.
 
 Settings appear only when the selected model declares them. For accepted
 OpenAI models, **Reasoning effort** offers `low`, `medium`, `high`, and `xhigh`.
+Effort-compatible Anthropic models expose only their certified subset of
+`low`, `medium`, `high`, `xhigh`, and `max`; Sonnet 4.5 and Haiku 4.5 expose no
+effort control. The [model catalog](../reference/model-catalog.md) records the
+exact per-model matrix.
 Leaving it at **Provider default (unset)** omits the setting entirely. Switching
 provider or model removes incompatible draft settings and tells you it did so.
 
