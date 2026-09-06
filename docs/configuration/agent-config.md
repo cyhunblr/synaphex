@@ -73,8 +73,9 @@ not a list of every provider model, and it does not inspect your account or
 subscription. A missing or unknown model on an executable target is refused
 before anything runs.
 
-This version supports `gpt-5.6-sol` for `openai` + `cli` and
-`claude-sonnet-4-5` for `anthropic` + `cli`.
+This version has multi-model catalogs for the Codex CLI and Claude Code CLI.
+Models are marked `recommended` or `supported`; both tiers satisfy the same
+execution contract. See the complete [validated model catalog](../reference/model-catalog.md).
 
 ### `surface` in v0.1
 
@@ -91,8 +92,8 @@ refused at routing before any provider is contacted
 
 ### Optional settings
 
-Settings are scoped to one provider, surface and model. This version supports
-one optional setting for `openai` + `cli` + `gpt-5.6-sol`:
+Settings are scoped to one execution target or model. This version supports
+one optional setting on every accepted OpenAI model:
 
 ```jsonc
 "settings": { "reasoning_effort": "high" }
@@ -101,9 +102,9 @@ one optional setting for `openai` + `cli` + `gpt-5.6-sol`:
 Allowed values are `low`, `medium`, `high`, and `xhigh`. Synaphex maps an
 explicit value to Codex's `model_reasoning_effort` invocation override. If the
 field or setting is omitted, no override is emitted and the provider's native
-default applies. Anthropic's supported model currently exposes no optional
-setting. Unknown names, invalid values, and settings copied to another model
-are rejected.
+default applies. Anthropic's supported models currently expose no optional
+setting. Unknown names, invalid values, and settings copied to an incompatible
+model are rejected.
 
 ## Examples
 
@@ -146,8 +147,9 @@ invoke.
 ### Google is not an executable target
 
 Google is a fully supported **MCP host**, but not currently an executable agent
-target. This configuration is accepted by the schema and then **fails when
-invoked**:
+target. New authoring rejects this configuration. If the same value already
+exists historically, parsing preserves it and invocation **fails before the
+provider runs**:
 
 ```jsonc
 // NOT EXECUTABLE in v0.1 — shown only to mark the boundary.

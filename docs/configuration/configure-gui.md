@@ -79,19 +79,20 @@ The panel edits a draft. Nothing is written until you press **Save**, and
 **Discard** returns the fields to what is on disk.
 
 Choose a provider and a model from Synaphex's versioned, offline capability
-catalog. The list is filtered by provider and surface and is not provider API
-discovery or an account-entitlement check. The panel warns you when a target
-will not actually run:
+catalog. The list is filtered by callable execution target and is not provider
+API discovery or an account-entitlement check. The panel warns you when a
+historical target will not actually run:
 
-- a provider that is not registered as an MCP host tells you to run
-  `synaphex install`;
 - a historical `vscode` value is displayed as unsupported, but VS Code is not
   offered as a normal execution choice;
 - Google/Antigravity is a supported host but **not an executable agent target**,
   because Synaphex cannot enforce an invocation-scoped execution policy on it.
 
-Settings appear only when the selected model declares them. For
-`gpt-5.6-sol`, **Reasoning effort** offers `low`, `medium`, `high`, and `xhigh`.
+MCP host registration is displayed only as a host observation and does not gate
+an independently authenticated CLI execution target.
+
+Settings appear only when the selected model declares them. For accepted
+OpenAI models, **Reasoning effort** offers `low`, `medium`, `high`, and `xhigh`.
 Leaving it at **Provider default (unset)** omits the setting entirely. Switching
 provider or model removes incompatible draft settings and tells you it did so.
 

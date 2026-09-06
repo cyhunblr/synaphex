@@ -36,6 +36,12 @@ MCP registration behaviour was verified directly.
 This target currently declares no optional model settings in Synaphex. The
 provider-native defaults apply.
 
+Catalog version 1 recommends `claude-opus-5` and `claude-sonnet-5`. It also
+supports the current Fable 5/5.1, Opus 4.5-4.8, Sonnet 4.5/4.6, and Haiku 4.5
+identifiers listed in the [catalog evidence](../reference/model-catalog.md).
+The official `claude-sonnet-4-5` alias remains supported for compatibility with
+the accepted live-tested configuration.
+
 `anthropic` + `cli` is executable. Synaphex launches the Claude Code CLI as an
 external process for that invocation.
 
@@ -46,8 +52,9 @@ external process for that invocation.
 > different capabilities with independently verified requirements. Meeting the
 > registration minimum satisfies both.
 
-`anthropic` + `vscode` is **not** an executable target; it is refused at routing
-before any provider runs.
+`anthropic` + `vscode` is **not** an executable target. Existing persisted
+values remain readable and are refused before any provider runs; new authoring
+rejects them.
 
 ### From the VS Code extension
 

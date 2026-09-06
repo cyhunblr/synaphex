@@ -46,8 +46,9 @@ appears anywhere in the installer.
 
 **Capability distinction:** Synaphex being able to *call* Antigravity as an
 agent provider (an executor concern) is not the same capability as Antigravity
-*hosting* Synaphex over MCP (this concern). Both happen to be supported, but
-they were established separately.
+*hosting* Synaphex over MCP (this concern). Hosting is supported; agent
+execution is unavailable because its invocation-scoped policy cannot currently
+be enforced. See ADR 0011.
 
 ## VS Code surfaces are covered by the CLI registration
 

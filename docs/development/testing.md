@@ -56,7 +56,9 @@ The docs row is not ceremony: docs changes have twice caught real drift between 
 
 ## Baseline
 
-At the time of this release branch, `npm test` runs 816 tests and the packed-product suite runs 60 checks, with 31 MCP tools and 63 public error codes.
+At the time of this release branch, `npm test` runs 866 tests and the
+packed-product suite runs 77 checks, with 31 MCP tools and 63 public error
+codes.
 
 > Treat those numbers as a snapshot, not a contract. What matters is the **capability invariant**: the stdio smoke test pins the complete MCP tool list by name, and the reference docs pin the complete public error set — so adding or removing either fails a test rather than drifting silently. A test count that only ever goes up proves nothing; a pinned surface does.
 

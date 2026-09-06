@@ -1,12 +1,13 @@
 # Providers and routing
 
-Three concepts are easy to conflate and mean different things:
+Four concepts are easy to conflate and mean different things:
 
 | Concept | Question it answers |
 | --- | --- |
 | **Provider** | Which vendor's runtime is involved? |
-| **MCP host** | Which runtime is Synaphex running inside? |
-| **Agent target** | Which runtime executes a given agent? |
+| **Host surface** | Which interactive surface can host Synaphex over MCP? |
+| **MCP registration observation** | Does Synaphex's manifest record host setup? |
+| **Execution target** | Which independently launched runtime executes an agent? |
 
 Your MCP host and your agent target are set independently. An Anthropic host
 can run an agent on OpenAI, and often will.
@@ -51,7 +52,7 @@ Electron process, or a parent process launched it.
 This is a trust-model property, not a missing feature. Claiming a surface it
 cannot observe would put an unverifiable assertion at the centre of routing.
 
-## Agent target identity
+## Execution target identity
 
 An agent's target is separate, and richer:
 
@@ -59,7 +60,10 @@ An agent's target is separate, and richer:
 provider  +  execution surface  +  model  +  optional settings
 ```
 
-In v0.1 the only executable surface is `cli`. A target configured with
+The internal target IDs are `codex_cli`, `claude_code_cli`, and
+`antigravity_cli`; the first two are supported and the last is unavailable.
+The persisted v0.1 shape remains unchanged and uses `surface: "cli"` for newly
+authored callable targets. A historical target configured with
 `surface: vscode` is **refused before execution** — it is not quietly redirected
 to a CLI, because running something you did not configure would be worse than
 refusing.
@@ -77,6 +81,10 @@ separate process**. It does not reuse the interactive editor session.
 | any | any | `vscode` | Refused before execution |
 
 Every executable route in v0.1 runs a provider CLI.
+
+MCP registration is not a prerequisite for target execution. Registration
+describes whether a provider host can launch Synaphex; target readiness combines
+the static product authority with that target runtime's installation probe.
 
 ## Provider capability matrix
 
@@ -103,6 +111,14 @@ an equivalent invocation-scoped mechanism.
 Synaphex fails closed rather than running an agent whose policy it cannot
 enforce. The alternative would be to claim a guarantee it cannot deliver — a
 worse outcome than an honest refusal.
+
+## Model authority
+
+Executable models come from a static, versioned, offline catalog. Runtime or
+account observations cannot widen it. Recommended and supported entries are
+both executable; the tier is product guidance. Unknown historical values remain
+readable and unchanged but cannot run, and new unknown values are rejected.
+See [validated model catalog](../reference/model-catalog.md).
 
 ## Authentication
 

@@ -50,8 +50,9 @@ recommend changing global permission settings on your behalf.
 }
 ```
 
-That configuration is accepted by the schema. Invoking the agent **fails
-closed**: no provider runs, and the invocation reports
+New authoring rejects that configuration. A historically persisted value is
+still parsed and displayed unchanged, but invocation **fails closed**: no
+provider runs, and the invocation reports
 `PROVIDER_EXECUTION_POLICY_UNSUPPORTED`.
 
 ### Why it fails closed

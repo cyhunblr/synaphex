@@ -41,11 +41,17 @@ Synaphex's offline catalog supports optional `reasoning_effort` values `low`,
 Codex `model_reasoning_effort` config override; omission passes no override and
 keeps the provider-native default.
 
+Catalog version 1 recommends `gpt-5.6-sol` and also supports `gpt-6-astra`,
+`gpt-5.6-terra`, and `gpt-5.6-luna`. Runtime/account availability is observed
+separately and never adds models to this list. See the
+[catalog evidence](../reference/model-catalog.md).
+
 `openai` + `cli` is executable. Synaphex launches the Codex CLI as an external
 process for that invocation.
 
-`openai` + `vscode` is **not** an executable target. Configuring it is accepted
-by the schema and then refused at routing, before any provider runs.
+`openai` + `vscode` is **not** an executable target. Existing persisted values
+remain readable and are refused before any provider runs; new authoring rejects
+them.
 
 ### From the VS Code extension
 

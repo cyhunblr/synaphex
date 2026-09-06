@@ -50,7 +50,9 @@ Whether Synaphex can *host* from a provider and whether it can *invoke an agent 
 | Anthropic | **Supported** | Unsupported |
 | Google / Antigravity | Recognized, but **fails closed** — see below | Unsupported |
 
-`vscode` targets are refused before routing, reported as `AGENT_TARGET_SURFACE_UNSUPPORTED`.
+`vscode` targets are refused before routing, reported as
+`AGENT_TARGET_SURFACE_UNSUPPORTED`. They remain host integrations for OpenAI
+and Anthropic, not callable targets.
 
 A same-provider `cli` target still launches a **separate provider CLI process** — invoking an OpenAI agent from a Codex host runs a new `codex` process rather than reusing the host.
 
@@ -58,7 +60,12 @@ A same-provider `cli` target still launches a **separate provider CLI process** 
 
 Antigravity is fully wired as an agent target and its runtime is capability-probed, but **every execution attempt is refused**, by design.
 
-`agy` exposes tool-execution policy, file access, network access, and permission grants only as **persistent global or project settings** — there is no invocation-scoped policy. Synaphex will not mutate provider-owned settings, so it cannot establish a per-invocation read-only or workspace-write contract. Rather than presenting a provider limitation as a guarantee, it fails closed:
+`agy` exposes tool-execution policy, file access, network access, and permission
+grants only as **persistent global or project settings** — there is no
+invocation-scoped policy. Synaphex will not mutate provider-owned settings, so
+it cannot establish a per-invocation read-only or workspace-write contract. Its
+canonical execution target is therefore `unavailable` and has no model catalog.
+Rather than presenting a provider limitation as a guarantee, it fails closed:
 
 | Agent kind | Policy required | Result |
 | --- | --- | --- |
@@ -132,10 +139,11 @@ There is no supported programmatic API. Deep imports into `dist/` are not a publ
 | Task reopen and unarchive | Unsupported by design |
 | Node SDK / programmatic API | Deferred capability |
 | Application-level state encryption | Unsupported |
-| Agent `settings` field | Accepted in config, unusable in v0.1 |
+| Agent `settings` field | Allowlisted per catalog model; arbitrary pass-through unsupported |
 
 ## Related pages
 
 - [Providers and routing](../concepts/providers-and-routing.md)
 - [Agent configuration](../configuration/agent-config.md)
+- [Validated model catalog](model-catalog.md)
 - [Errors](errors.md)
