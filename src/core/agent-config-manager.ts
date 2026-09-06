@@ -18,8 +18,10 @@ import {
 } from "../domain/errors.js";
 import { StateStore } from "../infrastructure/state-store.js";
 import {
-  StaticAgentCapabilityValidator,
-  type AgentCapabilityValidator,
+  StaticAgentAuthoringCapabilityValidator,
+  StaticAgentRuntimeCapabilityValidator,
+  type AgentAuthoringCapabilityValidator,
+  type AgentRuntimeCapabilityValidator,
 } from "./agent-capability-validator.js";
 
 interface StoredAgentConfigState {
@@ -32,8 +34,10 @@ const AGENT_CONFIG_PATH = "agent_config.jsonc";
 export class AgentConfigManager {
   constructor(
     private readonly stateStore: StateStore,
-    private readonly capabilityValidator: AgentCapabilityValidator =
-      new StaticAgentCapabilityValidator(),
+    private readonly authoringValidator: AgentAuthoringCapabilityValidator =
+      new StaticAgentAuthoringCapabilityValidator(),
+    private readonly runtimeValidator: AgentRuntimeCapabilityValidator =
+      new StaticAgentRuntimeCapabilityValidator(),
   ) {}
 
   async getConfig(agent: AgentName): Promise<AgentConfig> {
@@ -63,7 +67,7 @@ export class AgentConfigManager {
         config.previousProvider,
       );
     }
-    return this.capabilityValidator.validate(agent, config);
+    return this.runtimeValidator.validateForExecution(agent, config);
   }
 
   async setConfigured(
@@ -71,7 +75,7 @@ export class AgentConfigManager {
     input: ConfiguredAgentInput,
   ): Promise<ConfiguredAgentConfig> {
     const config = parseConfiguredInput(agent, input);
-    this.capabilityValidator.validate(agent, config);
+    this.authoringValidator.validateForAuthoring(agent, config);
     await this.replaceAgentConfig(agent, config);
     return config;
   }

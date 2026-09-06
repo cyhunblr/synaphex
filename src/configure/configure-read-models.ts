@@ -7,12 +7,21 @@ import { RoleContractRegistry } from "../core/role-contract-registry.js";
 import { RuleResolver } from "../core/rule-resolver.js";
 import { TaskManager } from "../core/task-manager.js";
 import {
+  EXECUTION_TARGET_CAPABILITIES,
+  PROVIDER_CAPABILITY_CATALOG_VERSION,
+  PROVIDER_INTEGRATION_CAPABILITIES,
+  findExecutionTargetCapability,
   getProviderModelCapability,
-  getProviderTargetCapability,
-  PROVIDER_TARGET_CAPABILITIES,
 } from "../core/provider-model-capability-registry.js";
 import { AGENT_NAMES, type AgentName } from "../domain/agent.js";
 import type { AgentProvider } from "../domain/agent-config.js";
+import type {
+  ExecutionTargetId,
+  HostRegistrationObservation,
+  HostSurfaceIdentity,
+  ProviderRuntimeId,
+  RuntimeObservation,
+} from "../domain/provider-capability.js";
 import type { ProjectId } from "../domain/project.js";
 import type { TaskId } from "../domain/task.js";
 import { RULE_DECISIONS, type RuleDecision, type RuleScope } from "../domain/rule.js";
@@ -139,8 +148,8 @@ export class ConfigureReadModels {
         executable:
           configured &&
           config.status === "configured" &&
-          getProviderTargetCapability(config.provider, config.surface)
-            .executionAvailability === "available" &&
+          findExecutionTargetCapability(config.provider, config.surface)
+            ?.support === "supported" &&
           getProviderModelCapability(
             config.provider,
             config.surface,
@@ -160,24 +169,31 @@ export class ConfigureReadModels {
   /** UI-safe projection of the same registry used by config validation. */
   modelCapabilities(): ModelCapabilityCatalogReadModel {
     return {
-      targets: PROVIDER_TARGET_CAPABILITIES.map((target) => ({
+      catalogVersion: PROVIDER_CAPABILITY_CATALOG_VERSION,
+      targets: EXECUTION_TARGET_CAPABILITIES.map((target) => ({
+        id: target.id,
         provider: target.provider,
-        surface: target.surface,
-        executionAvailability: target.executionAvailability,
+        label: target.label,
+        runtime: target.runtime,
+        persistedSurface: target.persistedSurface,
+        support: target.support,
+        executionPolicy: { ...target.executionPolicy },
         ...(target.unavailableReason === undefined
           ? {}
           : { unavailableReason: target.unavailableReason }),
         models: target.models.map((model) => ({
-          id: model.model,
+          id: model.id,
           label: model.label,
+          supportTier: model.supportTier,
           settings: model.settings.map((setting) => ({
             key: setting.key,
             label: setting.label,
             description: setting.description,
+            scope: setting.scope,
             type: setting.type,
             values: setting.values.map((value) => ({ ...value })),
             required: setting.required,
-            defaultBehavior: setting.defaultBehavior,
+            omission: setting.omission,
           })),
         })),
       })),
@@ -278,51 +294,59 @@ export class ConfigureReadModels {
       this.runtimeProbes.antigravity.probe(),
     ]);
 
-    const openaiTarget = getProviderTargetCapability("openai", "cli");
-    const anthropicTarget = getProviderTargetCapability("anthropic", "cli");
-    const googleTarget = getProviderTargetCapability("google", "cli");
     return {
       platform: platform(),
       nodeVersion: process.version,
-      providers: [
-        {
-          provider: "openai",
-          runtime: "codex",
-          available: codex.available,
-          ...(codex.version === undefined ? {} : { version: codex.version }),
-          registrationMinimum: INSTALLER_MINIMUM_VERSIONS.openai,
-          registered: registered.has("openai"),
-          supportedAsHost: true,
-          supportedAsTarget: openaiTarget.executionAvailability === "available",
-        },
-        {
-          provider: "anthropic",
-          runtime: "claude",
-          available: claude.available,
-          ...(claude.version === undefined ? {} : { version: claude.version }),
-          registrationMinimum: INSTALLER_MINIMUM_VERSIONS.anthropic,
-          registered: registered.has("anthropic"),
-          supportedAsHost: true,
-          supportedAsTarget: anthropicTarget.executionAvailability === "available",
-        },
-        {
-          provider: "google",
-          runtime: "agy",
-          available: antigravity.available,
-          ...(antigravity.version === undefined
-            ? {}
-            : { version: antigravity.version }),
-          registrationMinimum: INSTALLER_MINIMUM_VERSIONS.google,
-          registered: registered.has("google"),
-          supportedAsHost: true,
-          // Recognised, but no invocation-scoped execution policy can be
-          // enforced, so it fails closed rather than appearing ready.
-          supportedAsTarget: googleTarget.executionAvailability === "available",
-          ...(googleTarget.unavailableReason === undefined
-            ? {}
-            : { targetUnavailableReason: googleTarget.unavailableReason }),
-        },
-      ],
+      providers: PROVIDER_INTEGRATION_CAPABILITIES.map((integration) => {
+        const observation = {
+          openai: codex,
+          anthropic: claude,
+          google: antigravity,
+        }[integration.provider];
+        return {
+          provider: integration.provider,
+          runtime: {
+            id: integration.runtime,
+            installed: observation.available,
+            ...(observation.version === undefined
+              ? {}
+              : { version: observation.version }),
+          },
+          hostIntegration: {
+            support: "supported" as const,
+            registrationMinimum: INSTALLER_MINIMUM_VERSIONS[integration.provider],
+            registration: {
+              state: registered.has(integration.provider)
+                ? ("recorded" as const)
+                : ("not_recorded" as const),
+              source: "installation_manifest" as const,
+            },
+            surfaces: integration.hostSurfaces.map((surface) => ({
+              id: surface.id,
+              label: surface.label,
+              surface: surface.surface,
+              detection: surface.detection,
+              callableTarget: surface.callableTarget,
+            })),
+          },
+          executionTargets: integration.executionTargets.map((target) => ({
+            id: target.id,
+            label: target.label,
+            support: target.support,
+            executionPolicySupport:
+              target.support === "supported"
+                ? ("supported" as const)
+                : ("unavailable" as const),
+            targetRuntimeReadiness:
+              target.support === "supported" && observation.available
+                ? ("ready" as const)
+                : ("unavailable" as const),
+            ...(target.unavailableReason === undefined
+              ? {}
+              : { unavailableReason: target.unavailableReason }),
+          })),
+        };
+      }),
     };
   }
 
@@ -351,10 +375,10 @@ export class ConfigureReadModels {
       configured: agents.filter((agent) => agent.status === "configured").length,
       unconfigured: agents.filter((agent) => agent.status === "unconfigured")
         .length,
-      executableTargets: agents.filter((agent) => agent.executable).length,
+      executableAgentConfigurations: agents.filter((agent) => agent.executable).length,
       providers: diagnostics.providers.length,
-      registeredProviders: diagnostics.providers.filter(
-        (provider) => provider.registered,
+      hostRegistrationsRecorded: diagnostics.providers.filter(
+        (provider) => provider.hostIntegration.registration.state === "recorded",
       ).length,
       configVersion,
       decisions: [...RULE_DECISIONS],
@@ -393,22 +417,33 @@ export interface AgentReadModel {
 }
 
 export interface ModelCapabilityCatalogReadModel {
+  readonly catalogVersion: number;
   readonly targets: readonly {
+    readonly id: string;
     readonly provider: AgentProvider;
-    readonly surface: string;
-    readonly executionAvailability: "available" | "unavailable";
+    readonly label: string;
+    readonly runtime: string;
+    readonly persistedSurface: "cli";
+    readonly support: "supported" | "unavailable";
+    readonly executionPolicy: {
+      readonly sourceModification: "invocation_scoped" | "unavailable";
+      readonly network: "invocation_scoped" | "unavailable";
+      readonly toolRestrictions: "invocation_scoped" | "unavailable";
+    };
     readonly unavailableReason?: string;
     readonly models: readonly {
       readonly id: string;
       readonly label: string;
+      readonly supportTier: "recommended" | "supported";
       readonly settings: readonly {
         readonly key: string;
         readonly label: string;
         readonly description: string;
+        readonly scope: "target" | "model";
         readonly type: "enum";
         readonly values: readonly { readonly value: string; readonly label: string }[];
         readonly required: false;
-        readonly defaultBehavior: "provider_native";
+        readonly omission: "provider_native";
       }[];
     }[];
   }[];
@@ -445,14 +480,29 @@ export interface ProjectReadModel {
 
 export interface ProviderDiagnostic {
   readonly provider: AgentProvider;
-  readonly runtime: string;
-  readonly available: boolean;
-  readonly version?: string;
-  readonly registrationMinimum: string;
-  readonly registered: boolean;
-  readonly supportedAsHost: boolean;
-  readonly supportedAsTarget: boolean;
-  readonly targetUnavailableReason?: string;
+  readonly runtime: Omit<RuntimeObservation, "runtime"> & {
+    readonly id: ProviderRuntimeId;
+  };
+  readonly hostIntegration: {
+    readonly support: "supported";
+    readonly registrationMinimum: string;
+    readonly registration: HostRegistrationObservation;
+    readonly surfaces: readonly {
+      readonly id: HostSurfaceIdentity;
+      readonly label: string;
+      readonly surface: string;
+      readonly detection: string;
+      readonly callableTarget: false;
+    }[];
+  };
+  readonly executionTargets: readonly {
+    readonly id: ExecutionTargetId;
+    readonly label: string;
+    readonly support: "supported" | "unavailable";
+    readonly executionPolicySupport: "supported" | "unavailable";
+    readonly targetRuntimeReadiness: "ready" | "unavailable";
+    readonly unavailableReason?: string;
+  }[];
 }
 
 export interface DiagnosticsReadModel {
@@ -476,9 +526,9 @@ export interface StatusReadModel {
   readonly agents: number;
   readonly configured: number;
   readonly unconfigured: number;
-  readonly executableTargets: number;
+  readonly executableAgentConfigurations: number;
   readonly providers: number;
-  readonly registeredProviders: number;
+  readonly hostRegistrationsRecorded: number;
   readonly configVersion: string;
   readonly decisions: readonly RuleDecision[];
 }

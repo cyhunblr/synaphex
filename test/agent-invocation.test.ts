@@ -219,6 +219,22 @@ async function configure(
   // `vscode`, which only ever ran because the router silently downgraded it.
   surface: AgentSurface = "cli",
 ): Promise<void> {
+  if (provider === "google" || surface !== "cli") {
+    const current = await fixture.configs.getAllConfigs();
+    await fixture.store.writeJson("agent_config.jsonc", {
+      version: 1,
+      agents: {
+        ...current,
+        [agent]: {
+          status: "configured",
+          provider,
+          surface,
+          model: provider === "anthropic" ? "claude-sonnet-4-5" : "gpt-5.6-sol",
+        },
+      },
+    });
+    return;
+  }
   await fixture.configs.setConfigured(agent, {
     provider,
     surface,

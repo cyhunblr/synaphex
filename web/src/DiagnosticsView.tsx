@@ -11,8 +11,9 @@ export function DiagnosticsView({
   return (
     <>
       <div className="notice">
-        Diagnostics are read-only probes: presence, version and registration
-        shape. No model request is made, so nothing here costs a provider call.
+        Runtime probes and installation-manifest records are observations.
+        They never widen Synaphex target or model support, and no model request
+        is made.
       </div>
 
       <section aria-labelledby="system-diagnostics-heading">
@@ -30,49 +31,69 @@ export function DiagnosticsView({
         <table>
           <thead>
             <tr>
-              <th>Provider</th><th>Runtime</th><th>Runtime status</th><th>Version</th>
-              <th>Registration minimum</th><th>MCP registration</th>
-              <th>Host support</th><th>Target support</th>
+              <th>Provider</th><th>Runtime</th><th>Runtime installed</th><th>Version</th>
+              <th>Host registration minimum</th><th>Host registration record</th>
+              <th>Host surfaces</th><th>Execution target</th>
+              <th>Policy support</th><th>Target runtime readiness</th>
             </tr>
           </thead>
           <tbody>
             {diagnostics.providers.map((entry) => (
               <tr key={entry.provider} data-provider={entry.provider}>
                 <td>{entry.provider}</td>
-                <td><code>{entry.runtime}</code></td>
+                <td><code>{entry.runtime.id}</code></td>
                 <td>
                   <DiagnosticBadge
-                    value={entry.available}
+                    value={entry.runtime.installed}
                     positive="Installed"
                     negative="Not installed"
                   />
                 </td>
-                <td>{entry.version ?? "—"}</td>
-                <td>{entry.registrationMinimum}</td>
+                <td>{entry.runtime.version ?? "—"}</td>
+                <td>{entry.hostIntegration.registrationMinimum}</td>
                 <td>
                   <DiagnosticBadge
-                    value={entry.registered}
-                    positive="Registered"
-                    negative="Not registered"
+                    value={entry.hostIntegration.registration.state === "recorded"}
+                    positive="Recorded"
+                    negative="Not recorded"
                     negativeTone="warn"
                   />
                 </td>
                 <td>
-                  <DiagnosticBadge
-                    value={entry.supportedAsHost}
-                    positive="Supported"
-                    negative="Unavailable"
-                  />
+                  {entry.hostIntegration.surfaces.map((surface) => surface.label).join(", ")}
                 </td>
                 <td>
-                  <DiagnosticBadge
-                    value={entry.supportedAsTarget}
-                    positive="Supported"
-                    negative="Unavailable"
-                    {...(entry.targetUnavailableReason === undefined
-                      ? {}
-                      : { title: entry.targetUnavailableReason })}
-                  />
+                  {entry.executionTargets.map((target) => (
+                    <DiagnosticBadge
+                      key={target.id}
+                      value={target.support === "supported"}
+                      positive={`${target.label}: supported`}
+                      negative={`${target.label}: unavailable`}
+                      {...(target.unavailableReason === undefined
+                        ? {}
+                        : { title: target.unavailableReason })}
+                    />
+                  ))}
+                </td>
+                <td>
+                  {entry.executionTargets.map((target) => (
+                    <DiagnosticBadge
+                      key={target.id}
+                      value={target.executionPolicySupport === "supported"}
+                      positive="Supported"
+                      negative="Unavailable"
+                    />
+                  ))}
+                </td>
+                <td>
+                  {entry.executionTargets.map((target) => (
+                    <DiagnosticBadge
+                      key={target.id}
+                      value={target.targetRuntimeReadiness === "ready"}
+                      positive="Ready"
+                      negative="Unavailable"
+                    />
+                  ))}
                 </td>
               </tr>
             ))}

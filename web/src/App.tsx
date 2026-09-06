@@ -204,8 +204,8 @@ function Summary({ status }: { status: StatusModel | null }) {
       <Stat value={status.agents} label="Agents" />
       <Stat value={status.configured} label="Configured" />
       <Stat value={status.unconfigured} label="Unconfigured" />
-      <Stat value={status.executableTargets} label="Executable targets" />
-      <Stat value={`${status.registeredProviders}/${status.providers}`} label="Providers registered" />
+      <Stat value={status.executableAgentConfigurations} label="Executable agent configs" />
+      <Stat value={`${status.hostRegistrationsRecorded}/${status.providers}`} label="Host registrations recorded" />
     </div>
   );
 }

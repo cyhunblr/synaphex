@@ -17,47 +17,67 @@ import type {
 } from "../web/src/api.js";
 
 const catalog: ModelCapabilityCatalog = {
+  catalogVersion: 1,
   targets: [
     {
+      id: "codex_cli",
       provider: "openai",
-      surface: "cli",
-      executionAvailability: "available",
+      label: "Codex CLI",
+      runtime: "codex",
+      persistedSurface: "cli",
+      support: "supported",
+      executionPolicy: supportedPolicy(),
       models: [{
         id: "gpt-5.6-sol",
         label: "gpt-5.6-sol",
+        supportTier: "recommended",
         settings: [{
           key: "reasoning_effort",
           label: "Reasoning effort",
           description: "Controls reasoning.",
+          scope: "model",
           type: "enum",
           values: ["low", "medium", "high", "xhigh"].map((value) => ({ value, label: value })),
           required: false,
-          defaultBehavior: "provider_native",
+          omission: "provider_native",
         }],
       }],
     },
     {
+      id: "claude_code_cli",
       provider: "anthropic",
-      surface: "cli",
-      executionAvailability: "available",
-      models: [{ id: "claude-sonnet-4-5", label: "claude-sonnet-4-5", settings: [] }],
+      label: "Claude Code CLI",
+      runtime: "claude",
+      persistedSurface: "cli",
+      support: "supported",
+      executionPolicy: supportedPolicy(),
+      models: [{ id: "claude-sonnet-4-5", label: "claude-sonnet-4-5", supportTier: "supported", settings: [] }],
     },
     {
+      id: "antigravity_cli",
       provider: "google",
-      surface: "cli",
-      executionAvailability: "unavailable",
+      label: "Antigravity CLI",
+      runtime: "agy",
+      persistedSurface: "cli",
+      support: "unavailable",
+      executionPolicy: {
+        sourceModification: "unavailable",
+        network: "unavailable",
+        toolRestrictions: "unavailable",
+      },
       unavailableReason: "Google agent execution is unavailable.",
-      models: [],
-    },
-    {
-      provider: "openai",
-      surface: "vscode",
-      executionAvailability: "unavailable",
-      unavailableReason: "VS Code is not an invocation target.",
       models: [],
     },
   ],
 };
+
+function supportedPolicy() {
+  return {
+    sourceModification: "invocation_scoped" as const,
+    network: "invocation_scoped" as const,
+    toolRestrictions: "invocation_scoped" as const,
+  };
+}
 
 const providers: ProviderDiagnostic[] = [
   diagnostic("openai", true),
@@ -68,13 +88,21 @@ const providers: ProviderDiagnostic[] = [
 function diagnostic(provider: string, supportedAsTarget: boolean): ProviderDiagnostic {
   return {
     provider,
-    runtime: provider,
-    available: true,
-    registrationMinimum: "1",
-    registered: true,
-    supportedAsHost: true,
-    supportedAsTarget,
-    ...(supportedAsTarget ? {} : { targetUnavailableReason: "Unavailable." }),
+    runtime: { id: provider, installed: true },
+    hostIntegration: {
+      support: "supported",
+      registrationMinimum: "1",
+      registration: { state: "recorded", source: "installation_manifest" },
+      surfaces: [],
+    },
+    executionTargets: [{
+      id: `${provider}_cli`,
+      label: `${provider} CLI`,
+      support: supportedAsTarget ? "supported" : "unavailable",
+      executionPolicySupport: supportedAsTarget ? "supported" : "unavailable",
+      targetRuntimeReadiness: supportedAsTarget ? "ready" : "unavailable",
+      ...(supportedAsTarget ? {} : { unavailableReason: "Unavailable." }),
+    }],
   };
 }
 
@@ -114,7 +142,7 @@ function render(model: AgentModel): string {
 
 test("the actual OpenAI panel renders the catalog model and its enum setting", () => {
   const html = render(agent({ settings: { reasoning_effort: "high" } }));
-  assert.match(html, /gpt-5\.6-sol · openai · cli · configurable/);
+  assert.match(html, /gpt-5\.6-sol · recommended · openai · cli · configurable/);
   assert.match(html, /id="setting-reasoning_effort"/);
   assert.match(html, /<option value="high" selected="">high<\/option>/);
   assert.doesNotMatch(html, /maximum/);
@@ -133,7 +161,7 @@ test("provider selection filters models and removes incompatible draft settings"
     provider: "anthropic",
     model: "claude-sonnet-4-5",
   }));
-  assert.match(html, /claude-sonnet-4-5 · anthropic · cli/);
+  assert.match(html, /claude-sonnet-4-5 · supported · anthropic · cli/);
   assert.doesNotMatch(html, /setting-reasoning_effort/);
   assert.match(html, /Provider defaults are used/);
 });

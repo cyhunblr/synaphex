@@ -708,11 +708,20 @@ test("a native VS Code target fails closed through the production dispatch path"
       .sessionId;
 
     const store = new StateStore(join(home, ".synaphex"));
-    // Same provider as the host, VS Code surface -> native route.
-    await new AgentConfigManager(store).setConfigured("researcher", {
-      provider: "anthropic",
-      surface: "vscode",
-      model: "gpt-5.6-sol",
+    // Seed a historical value directly: normal authoring rejects VS Code.
+    const configs = new AgentConfigManager(store);
+    const current = await configs.getAllConfigs();
+    await store.writeJson("agent_config.jsonc", {
+      version: 1,
+      agents: {
+        ...current,
+        researcher: {
+          status: "configured",
+          provider: "anthropic",
+          surface: "vscode",
+          model: "gpt-5.6-sol",
+        },
+      },
     });
 
     const invoked = await client.callTool({

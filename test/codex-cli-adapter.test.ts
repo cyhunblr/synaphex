@@ -180,6 +180,67 @@ test("Codex adapter constructs secure non-interactive command and parses the res
   await assert.rejects(access(temporaryDirectory), { code: "ENOENT" });
 });
 
+test("every supported Codex model is passed unchanged through the structured-result adapter", async (t) => {
+  const sourcePath = await workspace(t);
+  const models = [
+    "gpt-5.6-sol",
+    "gpt-6-astra",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+  ];
+  const runner = new FakeProcessRunner(async (call) => {
+    await writeFile(optionValue(call.args, "--output-last-message"), JSON.stringify({
+      agent: "researcher",
+      outcome: "success",
+      summary: "ok",
+      warnings: null,
+      requestedCalls: null,
+      requestedActions: null,
+      payloadJson: JSON.stringify({ findings: "ok" }),
+    }));
+    return success();
+  });
+  const executor = new CodexCliAgentExecutor({ processRunner: runner });
+
+  for (const model of models) {
+    const input = executionInput("researcher", sourcePath, {
+      reasoning_effort: "medium",
+    });
+    await executor.execute({
+      ...input,
+      route: { ...input.route, model },
+    });
+  }
+
+  assert.deepEqual(
+    runner.calls.map((call) => optionValue(call.args, "--model")),
+    models,
+  );
+  for (const call of runner.calls) {
+    assert.ok(call.args.includes("--output-schema"));
+    assert.ok(call.args.includes("--output-last-message"));
+    assert.ok(configOverrides(call.args).includes('model_reasoning_effort="medium"'));
+  }
+});
+
+test("Codex defensively refuses an uncataloged model before process execution", async (t) => {
+  const sourcePath = await workspace(t);
+  const runner = new FakeProcessRunner(() => {
+    throw new Error("provider must not run");
+  });
+  const input = executionInput("researcher", sourcePath);
+  await assert.rejects(
+    new CodexCliAgentExecutor({ processRunner: runner }).execute({
+      ...input,
+      route: { ...input.route, model: "future-model" },
+    }),
+    (error: unknown) =>
+      error instanceof CodexCliExecutionError &&
+      error.details?.reason === "unsupported_model",
+  );
+  assert.equal(runner.calls.length, 0);
+});
+
 test("sandbox mapping is capability-based for all six current roles", () => {
   const agents: readonly AgentName[] = [
     "questioner",

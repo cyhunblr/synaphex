@@ -1,109 +1,173 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { StaticAgentCapabilityValidator } from "../src/core/agent-capability-validator.js";
 import {
+  StaticAgentAuthoringCapabilityValidator,
+  StaticAgentRuntimeCapabilityValidator,
+} from "../src/core/agent-capability-validator.js";
+import {
+  EXECUTION_TARGET_CAPABILITIES,
+  PROVIDER_CAPABILITY_CATALOG_VERSION,
+  PROVIDER_INTEGRATION_CAPABILITIES,
+  findExecutionTargetCapability,
+  getProviderIntegrationCapability,
   getProviderModelCapability,
-  getProviderTargetCapability,
-  PROVIDER_TARGET_CAPABILITIES,
 } from "../src/core/provider-model-capability-registry.js";
 import {
+  AgentTargetSurfaceUnsupportedError,
+  InvalidAgentConfigError,
   InvalidAgentModelError,
   InvalidAgentSettingError,
+  ProviderExecutionPolicyUnsupportedError,
 } from "../src/domain/errors.js";
 
-const validator = new StaticAgentCapabilityValidator();
+const authoring = new StaticAgentAuthoringCapabilityValidator();
+const runtime = new StaticAgentRuntimeCapabilityValidator();
 
-test("the offline registry exposes the supported OpenAI and Anthropic CLI models", () => {
-  assert.deepEqual(
-    getProviderTargetCapability("openai", "cli").models.map((model) => model.model),
-    ["gpt-5.6-sol"],
-  );
-  assert.deepEqual(
-    getProviderTargetCapability("anthropic", "cli").models.map((model) => model.model),
-    ["claude-sonnet-4-5"],
-  );
-  assert.equal(PROVIDER_TARGET_CAPABILITIES.length, 6);
-});
+const OPENAI_MODELS = [
+  "gpt-5.6-sol",
+  "gpt-6-astra",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+] as const;
 
-test("unavailable surfaces and the Google target have no executable models", () => {
-  for (const target of [
-    getProviderTargetCapability("openai", "vscode"),
-    getProviderTargetCapability("anthropic", "vscode"),
-    getProviderTargetCapability("google", "cli"),
-    getProviderTargetCapability("google", "vscode"),
-  ]) {
-    assert.equal(target.executionAvailability, "unavailable");
-    assert.deepEqual(target.models, []);
-    assert.ok((target.unavailableReason?.length ?? 0) > 20);
+const ANTHROPIC_MODELS = [
+  "claude-opus-5",
+  "claude-sonnet-5",
+  "claude-fable-5-1",
+  "claude-fable-5",
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-opus-4-5-20251101",
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-5",
+  "claude-haiku-4-5-20251001",
+] as const;
+
+test("the versioned authority separates provider integrations, hosts, and targets", () => {
+  assert.equal(PROVIDER_CAPABILITY_CATALOG_VERSION, 1);
+  assert.equal(PROVIDER_INTEGRATION_CAPABILITIES.length, 3);
+  assert.equal(EXECUTION_TARGET_CAPABILITIES.length, 3);
+
+  for (const integration of PROVIDER_INTEGRATION_CAPABILITIES) {
+    assert.ok(integration.hostSurfaces.length > 0);
+    assert.ok(integration.executionTargets.length > 0);
+    for (const host of integration.hostSurfaces) {
+      assert.equal(host.hostSupport, "supported");
+      assert.equal(host.callableTarget, false);
+    }
   }
 });
 
-test("gpt-5.6-sol projects its exact optional reasoning effort domain", () => {
-  const model = getProviderModelCapability("openai", "cli", "gpt-5.6-sol")!;
-  assert.deepEqual(model.settings.map((setting) => ({
-    key: setting.key,
-    type: setting.type,
-    values: setting.values.map((value) => value.value),
-    required: setting.required,
-    defaultBehavior: setting.defaultBehavior,
-  })), [{
-    key: "reasoning_effort",
-    type: "enum",
-    values: ["low", "medium", "high", "xhigh"],
-    required: false,
-    defaultBehavior: "provider_native",
-  }]);
+test("VS Code is a shared-registration host integration and never a target", () => {
+  for (const provider of ["openai", "anthropic"] as const) {
+    const vscode = getProviderIntegrationCapability(provider).hostSurfaces.find(
+      (surface) => surface.surface === "vscode",
+    );
+    assert.equal(vscode?.detection, "shared_provider_registration");
+    assert.equal(vscode?.callableTarget, false);
+    assert.equal(findExecutionTargetCapability(provider, "vscode"), undefined);
+  }
+  assert.equal(
+    EXECUTION_TARGET_CAPABILITIES.some((target) =>
+      target.label.toLowerCase().includes("vs code"),
+    ),
+    false,
+  );
 });
 
-test("omitted optional settings remain omitted and explicit valid settings survive", () => {
-  const omitted = validator.validate("coder", {
-    status: "configured",
-    provider: "openai",
-    surface: "cli",
-    model: "gpt-5.6-sol",
-  });
-  assert.equal(Object.hasOwn(omitted, "settings"), false);
-  const explicit = validator.validate("coder", {
-    status: "configured",
-    provider: "openai",
-    surface: "cli",
-    model: "gpt-5.6-sol",
-    settings: { reasoning_effort: "high" },
-  });
-  assert.deepEqual(explicit.settings, { reasoning_effort: "high" });
+test("Google hosting is supported while its execution target fails closed", () => {
+  const google = getProviderIntegrationCapability("google");
+  assert.equal(google.hostSurfaces[0]?.hostSupport, "supported");
+  const target = findExecutionTargetCapability("google", "cli")!;
+  assert.equal(target.support, "unavailable");
+  assert.equal(target.executionPolicy.sourceModification, "unavailable");
+  assert.equal(target.executionPolicy.network, "unavailable");
+  assert.deepEqual(target.models, []);
+  assert.match(target.unavailableReason ?? "", /invocation-scoped/);
 });
 
-test("unknown setting names, invalid values, and model-incompatible settings fail closed", () => {
-  for (const config of [
-    {
-      status: "configured" as const,
-      provider: "openai" as const,
-      surface: "cli" as const,
-      model: "gpt-5.6-sol",
-      settings: { temperature: 1 },
-    },
-    {
-      status: "configured" as const,
-      provider: "openai" as const,
-      surface: "cli" as const,
-      model: "gpt-5.6-sol",
-      settings: { reasoning_effort: "maximum" },
-    },
-    {
-      status: "configured" as const,
-      provider: "anthropic" as const,
-      surface: "cli" as const,
-      model: "claude-sonnet-4-5",
+test("the offline target catalogs contain the certified multi-model sets", () => {
+  assert.deepEqual(
+    findExecutionTargetCapability("openai", "cli")?.models.map((model) => model.id),
+    OPENAI_MODELS,
+  );
+  assert.deepEqual(
+    findExecutionTargetCapability("anthropic", "cli")?.models.map((model) => model.id),
+    ANTHROPIC_MODELS,
+  );
+});
+
+test("every active model carries complete compatibility evidence and a support tier", () => {
+  for (const target of EXECUTION_TARGET_CAPABILITIES) {
+    for (const model of target.models) {
+      assert.equal(model.targetId, target.id);
+      assert.ok(["recommended", "supported"].includes(model.supportTier));
+      assert.deepEqual(model.compatibility, {
+        providerRecognition: "official_current_documentation",
+        cliInvocation: "official_cli_documentation",
+        structuredResult: "provider_schema_contract",
+        executionPolicy: "target_policy_enforced",
+        deterministicAdapterCoverage: true,
+      });
+    }
+  }
+});
+
+test("reasoning effort is allowlisted only on certified OpenAI models", () => {
+  for (const modelId of OPENAI_MODELS) {
+    const setting = getProviderModelCapability(
+      "openai",
+      "cli",
+      modelId,
+    )?.settings[0];
+    assert.deepEqual(
+      setting === undefined
+        ? undefined
+        : {
+            key: setting.key,
+            scope: setting.scope,
+            type: setting.type,
+            values: setting.values.map((value) => value.value),
+            required: setting.required,
+            omission: setting.omission,
+            executorBinding: setting.executorBinding,
+          },
+      {
+        key: "reasoning_effort",
+        scope: "model",
+        type: "enum",
+        values: ["low", "medium", "high", "xhigh"],
+        required: false,
+        omission: "provider_native",
+        executorBinding: {
+          kind: "codex_config",
+          key: "model_reasoning_effort",
+        },
+      },
+    );
+  }
+  for (const modelId of ANTHROPIC_MODELS) {
+    assert.deepEqual(
+      getProviderModelCapability("anthropic", "cli", modelId)?.settings,
+      [],
+    );
+  }
+});
+
+test("authoring accepts supported models and rejects unknown, VS Code, and Google targets", () => {
+  assert.equal(
+    authoring.validateForAuthoring("coder", {
+      status: "configured",
+      provider: "openai",
+      surface: "cli",
+      model: "gpt-5.6-terra",
       settings: { reasoning_effort: "high" },
-    },
-  ]) {
-    assert.throws(() => validator.validate("coder", config), InvalidAgentSettingError);
-  }
-});
-
-test("an unknown model on an executable target is rejected without widening the catalog", () => {
+    }).model,
+    "gpt-5.6-terra",
+  );
   assert.throws(
-    () => validator.validate("coder", {
+    () => authoring.validateForAuthoring("coder", {
       status: "configured",
       provider: "openai",
       surface: "cli",
@@ -111,20 +175,84 @@ test("an unknown model on an executable target is rejected without widening the 
     }),
     InvalidAgentModelError,
   );
+  assert.throws(
+    () => authoring.validateForAuthoring("coder", {
+      status: "configured",
+      provider: "openai",
+      surface: "vscode",
+      model: "gpt-5.6-sol",
+    }),
+    InvalidAgentConfigError,
+  );
+  assert.throws(
+    () => authoring.validateForAuthoring("coder", {
+      status: "configured",
+      provider: "google",
+      surface: "cli",
+      model: "gemini-example",
+    }),
+    InvalidAgentConfigError,
+  );
 });
 
-test("historical unavailable-target entries remain readable but cannot gain settings", () => {
-  assert.equal(validator.validate("coder", {
-    status: "configured",
-    provider: "google",
-    surface: "cli",
-    model: "historical-google-model",
-  }).model, "historical-google-model");
-  assert.throws(() => validator.validate("coder", {
-    status: "configured",
-    provider: "google",
-    surface: "cli",
-    model: "historical-google-model",
-    settings: { effort: "high" },
-  }), InvalidAgentSettingError);
+test("runtime defensively revalidates target, model, and settings", () => {
+  assert.equal(
+    runtime.validateForExecution("researcher", {
+      status: "configured",
+      provider: "anthropic",
+      surface: "cli",
+      model: "claude-haiku-4-5-20251001",
+    }).model,
+    "claude-haiku-4-5-20251001",
+  );
+  assert.throws(
+    () => runtime.validateForExecution("coder", {
+      status: "configured",
+      provider: "openai",
+      surface: "cli",
+      model: "future-model",
+    }),
+    InvalidAgentModelError,
+  );
+  assert.throws(
+    () => runtime.validateForExecution("coder", {
+      status: "configured",
+      provider: "openai",
+      surface: "vscode",
+      model: "gpt-5.6-sol",
+    }),
+    AgentTargetSurfaceUnsupportedError,
+  );
+  assert.throws(
+    () => runtime.validateForExecution("coder", {
+      status: "configured",
+      provider: "google",
+      surface: "cli",
+      model: "historical-google-model",
+    }),
+    ProviderExecutionPolicyUnsupportedError,
+  );
+});
+
+test("mutation guard: moving an exposed setting to an incompatible model fails closed", () => {
+  assert.throws(
+    () => authoring.validateForAuthoring("coder", {
+      status: "configured",
+      provider: "anthropic",
+      surface: "cli",
+      model: "claude-sonnet-5",
+      settings: { reasoning_effort: "high" },
+    }),
+    InvalidAgentSettingError,
+  );
+  assert.throws(
+    () => runtime.validateForExecution("coder", {
+      status: "configured",
+      provider: "openai",
+      surface: "cli",
+      model: "gpt-5.6-luna",
+      settings: { reasoning_effort: "maximum" },
+    }),
+    InvalidAgentSettingError,
+  );
 });

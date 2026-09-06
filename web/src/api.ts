@@ -43,27 +43,38 @@ export interface ModelSettingCapability {
   key: string;
   label: string;
   description: string;
+  scope: "target" | "model";
   type: "enum";
   values: { value: string; label: string }[];
   required: false;
-  defaultBehavior: "provider_native";
+  omission: "provider_native";
 }
 
 export interface ModelCapability {
   id: string;
   label: string;
+  supportTier: "recommended" | "supported";
   settings: ModelSettingCapability[];
 }
 
 export interface TargetCapability {
+  id: string;
   provider: string;
-  surface: string;
-  executionAvailability: "available" | "unavailable";
+  label: string;
+  runtime: string;
+  persistedSurface: "cli";
+  support: "supported" | "unavailable";
+  executionPolicy: {
+    sourceModification: "invocation_scoped" | "unavailable";
+    network: "invocation_scoped" | "unavailable";
+    toolRestrictions: "invocation_scoped" | "unavailable";
+  };
   unavailableReason?: string;
   models: ModelCapability[];
 }
 
 export interface ModelCapabilityCatalog {
+  catalogVersion: number;
   targets: TargetCapability[];
 }
 
@@ -92,14 +103,34 @@ export interface ProjectModel {
 
 export interface ProviderDiagnostic {
   provider: string;
-  runtime: string;
-  available: boolean;
-  version?: string;
-  registrationMinimum: string;
-  registered: boolean;
-  supportedAsHost: boolean;
-  supportedAsTarget: boolean;
-  targetUnavailableReason?: string;
+  runtime: {
+    id: string;
+    installed: boolean;
+    version?: string;
+  };
+  hostIntegration: {
+    support: "supported";
+    registrationMinimum: string;
+    registration: {
+      state: "recorded" | "not_recorded";
+      source: "installation_manifest";
+    };
+    surfaces: {
+      id: string;
+      label: string;
+      surface: string;
+      detection: string;
+      callableTarget: false;
+    }[];
+  };
+  executionTargets: {
+    id: string;
+    label: string;
+    support: "supported" | "unavailable";
+    executionPolicySupport: "supported" | "unavailable";
+    targetRuntimeReadiness: "ready" | "unavailable";
+    unavailableReason?: string;
+  }[];
 }
 
 export interface DiagnosticsModel {
@@ -112,9 +143,9 @@ export interface StatusModel {
   agents: number;
   configured: number;
   unconfigured: number;
-  executableTargets: number;
+  executableAgentConfigurations: number;
   providers: number;
-  registeredProviders: number;
+  hostRegistrationsRecorded: number;
   configVersion: string;
   decisions: RuleDecision[];
 }

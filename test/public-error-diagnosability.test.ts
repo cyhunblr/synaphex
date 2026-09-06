@@ -102,10 +102,19 @@ async function fixture(
   const tasks = new TaskManager(store, projects);
   const project = await projects.create("Public Error Project", sourcePath);
   const task = await tasks.create(project.id, "Public error diagnosability task");
-  await new AgentConfigManager(store).setConfigured("researcher", {
-    provider: agent.provider,
-    surface: agent.surface,
-    model: agent.model,
+  const configs = new AgentConfigManager(store);
+  const current = await configs.getAllConfigs();
+  await store.writeJson("agent_config.jsonc", {
+    version: 1,
+    agents: {
+      ...current,
+      researcher: {
+        status: "configured",
+        provider: agent.provider,
+        surface: agent.surface,
+        model: agent.model,
+      },
+    },
   });
 
   // Hermetic provider runtime. `agy` is resolved from PATH, so an ambient

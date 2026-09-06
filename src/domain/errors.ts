@@ -1297,6 +1297,7 @@ export class AgentInvocationDepthExceededError extends SynaphexError<"AGENT_INVO
 
 export type CodexCliExecutionFailureReason =
   | "unsupported_route"
+  | "unsupported_model"
   | "unsupported_settings"
   | "invalid_workspace"
   | "temporary_io"
@@ -1324,6 +1325,7 @@ export class CodexCliExecutionError extends SynaphexError<"CODEX_CLI_EXECUTION_F
 
 export type ClaudeCliExecutionFailureReason =
   | "unsupported_route"
+  | "unsupported_model"
   | "unsupported_settings"
   | "invalid_workspace"
   | "unsupported_cli_capability"

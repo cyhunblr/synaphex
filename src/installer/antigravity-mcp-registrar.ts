@@ -43,7 +43,8 @@ const EXECUTABLE = "agy";
  * Note the capability distinction this adapter embodies: Synaphex being able
  * to CALL Antigravity as an agent provider (an executor concern) is a
  * different thing from Antigravity HOSTING Synaphex over MCP (this concern).
- * Both happen to be supported, but they are separate capabilities.
+ * Hosting is supported; agent execution remains unavailable because its
+ * invocation-scoped policy cannot currently be enforced.
  *
  * There is no Antigravity IDE/VS Code surface, so this adapter serves
  * `google/cli` only.

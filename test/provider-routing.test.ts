@@ -165,12 +165,23 @@ test("routing neither mutates persisted AgentConfig nor writes Synaphex state", 
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new StateStore(root);
   const configs = new AgentConfigManager(store);
-  await configs.setConfigured("coder", {
-    provider: "google",
-    surface: "vscode",
-    model: "gemini-example",
+  const current = await configs.getAllConfigs();
+  await store.writeJson("agent_config.jsonc", {
+    version: 1,
+    agents: {
+      ...current,
+      coder: {
+        status: "configured",
+        provider: "google",
+        surface: "vscode",
+        model: "gemini-example",
+      },
+    },
   });
-  const validated = await configs.validateAgent("coder");
+  const validated = {
+    agent: "coder",
+    ...(await configs.getConfig("coder")),
+  } as ValidatedAgentConfig;
   const beforeFiles = await readdir(root);
   const beforeConfig = await readFile(join(root, "agent_config.jsonc"), "utf8");
 

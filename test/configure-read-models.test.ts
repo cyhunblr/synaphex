@@ -38,54 +38,86 @@ test("configure diagnostics project complete system and provider state", async (
   assert.deepEqual(
     diagnostics.providers.map((entry) => ({
       provider: entry.provider,
-      version: entry.version,
-      registered: entry.registered,
-      supportedAsHost: entry.supportedAsHost,
-      supportedAsTarget: entry.supportedAsTarget,
+      version: entry.runtime.version,
+      registration: entry.hostIntegration.registration.state,
+      hostSupport: entry.hostIntegration.support,
+      targetSupport: entry.executionTargets[0]?.support,
+      targetReadiness: entry.executionTargets[0]?.targetRuntimeReadiness,
     })),
     [
       {
         provider: "openai",
         version: "0.153.0",
-        registered: true,
-        supportedAsHost: true,
-        supportedAsTarget: true,
+        registration: "recorded",
+        hostSupport: "supported",
+        targetSupport: "supported",
+        targetReadiness: "ready",
       },
       {
         provider: "anthropic",
         version: "2.1.260",
-        registered: false,
-        supportedAsHost: true,
-        supportedAsTarget: true,
+        registration: "not_recorded",
+        hostSupport: "supported",
+        targetSupport: "supported",
+        targetReadiness: "ready",
       },
       {
         provider: "google",
         version: "1.1.27",
-        registered: true,
-        supportedAsHost: true,
-        supportedAsTarget: false,
+        registration: "recorded",
+        hostSupport: "supported",
+        targetSupport: "unavailable",
+        targetReadiness: "unavailable",
       },
     ],
   );
 });
 
-test("configure projects the canonical model catalog without executor internals", () => {
+test("configure projects the canonical target/model catalog without executor internals", () => {
   const catalog = new ConfigureReadModels().modelCapabilities();
+  assert.equal(catalog.catalogVersion, 1);
   const openai = catalog.targets.find(
-    (target) => target.provider === "openai" && target.surface === "cli",
+    (target) => target.provider === "openai" && target.persistedSurface === "cli",
   )!;
-  assert.equal(openai.executionAvailability, "available");
-  assert.deepEqual(openai.models.map((model) => model.id), ["gpt-5.6-sol"]);
+  assert.equal(openai.id, "codex_cli");
+  assert.equal(openai.support, "supported");
+  assert.deepEqual(openai.models.map((model) => model.id), [
+    "gpt-5.6-sol",
+    "gpt-6-astra",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+  ]);
+  assert.equal(openai.models[0]?.supportTier, "recommended");
   assert.deepEqual(openai.models[0]!.settings[0], {
     key: "reasoning_effort",
     label: "Reasoning effort",
     description: "Controls how much reasoning effort Codex applies.",
+    scope: "model",
     type: "enum",
     values: ["low", "medium", "high", "xhigh"].map((value) => ({ value, label: value })),
     required: false,
-    defaultBehavior: "provider_native",
+    omission: "provider_native",
   });
-  assert.equal("execution" in openai.models[0]!.settings[0]!, false);
+  assert.equal("executorBinding" in openai.models[0]!.settings[0]!, false);
+  assert.equal(catalog.targets.some((target) => target.label.includes("VS Code")), false);
+});
+
+test("target readiness is independent from the host registration record", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "synaphex-registration-independent-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const diagnostics = await new ConfigureReadModels({
+    synaphexRoot: join(home, ".synaphex"),
+    homeDirectory: home,
+    runtimeProbes: {
+      codex: { probe: async () => ({ available: true, version: "0.153.0" }) },
+      claude: { probe: async () => ({ available: false, reason: "executable_missing" }) },
+      antigravity: { probe: async () => ({ available: false, reason: "executable_missing" }) },
+    },
+  }).diagnostics();
+  const openai = diagnostics.providers.find((entry) => entry.provider === "openai")!;
+  assert.equal(openai.hostIntegration.registration.state, "not_recorded");
+  assert.equal(openai.executionTargets[0]?.support, "supported");
+  assert.equal(openai.executionTargets[0]?.targetRuntimeReadiness, "ready");
 });
 
 function manifestEntry(provider: "openai" | "google") {

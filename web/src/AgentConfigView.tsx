@@ -61,7 +61,8 @@ export function findTarget(
   surface: string,
 ): TargetCapability | undefined {
   return catalog.targets.find(
-    (entry) => entry.provider === provider && entry.surface === surface,
+    (entry) =>
+      entry.provider === provider && entry.persistedSurface === surface,
   );
 }
 
@@ -121,7 +122,12 @@ export function AgentConfigView({
   );
   const unknownModel = draft.model.length > 0 && selectedModel === undefined;
   const chosen = providers.find((entry) => entry.provider === draft.provider);
-  const targetUnavailable = target?.executionAvailability !== "available";
+  const targetUnavailable = target?.support !== "supported";
+  const targetUnavailableReason =
+    draft.surface === "vscode"
+      ? "VS Code is not an invocation target. This historical value is preserved until you explicitly choose a CLI target."
+      : target?.unavailableReason ??
+        "This provider target is unavailable in this Synaphex version.";
   const initial = useMemo(() => draftFor(agent), [agent]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
 
@@ -147,15 +153,10 @@ export function AgentConfigView({
         )}
       </p>
 
-      {chosen !== undefined && !chosen.available ? (
+      {chosen !== undefined && !chosen.runtime.installed ? (
         <div className="notice" data-tone="warn">
-          The {chosen.runtime} runtime is not currently available on this machine.
+          The {chosen.runtime.id} runtime is not currently available on this machine.
           The supported catalog remains visible for offline configuration.
-        </div>
-      ) : null}
-      {chosen !== undefined && !chosen.registered ? (
-        <div className="notice" data-tone="warn">
-          {chosen.provider} is not registered as an MCP host. Run <code>synaphex install</code> to enable it.
         </div>
       ) : null}
 
@@ -173,8 +174,10 @@ export function AgentConfigView({
         >
           {providers.map((entry) => (
             <option key={entry.provider} value={entry.provider}>
-              {entry.provider}{entry.registered ? "" : " (not registered)"}
-              {entry.supportedAsTarget ? "" : " — target unavailable"}
+              {entry.provider}
+              {entry.executionTargets.some((candidate) => candidate.support === "supported")
+                ? ""
+                : " — target unavailable"}
             </option>
           ))}
         </select>
@@ -198,7 +201,7 @@ export function AgentConfigView({
 
       {targetUnavailable ? (
         <div className="notice" data-tone="bad">
-          {target?.unavailableReason ?? "This provider target is unavailable in this Synaphex version."}
+          {targetUnavailableReason}
         </div>
       ) : (
         <div className="field">
@@ -222,7 +225,7 @@ export function AgentConfigView({
             ) : null}
             {target?.models.map((model) => (
               <option key={model.id} value={model.id}>
-                {model.label} · {draft.provider} · {draft.surface}
+                {model.label} · {model.supportTier} · {draft.provider} · {draft.surface}
                 {model.settings.length > 0 ? " · configurable" : ""}
               </option>
             ))}

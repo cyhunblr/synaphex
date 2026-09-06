@@ -300,6 +300,26 @@ export {
   type ValidatedAgentConfig,
 } from "./domain/agent-config.js";
 export {
+  EXECUTION_TARGET_IDS,
+  HOST_SURFACE_IDENTITIES,
+  PROVIDER_CAPABILITY_CATALOG_VERSION,
+  PROVIDER_RUNTIME_IDS,
+  type ExecutionPolicyCapability,
+  type ExecutionTargetCapability,
+  type ExecutionTargetId,
+  type HostDetectionSemantics,
+  type HostRegistrationObservation,
+  type HostSurfaceCapability,
+  type HostSurfaceIdentity,
+  type ModelCapability,
+  type ModelCompatibilityEvidence,
+  type ProviderIntegrationCapability,
+  type ProviderRuntimeId,
+  type RuntimeObservation,
+  type SettingCapability,
+  type SettingExecutorBinding,
+} from "./domain/provider-capability.js";
+export {
   BEHAVIOR_AGENT_NAMES,
   DEFAULT_AGENT_BEHAVIOR_FIELDS,
   isBehaviorAgentName,

@@ -43,11 +43,8 @@ export class ProviderDispatchingAgentExecutor implements AgentExecutor {
     const { provider, effectiveSurface, agent } = input.route;
 
     // VS Code extensions are interactive HOST surfaces, never externally
-    // callable provider runtimes. A `same_provider_native` route is a valid
-    // routing outcome, but Synaphex has no bridge from this subprocess into an
-    // active VS Code extension, so it fails closed. It is NOT downgraded to
-    // the provider CLI: reporting a CLI run as native VS Code execution would
-    // misrepresent what actually executed.
+    // callable provider runtimes. ProviderRouter cannot produce this branch;
+    // it remains a defensive boundary for forged/stale execution input.
     if (effectiveSurface !== "cli") {
       throw new NativeHostExecutionUnavailableError(
         provider,

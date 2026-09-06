@@ -140,6 +140,22 @@ async function configure(
   provider: AgentProvider,
   surface: AgentSurface,
 ): Promise<void> {
+  if (provider === "google" || surface !== "cli") {
+    const current = await fixture.configs.getAllConfigs();
+    await fixture.store.writeJson("agent_config.jsonc", {
+      version: 1,
+      agents: {
+        ...current,
+        [agent]: {
+          status: "configured",
+          provider,
+          surface,
+          model: provider === "anthropic" ? "claude-sonnet-4-5" : "gpt-5.6-sol",
+        },
+      },
+    });
+    return;
+  }
   await fixture.configs.setConfigured(agent, {
     provider,
     surface,
@@ -766,7 +782,7 @@ test("case C: a VS Code target fails closed with no delegate run at all", async 
   assert.equal(spies.googleCli.calls.length, 0);
 });
 
-test("case D: a google/cli target reaches the Antigravity delegate, not another provider", async (t) => {
+test("case D: a historical google/cli target is refused before provider dispatch", async (t) => {
   const fixture = await createFixture(t);
   await configure(fixture, "researcher", "google", "cli");
   const opened = await fixture.commands.openTaskSession(
@@ -774,21 +790,26 @@ test("case D: a google/cli target reaches the Antigravity delegate, not another 
     fixture.task.id,
   );
   const spies = dispatchSpies();
-  await invocationPort(
-    fixture,
-    { provider: "anthropic" },
-    spies.executor,
-  ).invoke({
-    agent: "researcher",
-    scope: { kind: "task_session", sessionId: opened.sessionId },
-    instruction: "Research it.",
-  });
-  assert.equal(spies.googleCli.calls.length, 1);
+  await assert.rejects(
+    invocationPort(
+      fixture,
+      { provider: "anthropic" },
+      spies.executor,
+    ).invoke({
+      agent: "researcher",
+      scope: { kind: "task_session", sessionId: opened.sessionId },
+      instruction: "Research it.",
+    }),
+    (error: unknown) =>
+      error instanceof ProviderExecutionPolicyUnsupportedError &&
+      error.details?.reason === "execution_target_unavailable",
+  );
+  assert.equal(spies.googleCli.calls.length, 0);
   assert.equal(spies.openaiCli.calls.length, 0);
   assert.equal(spies.anthropicCli.calls.length, 0);
 });
 
-test("the real Antigravity adapter still fails closed through the dispatcher", async (t) => {
+test("runtime validation refuses Google before the real Antigravity adapter", async (t) => {
   const fixture = await createFixture(t);
   await configure(fixture, "researcher", "google", "cli");
   const opened = await fixture.commands.openTaskSession(
@@ -819,14 +840,13 @@ test("the real Antigravity adapter still fails closed through the dispatcher", a
       scope: { kind: "task_session", sessionId: opened.sessionId },
       instruction: "Research it.",
     }),
-    // The refusal keeps its public identity: no provider agent ran, so this is
-    // a capability gap rather than an execution failure. `forbiddenRunner`
-    // above still guarantees `agy` was never spawned.
+    // The refusal keeps its public identity and occurs before dispatch;
+    // `forbiddenRunner` above still guarantees `agy` was never spawned.
     (error: unknown) =>
       error instanceof ProviderExecutionPolicyUnsupportedError &&
       error.code === "PROVIDER_EXECUTION_POLICY_UNSUPPORTED" &&
       error.details?.reason ===
-        "read_only_not_enforceable_without_invocation_scoped_policy",
+        "execution_target_unavailable",
   );
 });
 

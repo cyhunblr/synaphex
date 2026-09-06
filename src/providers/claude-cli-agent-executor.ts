@@ -1,4 +1,8 @@
 import { stat } from "node:fs/promises";
+import {
+  getProviderModelCapability,
+  validateModelSettings,
+} from "../core/provider-model-capability-registry.js";
 import type {
   AgentExecutionInput,
   AgentExecutor,
@@ -186,11 +190,21 @@ function assertSupportedRoute(input: AgentExecutionInput): void {
       contextAgent: context.agent,
     });
   }
-  if (
-    route.settings !== undefined &&
-    Reflect.ownKeys(route.settings).length > 0
-  ) {
-    throw new ClaudeCliExecutionError("unsupported_settings");
+  const model = getProviderModelCapability(
+    "anthropic",
+    "cli",
+    route.model,
+  );
+  if (model === undefined) {
+    throw new ClaudeCliExecutionError("unsupported_model", {
+      model: route.model,
+    });
+  }
+  const invalid = validateModelSettings(model, route.settings);
+  if (invalid.setting !== undefined) {
+    throw new ClaudeCliExecutionError("unsupported_settings", {
+      setting: invalid.setting,
+    });
   }
 }
 

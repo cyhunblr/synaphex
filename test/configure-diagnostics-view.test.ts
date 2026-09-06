@@ -29,10 +29,12 @@ test("Diagnostics renders system, versions, registration, host and target suppor
     "0.153.0",
     "2.1.260",
     "1.1.27",
-    "Runtime status",
-    "MCP registration",
-    "Host support",
-    "Target support",
+    "Runtime installed",
+    "Host registration record",
+    "Host surfaces",
+    "Execution target",
+    "Policy support",
+    "Target runtime readiness",
   ]) {
     assert.ok(html.includes(expected), expected);
   }
@@ -40,8 +42,8 @@ test("Diagnostics renders system, versions, registration, host and target suppor
   const googleRow = /<tr data-provider="google">([\s\S]*?)<\/tr>/.exec(html)?.[1];
   assert.ok(googleRow, "Google provider row");
   assert.ok(googleRow.includes("Installed"));
-  assert.ok(googleRow.includes("Registered"));
-  assert.ok(googleRow.includes("Supported"));
+  assert.ok(googleRow.includes("Recorded"));
+  assert.ok(googleRow.includes("Antigravity CLI"));
   assert.ok(googleRow.includes("Unavailable"));
   assert.equal(html.includes(">true<"), false);
   assert.equal(html.includes(">false<"), false);
@@ -56,15 +58,28 @@ function provider(
 ) {
   return {
     provider: providerName,
-    runtime,
-    available: true,
-    version,
-    registrationMinimum: version,
-    registered: true,
-    supportedAsHost,
-    supportedAsTarget,
-    ...(supportedAsTarget
-      ? {}
-      : { targetUnavailableReason: "Target execution fails closed." }),
+    runtime: { id: runtime, installed: true, version },
+    hostIntegration: {
+      support: supportedAsHost ? "supported" as const : "supported" as const,
+      registrationMinimum: version,
+      registration: { state: "recorded" as const, source: "installation_manifest" as const },
+      surfaces: [{
+        id: `${providerName}_cli`,
+        label: providerName === "google" ? "Antigravity CLI" : `${runtime} CLI`,
+        surface: "cli",
+        detection: "provider_registration",
+        callableTarget: false as const,
+      }],
+    },
+    executionTargets: [{
+      id: `${providerName}_cli`,
+      label: providerName === "google" ? "Antigravity CLI" : `${runtime} CLI`,
+      support: supportedAsTarget ? "supported" as const : "unavailable" as const,
+      executionPolicySupport: supportedAsTarget ? "supported" as const : "unavailable" as const,
+      targetRuntimeReadiness: supportedAsTarget ? "ready" as const : "unavailable" as const,
+      ...(supportedAsTarget
+        ? {}
+        : { unavailableReason: "Target execution fails closed." }),
+    }],
   };
 }

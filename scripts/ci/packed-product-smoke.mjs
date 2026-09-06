@@ -585,20 +585,30 @@ try {
     const catalog = await catalogResponse.json();
     check("configure API ships the model capability catalog", catalogResponse.status === 200);
     const catalogTargets = new Map(
-      (catalog.targets ?? []).map((entry) => [`${entry.provider}/${entry.surface}`, entry]),
+      (catalog.targets ?? []).map((entry) => [entry.id, entry]),
     );
     check(
       "packed catalog contains the supported CLI models",
-      catalogTargets.get("openai/cli")?.models?.[0]?.id === "gpt-5.6-sol" &&
-        catalogTargets.get("anthropic/cli")?.models?.[0]?.id === "claude-sonnet-4-5" &&
-        catalogTargets.get("google/cli")?.models?.length === 0,
+      catalog.catalogVersion === 1 &&
+        catalogTargets.get("codex_cli")?.models?.some(
+          (model) => model.id === "gpt-5.6-terra",
+        ) &&
+        catalogTargets.get("claude_code_cli")?.models?.some(
+          (model) => model.id === "claude-opus-5",
+        ) &&
+        catalogTargets.get("antigravity_cli")?.support === "unavailable" &&
+        catalogTargets.get("antigravity_cli")?.models?.length === 0,
     );
     check(
       "packed catalog preserves model setting metadata",
-      catalogTargets.get("openai/cli")?.models?.[0]?.settings?.[0]?.key ===
+      catalogTargets.get("codex_cli")?.models?.[0]?.settings?.[0]?.key ===
         "reasoning_effort" &&
-        catalogTargets.get("openai/cli")?.models?.[0]?.settings?.[0]?.defaultBehavior ===
-          "provider_native",
+        catalogTargets.get("codex_cli")?.models?.[0]?.settings?.[0]?.scope ===
+          "model" &&
+        catalogTargets.get("codex_cli")?.models?.[0]?.settings?.[0]?.omission ===
+          "provider_native" &&
+        catalogTargets.get("codex_cli")?.models?.[0]?.settings?.[0]?.executorBinding ===
+          undefined,
     );
 
     const diagnosticsResponse = await fetch(`${url}/api/diagnostics`, {
@@ -617,19 +627,24 @@ try {
     );
     check(
       "configure diagnostics include provider versions",
-      diagnosticProviders.get("openai")?.version === "0.153.0" &&
-        diagnosticProviders.get("anthropic")?.version === "2.1.260" &&
-        diagnosticProviders.get("google")?.version === "1.1.26",
+      diagnosticProviders.get("openai")?.runtime?.version === "0.153.0" &&
+        diagnosticProviders.get("anthropic")?.runtime?.version === "2.1.260" &&
+        diagnosticProviders.get("google")?.runtime?.version === "1.1.26",
     );
     check(
       "configure diagnostics distinguish host and target support",
-      diagnosticProviders.get("google")?.supportedAsHost === true &&
-        diagnosticProviders.get("google")?.supportedAsTarget === false,
+      diagnosticProviders.get("google")?.hostIntegration?.support === "supported" &&
+        diagnosticProviders.get("google")?.executionTargets?.[0]?.support ===
+          "unavailable" &&
+        diagnosticProviders.get("openai")?.executionTargets?.[0]
+          ?.executionPolicySupport === "supported",
     );
     check(
       "configure diagnostics report registration state",
       [...diagnosticProviders.values()].every(
-        (entry) => entry.registered === false,
+        (entry) =>
+          entry.hostIntegration?.registration?.state === "not_recorded" &&
+          entry.hostIntegration?.registration?.source === "installation_manifest",
       ),
     );
 

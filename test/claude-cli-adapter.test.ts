@@ -183,6 +183,60 @@ test("Claude adapter constructs a fresh restricted direct command and decodes st
   assert.equal(call.terminationGraceMs, 2_000);
 });
 
+test("every supported Claude model is passed unchanged through the structured-result adapter", async (t) => {
+  const sourcePath = await workspace(t);
+  const models = [
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-fable-5-1",
+    "claude-fable-5",
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-opus-4-5-20251101",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5-20251001",
+  ];
+  const runner = new FakeRunner(() => success());
+  const executor = new ClaudeCliAgentExecutor({ processRunner: runner });
+
+  for (const model of models) {
+    const input = executionInput("researcher", sourcePath);
+    await executor.execute({
+      ...input,
+      route: { ...input.route, model },
+    });
+  }
+
+  assert.deepEqual(
+    runner.calls.map((call) => optionValue(call.args, "--model")),
+    models,
+  );
+  for (const call of runner.calls) {
+    assert.ok(call.args.includes("--json-schema"));
+    assert.ok(call.args.includes("--restricted"));
+  }
+});
+
+test("Claude defensively refuses an uncataloged model before process execution", async (t) => {
+  const sourcePath = await workspace(t);
+  const runner = new FakeRunner(() => {
+    throw new Error("provider must not run");
+  });
+  const input = executionInput("researcher", sourcePath);
+  await assert.rejects(
+    new ClaudeCliAgentExecutor({ processRunner: runner }).execute({
+      ...input,
+      route: { ...input.route, model: "future-model" },
+    }),
+    (error: unknown) =>
+      error instanceof ClaudeCliExecutionError &&
+      error.details?.reason === "unsupported_model",
+  );
+  assert.equal(runner.calls.length, 0);
+});
+
 test("Claude adapter maps all four native tool surfaces exactly", async (t) => {
   const sourcePath = await workspace(t);
   const cases = [

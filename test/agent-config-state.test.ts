@@ -8,13 +8,15 @@ import type {
   AgentConfigState,
   ConfiguredAgentInput,
 } from "../src/domain/agent-config.js";
-import { AGENT_NAMES } from "../src/domain/agent.js";
+import { AGENT_NAMES, type AgentName } from "../src/domain/agent.js";
 import {
   AgentConfigurationRemovedError,
+  AgentTargetSurfaceUnsupportedError,
   AgentUnconfiguredError,
   InvalidAgentConfigError,
   InvalidAgentModelError,
   InvalidAgentSettingError,
+  ProviderExecutionPolicyUnsupportedError,
 } from "../src/domain/errors.js";
 import { StateStore } from "../src/infrastructure/state-store.js";
 
@@ -43,6 +45,22 @@ async function readStoredConfig(
   return value as { version: 1; agents: Record<string, unknown> };
 }
 
+async function seedHistoricalConfig(
+  fixture: Fixture,
+  agent: AgentName,
+  input: ConfiguredAgentInput,
+): Promise<void> {
+  await fixture.manager.getAllConfigs();
+  const stored = await readStoredConfig(fixture);
+  await fixture.store.writeJson("agent_config.jsonc", {
+    ...stored,
+    agents: {
+      ...stored.agents,
+      [agent]: { status: "configured", ...input },
+    },
+  });
+}
+
 test("absent agent config initializes all six agents without provider or model defaults", async (t) => {
   const fixture = await createFixture(t);
 
@@ -64,7 +82,7 @@ test("initialized agent configuration persists across manager instances", async 
   assert.deepEqual(await newManager(fixture).getAllConfigs(), initial);
 });
 
-test("OpenAI, Anthropic, and Google configurations accept CLI and VS Code surfaces", async (t) => {
+test("authoring accepts callable CLIs while parsing preserves historical targets", async (t) => {
   const fixture = await createFixture(t);
   const questioner = await fixture.manager.setConfigured("questioner", {
     provider: "openai",
@@ -73,19 +91,26 @@ test("OpenAI, Anthropic, and Google configurations accept CLI and VS Code surfac
   });
   const researcher = await fixture.manager.setConfigured("researcher", {
     provider: "anthropic",
-    surface: "vscode",
+    surface: "cli",
     model: "claude-sonnet-4-5",
   });
-  const planner = await fixture.manager.setConfigured("planner", {
+  await seedHistoricalConfig(fixture, "planner", {
     provider: "google",
     surface: "cli",
     model: "gemini-example",
-    settings: {},
+  });
+  await seedHistoricalConfig(fixture, "examiner", {
+    provider: "anthropic",
+    surface: "vscode",
+    model: "claude-sonnet-4-5",
   });
 
   assert.equal(questioner.provider, "openai");
-  assert.equal(researcher.surface, "vscode");
-  assert.equal(planner.provider, "google");
+  assert.equal(researcher.surface, "cli");
+  const planner = await fixture.manager.getConfig("planner");
+  const examiner = await fixture.manager.getConfig("examiner");
+  assert.equal(planner.status === "configured" ? planner.provider : null, "google");
+  assert.equal(examiner.status === "configured" ? examiner.surface : null, "vscode");
   assert.deepEqual(await fixture.manager.validateAgent("questioner"), {
     agent: "questioner",
     ...questioner,
@@ -94,10 +119,10 @@ test("OpenAI, Anthropic, and Google configurations accept CLI and VS Code surfac
     agent: "researcher",
     ...researcher,
   });
-  assert.deepEqual(await fixture.manager.validateAgent("planner"), {
-    agent: "planner",
-    ...planner,
-  });
+  await assert.rejects(fixture.manager.validateAgent("planner"),
+    ProviderExecutionPolicyUnsupportedError);
+  await assert.rejects(fixture.manager.validateAgent("examiner"),
+    AgentTargetSurfaceUnsupportedError);
 });
 
 test("configured model is required and must be non-empty", async (t) => {
@@ -143,7 +168,7 @@ test("credential-like top-level data is outside the supported schema", async (t)
   });
 });
 
-test("an unavailable target cannot acquire optional settings", async (t) => {
+test("authoring rejects unavailable targets before settings can widen them", async (t) => {
   const fixture = await createFixture(t);
 
   await assert.rejects(
@@ -154,9 +179,8 @@ test("an unavailable target cannot acquire optional settings", async (t) => {
       settings: { temperature: 0.2 },
     }),
     (error: unknown) =>
-      error instanceof InvalidAgentSettingError &&
-      error.code === "INVALID_AGENT_SETTING" &&
-      error.details?.setting === "temperature",
+      error instanceof InvalidAgentConfigError &&
+      error.code === "INVALID_AGENT_CONFIG",
   );
 });
 
@@ -214,9 +238,9 @@ test("invalid CODER capabilities do not prevent validating QUESTIONER", async (t
 test("valid siblings remain usable when one persisted entry is malformed", async (t) => {
   const fixture = await createFixture(t);
   await fixture.manager.setConfigured("questioner", {
-    provider: "google",
-    surface: "vscode",
-    model: "gemini-example",
+    provider: "openai",
+    surface: "cli",
+    model: "gpt-5.6-sol",
   });
   const stored = await readStoredConfig(fixture);
   await fixture.store.writeJson("agent_config.jsonc", {
@@ -226,7 +250,7 @@ test("valid siblings remain usable when one persisted entry is malformed", async
 
   assert.equal(
     (await fixture.manager.validateAgent("questioner")).provider,
-    "google",
+    "openai",
   );
   await assert.rejects(
     fixture.manager.getConfig("coder"),
@@ -254,7 +278,7 @@ test("provider removal transitions only matching configured agents", async (t) =
     surface: "cli",
     model: "gpt-5.6-sol",
   });
-  await fixture.manager.setConfigured("researcher", {
+  await seedHistoricalConfig(fixture, "researcher", {
     provider: "openai",
     surface: "vscode",
     model: "gpt-research",
@@ -264,11 +288,12 @@ test("provider removal transitions only matching configured agents", async (t) =
     surface: "cli",
     model: "claude-sonnet-4-5",
   });
-  const reviewer = await fixture.manager.setConfigured("reviewer", {
+  await seedHistoricalConfig(fixture, "reviewer", {
     provider: "google",
     surface: "vscode",
     model: "gemini-example",
   });
+  const reviewer = await fixture.manager.getConfig("reviewer");
 
   const state = await fixture.manager.removeProvider("openai");
 
@@ -303,8 +328,8 @@ test("removed state persists, validates stably, and is not automatically restore
 
   await newManager(fixture).setConfigured("examiner", {
     provider: "openai",
-    surface: "vscode",
-    model: "new-model",
+    surface: "cli",
+    model: "gpt-5.6-terra",
   });
   assert.equal((await newManager(fixture).getConfig("questioner")).status, "removed");
   await assert.rejects(
@@ -319,7 +344,7 @@ test("removed state persists, validates stably, and is not automatically restore
 
 test("marking an agent unconfigured discards its previous configuration", async (t) => {
   const fixture = await createFixture(t);
-  await fixture.manager.setConfigured("planner", {
+  await seedHistoricalConfig(fixture, "planner", {
     provider: "google",
     surface: "cli",
     model: "gemini-example",
@@ -383,8 +408,8 @@ test("concurrent whole-file mutations leave a complete valid configuration", asy
     }),
     newManager(fixture).setConfigured("coder", {
       provider: "anthropic",
-      surface: "vscode",
-      model: "claude-sonnet-4-5",
+      surface: "cli",
+      model: "claude-sonnet-5",
     }),
   ]);
 

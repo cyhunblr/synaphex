@@ -141,7 +141,7 @@ test("status reports the six agents from canonical state", async (t) => {
   );
   assert.equal(status.agents, 6);
   assert.equal(status.unconfigured, 6);
-  assert.equal(status.executableTargets, 0);
+  assert.equal(status.executableAgentConfigurations, 0);
 });
 
 test("model capability endpoint exposes the versioned offline catalog", async (t) => {
@@ -150,11 +150,17 @@ test("model capability endpoint exposes the versioned offline catalog", async (t
     headers: f.headers,
   });
   assert.equal(response.status, 200);
-  const body = await json(response) as { targets: Array<Record<string, unknown>> };
-  assert.equal(body.targets.length, 6);
+  const body = await json(response) as {
+    catalogVersion: number;
+    targets: Array<Record<string, unknown>>;
+  };
+  assert.equal(body.catalogVersion, 1);
+  assert.equal(body.targets.length, 3);
   const serialized = JSON.stringify(body);
   assert.match(serialized, /gpt-5\.6-sol/);
+  assert.match(serialized, /gpt-5\.6-terra/);
   assert.match(serialized, /claude-sonnet-4-5/);
+  assert.match(serialized, /claude-opus-5/);
   assert.match(serialized, /reasoning_effort/);
   assert.equal(serialized.includes("model_reasoning_effort"), false);
   assert.equal(serialized.toLowerCase().includes("credential"), false);
@@ -452,14 +458,14 @@ test("google is reported as a host but never as an executable target", async (t)
   );
   const providers = diagnostics.providers as {
     provider: string;
-    supportedAsHost: boolean;
-    supportedAsTarget: boolean;
+    hostIntegration: { support: string };
+    executionTargets: { support: string }[];
   }[];
   const google = providers.find((entry) => entry.provider === "google");
-  assert.equal(google?.supportedAsHost, true);
+  assert.equal(google?.hostIntegration.support, "supported");
   // Antigravity has no invocation-scoped policy, so the GUI must not present
   // it as ready to run agents.
-  assert.equal(google?.supportedAsTarget, false);
+  assert.equal(google?.executionTargets[0]?.support, "unavailable");
 });
 
 test("the configure surface exposes no filesystem, shell or invocation route", async (t) => {

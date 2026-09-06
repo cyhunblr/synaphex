@@ -1,9 +1,7 @@
 import { AGENT_NAMES, isAgentName, type AgentName } from "../domain/agent.js";
-import {
-  AGENT_PROVIDERS,
-  AGENT_SURFACES,
-  type AgentProvider,
-  type AgentSurface,
+import type {
+  AgentProvider,
+  AgentSurface,
 } from "../domain/agent-config.js";
 import { InvalidAgentConfigError, InvalidRuleValueError } from "../domain/errors.js";
 import type { ProjectId } from "../domain/project.js";
@@ -14,7 +12,6 @@ import {
   type RuleScope,
 } from "../domain/rule.js";
 import type { TaskId } from "../domain/task.js";
-import { getProviderTargetCapability } from "../core/provider-model-capability-registry.js";
 import { ConfigLifecycle } from "../installer/config-lifecycle.js";
 import type { ConfigureReadModels, RuleScopeSelection } from "./configure-read-models.js";
 
@@ -96,28 +93,8 @@ export class ConfigureWriteService {
     const name = parseAgent(agent);
     await this.assertFresh(expectedVersion);
 
-    if (!(AGENT_PROVIDERS as readonly string[]).includes(write.provider)) {
-      throw new InvalidAgentConfigError(name, "provider is not recognised");
-    }
-    if (!(AGENT_SURFACES as readonly string[]).includes(write.surface)) {
-      throw new InvalidAgentConfigError(name, "surface is not recognised");
-    }
-    if (typeof write.model !== "string" || write.model.trim().length === 0) {
-      throw new InvalidAgentConfigError(name, "model must not be empty");
-    }
-    const target = getProviderTargetCapability(
-      write.provider as AgentProvider,
-      write.surface as AgentSurface,
-    );
-    if (target.executionAvailability !== "available") {
-      throw new InvalidAgentConfigError(
-        name,
-        target.unavailableReason ?? "provider target is unavailable",
-      );
-    }
-
-    // setConfigured runs the canonical capability validation and the atomic
-    // config-document replace. Settings remain model-scoped and fail closed.
+    // setConfigured owns parsing, authoring capability validation and the
+    // atomic replace. Configure deliberately has no parallel validator.
     await this.reads.agentConfigs.setConfigured(name, {
       provider: write.provider as AgentProvider,
       surface: write.surface as AgentSurface,

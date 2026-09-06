@@ -218,16 +218,18 @@ function assertSupportedRoute(input: AgentExecutionInput): void {
 }
 
 function codexModelSettingOverrides(input: AgentExecutionInput): string[] {
-  const settings = input.route.settings;
-  if (settings === undefined || Object.keys(settings).length === 0) return [];
   const capability = getProviderModelCapability(
     "openai",
     "cli",
     input.route.model,
   );
   if (capability === undefined) {
-    throw new CodexCliExecutionError("unsupported_settings");
+    throw new CodexCliExecutionError("unsupported_model", {
+      model: input.route.model,
+    });
   }
+  const settings = input.route.settings;
+  if (settings === undefined || Object.keys(settings).length === 0) return [];
   const invalid = validateModelSettings(capability, settings);
   if (invalid.setting !== undefined) {
     throw new CodexCliExecutionError("unsupported_settings", {
@@ -236,10 +238,10 @@ function codexModelSettingOverrides(input: AgentExecutionInput): string[] {
   }
   return Object.entries(settings).map(([key, value]) => {
     const setting = capability.settings.find((entry) => entry.key === key)!;
-    if (setting.execution.kind !== "codex_config") {
+    if (setting.executorBinding.kind !== "codex_config") {
       throw new CodexCliExecutionError("unsupported_settings", { setting: key });
     }
-    return `${setting.execution.key}=${JSON.stringify(value)}`;
+    return `${setting.executorBinding.key}=${JSON.stringify(value)}`;
   });
 }
 
