@@ -27,6 +27,7 @@ export interface AgentModel {
   provider?: string;
   surface?: string;
   model?: string;
+  settings?: Record<string, unknown>;
   previousProvider?: string;
   executable: boolean;
   contract: {
@@ -36,6 +37,34 @@ export interface AgentModel {
     taskBinding: string;
     allowedTaskStatuses: string[];
   };
+}
+
+export interface ModelSettingCapability {
+  key: string;
+  label: string;
+  description: string;
+  type: "enum";
+  values: { value: string; label: string }[];
+  required: false;
+  defaultBehavior: "provider_native";
+}
+
+export interface ModelCapability {
+  id: string;
+  label: string;
+  settings: ModelSettingCapability[];
+}
+
+export interface TargetCapability {
+  provider: string;
+  surface: string;
+  executionAvailability: "available" | "unavailable";
+  unavailableReason?: string;
+  models: ModelCapability[];
+}
+
+export interface ModelCapabilityCatalog {
+  targets: TargetCapability[];
 }
 
 export interface EdgeModel {
@@ -142,6 +171,8 @@ function scopeQuery(scope: ScopeSelection): string {
 export const api = {
   status: () => request<StatusModel>("/api/status"),
   agents: () => request<{ agents: AgentModel[] }>("/api/agents"),
+  modelCapabilities: () =>
+    request<ModelCapabilityCatalog>("/api/model-capabilities"),
   rules: (scope: ScopeSelection) =>
     request<{ edges: EdgeModel[]; overrides: OverrideModel[] }>(
       `/api/rules?${scopeQuery(scope)}`,
@@ -157,7 +188,12 @@ export const api = {
 
   saveAgent: (
     agent: AgentName,
-    body: { provider: string; surface: string; model: string },
+    body: {
+      provider: string;
+      surface: string;
+      model: string;
+      settings?: Record<string, unknown>;
+    },
     configVersion: string,
   ) =>
     request<{ ok: true; configVersion: string }>(`/api/agents/${agent}`, {

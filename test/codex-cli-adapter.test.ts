@@ -89,7 +89,7 @@ function executionInput(
       effectiveSurface: "cli",
       cliForcedByCrossProvider: false,
       routingReason: "same_provider_configured_cli",
-      model: "explicit-codex-model",
+      model: "gpt-5.6-sol",
       ...(settings === undefined ? {} : { settings }),
     },
     context: syntheticAgentContext(agent, sourcePath),
@@ -158,7 +158,7 @@ test("Codex adapter constructs secure non-interactive command and parses the res
   assert.equal(call.executable, "codex");
   assert.equal(call.args[0], "exec");
   assert.ok(call.args.includes("--ephemeral"));
-  assert.equal(optionValue(call.args, "--model"), "explicit-codex-model");
+  assert.equal(optionValue(call.args, "--model"), "gpt-5.6-sol");
   assert.equal(optionValue(call.args, "--cd"), sourcePath);
   assert.equal(optionValue(call.args, "--sandbox"), "workspace-write");
   assert.deepEqual(configOverrides(call.args), [
@@ -302,6 +302,35 @@ test("unsupported routes, settings, and workspaces fail before process execution
     failureReason("invalid_workspace"),
   );
   assert.equal(runner.calls.length, 0);
+});
+
+test("gpt-5.6-sol reasoning effort maps to the exact Codex config override", async (t) => {
+  const sourcePath = await workspace(t);
+  const runner = new FakeProcessRunner(async (call) => {
+    await writeFile(
+      optionValue(call.args, "--output-last-message"),
+      JSON.stringify({
+        agent: "coder",
+        outcome: "success",
+        summary: "Configured reasoning.",
+        warnings: null,
+        requestedCalls: null,
+        requestedActions: null,
+        payloadJson: JSON.stringify({ custom_field: "done" }),
+      }),
+    );
+    return success();
+  });
+
+  await new CodexCliAgentExecutor({ processRunner: runner }).execute(
+    executionInput("coder", sourcePath, { reasoning_effort: "xhigh" }),
+  );
+
+  assert.deepEqual(configOverrides(runner.calls[0]!.args), [
+    CODEX_WORKSPACE_WRITE_NETWORK_DISABLED_OVERRIDE,
+    CODEX_WEB_SEARCH_DISABLED_OVERRIDE,
+    'model_reasoning_effort="xhigh"',
+  ]);
 });
 
 test("read-only enabled network uses only hosted web search", async (t) => {

@@ -58,7 +58,8 @@ There is no `null` form; an unconfigured agent is an object with a `status`.
 | `status` | Yes | `unconfigured`, `configured`, `removed` | Refused |
 | `provider` | When configured | `openai`, `anthropic`, `google` | Refused |
 | `surface` | When configured | `cli` (see below) | Refused |
-| `model` | When configured | Any non-empty provider model id | Refused |
+| `model` | When configured | A model in Synaphex's provider/surface catalog | Refused |
+| `settings` | No | Settings declared for that exact model | Refused |
 
 `provider` names the runtime that **executes** the agent. It is unrelated to
 which provider is hosting Synaphex — an Anthropic host routinely runs agents on
@@ -66,20 +67,23 @@ OpenAI.
 
 ### `model` is always required
 
-Every configured agent must name a model. Synaphex never picks one, and the
-installer never assigns one. An agent configured without a model is refused
+Every configured agent must name a model explicitly supported by this Synaphex
+version for its provider and surface. The catalog is static and offline: it is
+not a list of every provider model, and it does not inspect your account or
+subscription. A missing or unknown model on an executable target is refused
 before anything runs.
 
-Model identifiers belong to your provider and change over time. Use one your
-provider currently supports.
+This version supports `gpt-5.6-sol` for `openai` + `cli` and
+`claude-sonnet-4-5` for `anthropic` + `cli`.
 
 ### `surface` in v0.1
 
 `cli` is the only executable surface.
 
-`vscode` is accepted by the configuration schema, but an agent configured that
-way **cannot run**: the invocation is refused at routing, before any provider is
-contacted (`AGENT_TARGET_SURFACE_UNSUPPORTED`).
+`vscode` remains readable in historical configuration, but Configure does not
+offer it as a target. An agent configured that way **cannot run**: invocation is
+refused at routing before any provider is contacted
+(`AGENT_TARGET_SURFACE_UNSUPPORTED`).
 
 > Do not configure `surface: "vscode"`. Synaphex will not silently redirect it
 > to a CLI — rewriting your configuration would change your intent — so the
@@ -87,11 +91,19 @@ contacted (`AGENT_TARGET_SURFACE_UNSUPPORTED`).
 
 ### Optional settings
 
-`settings` exists in the domain model, but **v0.1 supports no optional settings
-for any provider**. Supplying one is rejected when the configuration is
-validated, naming the offending agent and setting.
+Settings are scoped to one provider, surface and model. This version supports
+one optional setting for `openai` + `cli` + `gpt-5.6-sol`:
 
-Omit the field. Agents run with their provider's own defaults.
+```jsonc
+"settings": { "reasoning_effort": "high" }
+```
+
+Allowed values are `low`, `medium`, `high`, and `xhigh`. Synaphex maps an
+explicit value to Codex's `model_reasoning_effort` invocation override. If the
+field or setting is omitted, no override is emitted and the provider's native
+default applies. Anthropic's supported model currently exposes no optional
+setting. Unknown names, invalid values, and settings copied to another model
+are rejected.
 
 ## Examples
 
@@ -108,14 +120,14 @@ Different agents on different providers is normal and often desirable:
       "status": "configured",
       "provider": "anthropic",
       "surface": "cli",
-      "model": "claude-model-id"
+      "model": "claude-sonnet-4-5"
     },
     "examiner": { "status": "unconfigured" },
     "planner": {
       "status": "configured",
       "provider": "anthropic",
       "surface": "cli",
-      "model": "claude-model-id"
+      "model": "claude-sonnet-4-5"
     },
     "coder": {
       "status": "configured",
@@ -150,6 +162,10 @@ invoked**:
 ```
 
 See [Google / Antigravity](../providers/google-antigravity.md) for why.
+
+Historical unknown model values are parsed and shown without being rewritten,
+but fail executable-target validation. Configure preserves such a value until
+you explicitly select a supported replacement.
 
 ## When a provider is removed
 

@@ -20,7 +20,7 @@ Stop it with Ctrl+C. Nothing is left running in the background.
 
 | It does | It does not |
 | --- | --- |
-| Edit agent provider, surface and model | Register MCP hosts — that stays `synaphex install` |
+| Edit agent provider, supported model and model settings | Register MCP hosts — that stays `synaphex install` |
 | Inspect and edit rules at global, project and task scope | Install or update provider software |
 | Show provider runtime and registration diagnostics | Manage any credential or API key |
 | Preview your configuration files | Invoke agents or run workflows |
@@ -78,18 +78,27 @@ Selecting an agent emphasises its **outgoing** edges. Direction matters:
 The panel edits a draft. Nothing is written until you press **Save**, and
 **Discard** returns the fields to what is on disk.
 
-Choose a provider, a surface, and a model. The panel warns you when a choice
+Choose a provider and a model from Synaphex's versioned, offline capability
+catalog. The list is filtered by provider and surface and is not provider API
+discovery or an account-entitlement check. The panel warns you when a target
 will not actually run:
 
 - a provider that is not registered as an MCP host tells you to run
   `synaphex install`;
-- the `vscode` surface is accepted by the schema but is **not an executable
-  target**;
+- a historical `vscode` value is displayed as unsupported, but VS Code is not
+  offered as a normal execution choice;
 - Google/Antigravity is a supported host but **not an executable agent target**,
   because Synaphex cannot enforce an invocation-scoped execution policy on it.
 
-**Advanced model settings are not available in this version.** Agents run with
-their provider's own defaults.
+Settings appear only when the selected model declares them. For
+`gpt-5.6-sol`, **Reasoning effort** offers `low`, `medium`, `high`, and `xhigh`.
+Leaving it at **Provider default (unset)** omits the setting entirely. Switching
+provider or model removes incompatible draft settings and tells you it did so.
+
+An existing unknown model is kept visible with a warning and is never silently
+replaced. Save stays unavailable until you explicitly select a supported model.
+Backend validation remains authoritative even though the controls prevent
+ordinary invalid combinations.
 
 **Remove configuration** returns an agent to `unconfigured` and asks for
 confirmation first.

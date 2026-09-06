@@ -140,6 +140,8 @@ async function route(
         return sendJson(response, 200, await reads.status());
       case "/api/agents":
         return sendJson(response, 200, { agents: await reads.agents() });
+      case "/api/model-capabilities":
+        return sendJson(response, 200, reads.modelCapabilities());
       case "/api/rules": {
         const selection = scopeFromQuery(url);
         return sendJson(response, 200, {
@@ -176,6 +178,9 @@ async function route(
           provider: stringField(body, "provider"),
           surface: stringField(body, "surface"),
           model: stringField(body, "model"),
+          ...(Object.hasOwn(body, "settings")
+            ? { settings: objectField(body, "settings") }
+            : {}),
         },
         expectedVersion,
       );
@@ -299,6 +304,17 @@ function stringField(body: Record<string, unknown>, field: string): string {
     throw new ConfigureRequestError(`missing_${field}`, 400);
   }
   return value;
+}
+
+function objectField(
+  body: Record<string, unknown>,
+  field: string,
+): Readonly<Record<string, unknown>> {
+  const value = body[field];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConfigureRequestError(`invalid_${field}`, 400);
+  }
+  return value as Readonly<Record<string, unknown>>;
 }
 
 function statusFor(error: unknown): number {

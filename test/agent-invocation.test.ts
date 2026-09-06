@@ -222,7 +222,7 @@ async function configure(
   await fixture.configs.setConfigured(agent, {
     provider,
     surface,
-    model: `${agent}-model`,
+    model: provider === "anthropic" ? "claude-sonnet-4-5" : "gpt-5.6-sol",
   });
 }
 

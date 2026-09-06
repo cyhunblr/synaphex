@@ -27,6 +27,7 @@ Some things are deliberately outside your configuration:
 | Provider credentials | Authentication belongs to your provider runtimes. |
 | MCP host identity | Determined by the registration the installer writes. |
 | Task lifecycle | `active → completed → archived`, driven by operations rather than settings. |
+| Provider model discovery | The supported catalog is static, offline and versioned with Synaphex. |
 
 There is no credential field in any Synaphex configuration file, and no setting
 that grants an agent a capability its role contract does not already permit.
@@ -72,6 +73,7 @@ they are**:
 | Unknown field | A key Synaphex does not recognise |
 | Unknown agent | An agent name that does not exist |
 | Missing model | A configured agent with no `model` |
+| Unsupported model/setting | A model outside the provider/surface catalog, or a setting outside that model's schema |
 
 > **Synaphex never repairs a broken config by overwriting it with defaults.**
 > It reports the problem and leaves the file alone, because replacing it would
@@ -98,6 +100,8 @@ An unrecognised key is refused rather than ignored.
 ## Editing configuration visually
 
 `synaphex configure` opens a local browser GUI over these same files, with the
-agent hex, rule scopes and effective-decision inspector. It uses the same
-validation and atomic writes as the CLI, and these files stay canonical. See
-[the configure guide](configure-gui.md).
+agent hex, supported model selector, model-specific setting controls, rule
+scopes and effective-decision inspector. Its catalog and validation come from
+one backend registry; the React application owns no separate model list. It
+uses the same atomic writes as the CLI, and these files stay canonical. See the
+[configure guide](configure-gui.md).

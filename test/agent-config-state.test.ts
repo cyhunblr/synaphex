@@ -69,12 +69,12 @@ test("OpenAI, Anthropic, and Google configurations accept CLI and VS Code surfac
   const questioner = await fixture.manager.setConfigured("questioner", {
     provider: "openai",
     surface: "cli",
-    model: "gpt-example",
+    model: "gpt-5.6-sol",
   });
   const researcher = await fixture.manager.setConfigured("researcher", {
     provider: "anthropic",
     surface: "vscode",
-    model: "claude-example",
+    model: "claude-sonnet-4-5",
   });
   const planner = await fixture.manager.setConfigured("planner", {
     provider: "google",
@@ -128,7 +128,7 @@ test("credential-like top-level data is outside the supported schema", async (t)
   const withToken = {
     provider: "openai",
     surface: "cli",
-    model: "gpt-example",
+    model: "gpt-5.6-sol",
     apiKey: "must-not-be-persisted",
   } as unknown as ConfiguredAgentInput;
 
@@ -143,14 +143,14 @@ test("credential-like top-level data is outside the supported schema", async (t)
   });
 });
 
-test("the conservative validator rejects every supplied optional setting", async (t) => {
+test("an unavailable target cannot acquire optional settings", async (t) => {
   const fixture = await createFixture(t);
 
   await assert.rejects(
     fixture.manager.setConfigured("coder", {
       provider: "anthropic",
       surface: "vscode",
-      model: "claude-example",
+      model: "claude-sonnet-4-5",
       settings: { temperature: 0.2 },
     }),
     (error: unknown) =>
@@ -169,7 +169,7 @@ test("settings must be safely JSON-compatible before capability validation", asy
     fixture.manager.setConfigured("coder", {
       provider: "openai",
       surface: "cli",
-      model: "gpt-example",
+      model: "gpt-5.6-sol",
       settings: cyclic,
     }),
     (error: unknown) =>
@@ -183,7 +183,7 @@ test("invalid CODER capabilities do not prevent validating QUESTIONER", async (t
   await fixture.manager.setConfigured("questioner", {
     provider: "openai",
     surface: "cli",
-    model: "gpt-example",
+    model: "gpt-5.6-sol",
   });
   await fixture.manager.getAllConfigs();
   const stored = await readStoredConfig(fixture);
@@ -195,7 +195,7 @@ test("invalid CODER capabilities do not prevent validating QUESTIONER", async (t
         status: "configured",
         provider: "openai",
         surface: "cli",
-        model: "gpt-example",
+        model: "gpt-5.6-sol",
         settings: { unsupported: true },
       },
     },
@@ -252,7 +252,7 @@ test("provider removal transitions only matching configured agents", async (t) =
   await fixture.manager.setConfigured("questioner", {
     provider: "openai",
     surface: "cli",
-    model: "gpt-example",
+    model: "gpt-5.6-sol",
   });
   await fixture.manager.setConfigured("researcher", {
     provider: "openai",
@@ -262,7 +262,7 @@ test("provider removal transitions only matching configured agents", async (t) =
   const coder = await fixture.manager.setConfigured("coder", {
     provider: "anthropic",
     surface: "cli",
-    model: "claude-example",
+    model: "claude-sonnet-4-5",
   });
   const reviewer = await fixture.manager.setConfigured("reviewer", {
     provider: "google",
@@ -288,7 +288,7 @@ test("removed state persists, validates stably, and is not automatically restore
   await fixture.manager.setConfigured("questioner", {
     provider: "openai",
     surface: "cli",
-    model: "old-model",
+    model: "gpt-5.6-sol",
   });
   await fixture.manager.removeProvider("openai");
   const beforeRepeat = await readFile(
@@ -360,9 +360,11 @@ test("existing user-edited JSONC is not overwritten during initialization", asyn
 }\n`;
   await writeFile(join(fixture.root, "agent_config.jsonc"), manual, "utf8");
 
-  assert.equal(
-    (await fixture.manager.validateAgent("questioner")).model,
-    "manual-model",
+  const configured = await fixture.manager.getConfig("questioner");
+  assert.equal(configured.status === "configured" ? configured.model : null, "manual-model");
+  await assert.rejects(
+    fixture.manager.validateAgent("questioner"),
+    InvalidAgentModelError,
   );
   assert.equal(
     await readFile(join(fixture.root, "agent_config.jsonc"), "utf8"),
@@ -377,12 +379,12 @@ test("concurrent whole-file mutations leave a complete valid configuration", asy
     fixture.manager.setConfigured("questioner", {
       provider: "openai",
       surface: "cli",
-      model: "gpt-example",
+      model: "gpt-5.6-sol",
     }),
     newManager(fixture).setConfigured("coder", {
       provider: "anthropic",
       surface: "vscode",
-      model: "claude-example",
+      model: "claude-sonnet-4-5",
     }),
   ]);
 

@@ -36,6 +36,11 @@ whose MCP registration behaviour was verified directly. See
 }
 ```
 
+Synaphex's offline catalog supports optional `reasoning_effort` values `low`,
+`medium`, `high`, and `xhigh` for this target. An explicit value is passed as a
+Codex `model_reasoning_effort` config override; omission passes no override and
+keeps the provider-native default.
+
 `openai` + `cli` is executable. Synaphex launches the Codex CLI as an external
 process for that invocation.
 

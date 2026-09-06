@@ -6,12 +6,13 @@ import {
   type AgentName,
   type DiagnosticsModel,
   type EdgeModel,
+  type ModelCapabilityCatalog,
   type ProjectModel,
-  type ProviderDiagnostic,
   type RuleDecision,
   type ScopeSelection,
   type StatusModel,
 } from "./api";
+import { AgentConfigView } from "./AgentConfigView";
 import { DiagnosticsView } from "./DiagnosticsView";
 import { AGENT_ORDER, HexGraph } from "./HexGraph";
 
@@ -29,6 +30,8 @@ export function App() {
   const [edges, setEdges] = useState<EdgeModel[]>([]);
   const [projects, setProjects] = useState<ProjectModel[]>([]);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsModel | null>(null);
+  const [modelCapabilities, setModelCapabilities] =
+    useState<ModelCapabilityCatalog | null>(null);
   const [selected, setSelected] = useState<AgentName | "user" | null>(null);
   const [scope, setScope] = useState<ScopeSelection>({ scope: "global" });
   const [toast, setToast] = useState<Toast | null>(null);
@@ -39,18 +42,20 @@ export function App() {
    * reload, so a browser refresh cannot resurrect a stale draft.
    */
   const refresh = useCallback(async () => {
-    const [s, a, r, p, d] = await Promise.all([
+    const [s, a, r, p, d, capabilities] = await Promise.all([
       api.status(),
       api.agents(),
       api.rules(scope),
       api.projects(),
       api.diagnostics(),
+      api.modelCapabilities(),
     ]);
     setStatus(s);
     setAgents(a.agents);
     setEdges(r.edges);
     setProjects(p.projects);
     setDiagnostics(d);
+    setModelCapabilities(capabilities);
     setLoading(false);
   }, [scope]);
 
@@ -150,12 +155,12 @@ export function App() {
 
         {selected === "user" ? (
           <UserPanel status={status} onClose={() => setSelected(null)} onGo={setView} />
-        ) : selectedAgent !== null && status !== null ? (
-          <AgentPanel
+        ) : selectedAgent !== null && status !== null && modelCapabilities !== null ? (
+          <AgentConfigView
             agent={selectedAgent}
             providers={providers}
+            catalog={modelCapabilities}
             edges={edges.filter((edge) => edge.caller === selectedAgent.agent)}
-            configVersion={status.configVersion}
             onClose={() => setSelected(null)}
             onSave={(body) =>
               act(
@@ -253,227 +258,6 @@ function UserPanel({
         <button className="btn" onClick={onClose}>Close</button>
       </div>
     </aside>
-  );
-}
-
-function AgentPanel({
-  agent,
-  providers,
-  edges,
-  onClose,
-  onSave,
-  onClear,
-  onRule,
-}: {
-  agent: AgentModel;
-  providers: ProviderDiagnostic[];
-  edges: EdgeModel[];
-  configVersion: string;
-  onClose(): void;
-  onSave(body: { provider: string; surface: string; model: string }): void;
-  onClear(): void;
-  onRule(target: AgentName, decision: RuleDecision | "inherit"): void;
-}) {
-  // Draft state only. Nothing is written until Save, so no control change
-  // silently mutates the canonical documents.
-  const [provider, setProvider] = useState(agent.provider ?? "anthropic");
-  const [surface, setSurface] = useState(agent.surface ?? "cli");
-  const [model, setModel] = useState(agent.model ?? "");
-  const [confirmClear, setConfirmClear] = useState(false);
-
-  useEffect(() => {
-    setProvider(agent.provider ?? "anthropic");
-    setSurface(agent.surface ?? "cli");
-    setModel(agent.model ?? "");
-    setConfirmClear(false);
-  }, [agent]);
-
-  const dirty =
-    provider !== (agent.provider ?? "anthropic") ||
-    surface !== (agent.surface ?? "cli") ||
-    model !== (agent.model ?? "");
-
-  const chosen = providers.find((entry) => entry.provider === provider);
-  const targetUnsupported = chosen?.supportedAsTarget === false;
-  const vscodeChosen = surface === "vscode";
-
-  return (
-    <aside className="drawer" aria-label={`${agent.agent} configuration`}>
-      <h2>{agent.agent.toUpperCase()}</h2>
-      <p className="muted">
-        <span className="badge" data-tone={agent.status === "configured" ? "ok" : undefined}>
-          {agent.status}
-        </span>{" "}
-        {agent.executable ? (
-          <span className="badge" data-tone="ok">executable</span>
-        ) : (
-          <span className="badge">not executable</span>
-        )}
-      </p>
-
-      {chosen !== undefined && !chosen.registered ? (
-        <div className="notice" data-tone="warn">
-          {chosen.provider} is not registered as an MCP host. Run{" "}
-          <code>synaphex install</code> to enable it.
-        </div>
-      ) : null}
-      {targetUnsupported ? (
-        <div className="notice" data-tone="bad">
-          {chosen?.targetUnavailableReason}
-        </div>
-      ) : null}
-      {vscodeChosen ? (
-        <div className="notice" data-tone="bad">
-          A <code>vscode</code> surface is not an executable agent target.
-          Configuring it is accepted, but invocation is refused.
-        </div>
-      ) : null}
-
-      <div className="field">
-        <label htmlFor="provider">Provider</label>
-        <select id="provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
-          {providers.map((entry) => (
-            <option key={entry.provider} value={entry.provider}>
-              {entry.provider}
-              {entry.registered ? "" : " (not registered)"}
-              {entry.supportedAsTarget ? "" : " — target unavailable"}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="field">
-        <label htmlFor="surface">Surface</label>
-        <select id="surface" value={surface} onChange={(e) => setSurface(e.target.value)}>
-          <option value="cli">cli</option>
-          <option value="vscode">vscode (not executable)</option>
-        </select>
-      </div>
-
-      <div className="field">
-        <label htmlFor="model">Model</label>
-        <input
-          id="model"
-          value={model}
-          placeholder="provider model identifier"
-          onChange={(e) => setModel(e.target.value)}
-        />
-      </div>
-
-      <div className="field">
-        <label>Advanced model settings</label>
-        <p className="muted" style={{ margin: 0 }}>
-          Not available in this version. Provider defaults are used.
-        </p>
-      </div>
-
-      <div className="row">
-        <button
-          className="btn primary"
-          disabled={!dirty || model.trim() === ""}
-          onClick={() => onSave({ provider, surface, model })}
-        >
-          Save
-        </button>
-        <button className="btn" disabled={!dirty} onClick={() => {
-          setProvider(agent.provider ?? "anthropic");
-          setSurface(agent.surface ?? "cli");
-          setModel(agent.model ?? "");
-        }}>
-          Discard
-        </button>
-        {agent.status === "configured" ? (
-          confirmClear ? (
-            <button className="btn danger" onClick={onClear}>Confirm remove</button>
-          ) : (
-            <button className="btn danger" onClick={() => setConfirmClear(true)}>
-              Remove configuration
-            </button>
-          )
-        ) : null}
-      </div>
-
-      <h2 style={{ marginTop: 22 }}>Contract</h2>
-      <p className="muted">Fixed in code. Rules can restrict these, never widen them.</p>
-      <table>
-        <tbody>
-          <Contract label="Modifies source" value={agent.contract.mayModifySourceCode} />
-          <Contract label="Writes canonical memory" value={agent.contract.mayWriteCanonicalMemory} />
-          <tr>
-            <td>Task binding</td>
-            <td>{agent.contract.taskBinding}</td>
-          </tr>
-          <tr>
-            <td>Runs on task states</td>
-            <td>{agent.contract.allowedTaskStatuses.join(", ")}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h2 style={{ marginTop: 22 }}>Outgoing calls</h2>
-      <p className="muted">
-        Direction matters: {agent.agent} &rarr; X is not X &rarr; {agent.agent}.
-      </p>
-      <table>
-        <thead>
-          <tr><th>Target</th><th>Effective</th><th>Set</th></tr>
-        </thead>
-        <tbody>
-          {edges.map((edge) => (
-            <tr key={edge.target}>
-              <td>{edge.target}</td>
-              <td>
-                {edge.immutable ? (
-                  <span className="badge" data-tone="bad">forbidden</span>
-                ) : (
-                  <>
-                    {edge.decision}
-                    <br />
-                    <span className="muted" style={{ fontSize: 11 }}>via {edge.source}</span>
-                  </>
-                )}
-              </td>
-              <td>
-                <select
-                  aria-label={`${agent.agent} to ${edge.target} decision`}
-                  disabled={edge.immutable}
-                  value={edge.immutable ? "deny" : edge.decision}
-                  onChange={(e) => onRule(edge.target, e.target.value as RuleDecision | "inherit")}
-                >
-                  {edge.immutable ? (
-                    <option value="deny">forbidden by role contract</option>
-                  ) : (
-                    <>
-                      <option value="allow">allow</option>
-                      <option value="ask">ask</option>
-                      <option value="deny">deny</option>
-                      <option value="inherit">inherit (remove override)</option>
-                    </>
-                  )}
-                </select>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div className="row" style={{ marginTop: 14 }}>
-        <button className="btn" onClick={onClose}>Close</button>
-      </div>
-    </aside>
-  );
-}
-
-function Contract({ label, value }: { label: string; value: boolean }) {
-  return (
-    <tr>
-      <td>{label}</td>
-      <td>
-        <span className="badge" data-tone={value ? "ok" : undefined}>
-          {value ? "yes" : "no"}
-        </span>
-      </td>
-    </tr>
   );
 }
 

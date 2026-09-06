@@ -144,6 +144,22 @@ test("status reports the six agents from canonical state", async (t) => {
   assert.equal(status.executableTargets, 0);
 });
 
+test("model capability endpoint exposes the versioned offline catalog", async (t) => {
+  const f = await fixture(t);
+  const response = await fetch(`${f.server.url}/api/model-capabilities`, {
+    headers: f.headers,
+  });
+  assert.equal(response.status, 200);
+  const body = await json(response) as { targets: Array<Record<string, unknown>> };
+  assert.equal(body.targets.length, 6);
+  const serialized = JSON.stringify(body);
+  assert.match(serialized, /gpt-5\.6-sol/);
+  assert.match(serialized, /claude-sonnet-4-5/);
+  assert.match(serialized, /reasoning_effort/);
+  assert.equal(serialized.includes("model_reasoning_effort"), false);
+  assert.equal(serialized.toLowerCase().includes("credential"), false);
+});
+
 test("a valid agent configuration is persisted through the domain service", async (t) => {
   const f = await fixture(t);
   const before = await json(
@@ -176,6 +192,61 @@ test("a valid agent configuration is persisted through the domain service", asyn
   // The canonical document is rendered with its maintainer comments intact.
   const document = await readFile(join(f.root, "agent_config.jsonc"), "utf8");
   assert.match(document, /^\/\//m);
+});
+
+test("a supported model setting is validated and persisted while omission stays omitted", async (t) => {
+  const f = await fixture(t);
+  let status = await json(await fetch(`${f.server.url}/api/status`, { headers: f.headers }));
+  let response = await fetch(`${f.server.url}/api/agents/coder`, {
+    method: "PUT",
+    headers: f.headers,
+    body: JSON.stringify({
+      provider: "openai",
+      surface: "cli",
+      model: "gpt-5.6-sol",
+      settings: { reasoning_effort: "high" },
+      configVersion: status.configVersion,
+    }),
+  });
+  assert.equal(response.status, 200);
+  let config = await new AgentConfigManager(new StateStore(f.root)).getConfig("coder");
+  assert.deepEqual(config.status === "configured" ? config.settings : null, {
+    reasoning_effort: "high",
+  });
+
+  status = await json(await fetch(`${f.server.url}/api/status`, { headers: f.headers }));
+  response = await fetch(`${f.server.url}/api/agents/reviewer`, {
+    method: "PUT",
+    headers: f.headers,
+    body: JSON.stringify({
+      provider: "openai",
+      surface: "cli",
+      model: "gpt-5.6-sol",
+      configVersion: status.configVersion,
+    }),
+  });
+  assert.equal(response.status, 200);
+  config = await new AgentConfigManager(new StateStore(f.root)).getConfig("reviewer");
+  assert.equal(config.status === "configured" && Object.hasOwn(config, "settings"), false);
+});
+
+test("Configure rejects unknown models, invalid settings, and unavailable targets", async (t) => {
+  const f = await fixture(t);
+  for (const body of [
+    { provider: "openai", surface: "cli", model: "future-model" },
+    { provider: "openai", surface: "cli", model: "gpt-5.6-sol", settings: { reasoning_effort: "maximum" } },
+    { provider: "anthropic", surface: "cli", model: "claude-sonnet-4-5", settings: { reasoning_effort: "high" } },
+    { provider: "google", surface: "cli", model: "legacy-google" },
+    { provider: "openai", surface: "vscode", model: "legacy-vscode" },
+  ]) {
+    const status = await json(await fetch(`${f.server.url}/api/status`, { headers: f.headers }));
+    const response = await fetch(`${f.server.url}/api/agents/coder`, {
+      method: "PUT",
+      headers: f.headers,
+      body: JSON.stringify({ ...body, configVersion: status.configVersion }),
+    });
+    assert.equal(response.status, 400, JSON.stringify(body));
+  }
 });
 
 test("an unknown provider is refused by domain validation", async (t) => {

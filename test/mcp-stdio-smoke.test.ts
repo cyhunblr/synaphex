@@ -611,7 +611,7 @@ test("Synaphex MCP invokes a source-read-only agent over real stdio", async (t) 
     await new AgentConfigManager(store).setConfigured("researcher", {
       provider: "openai",
       surface: "cli",
-      model: "researcher-model",
+      model: "gpt-5.6-sol",
     });
 
     // 8 + 9: invoke and receive a structured InvocationResult.
@@ -712,7 +712,7 @@ test("a native VS Code target fails closed through the production dispatch path"
     await new AgentConfigManager(store).setConfigured("researcher", {
       provider: "anthropic",
       surface: "vscode",
-      model: "researcher-model",
+      model: "gpt-5.6-sol",
     });
 
     const invoked = await client.callTool({
@@ -761,12 +761,12 @@ async function continuationHarness(
   await configs.setConfigured("researcher", {
     provider: "openai",
     surface: "cli",
-    model: "researcher-model",
+    model: "gpt-5.6-sol",
   });
   await configs.setConfigured("examiner", {
     provider: "openai",
     surface: "cli",
-    model: "examiner-model",
+    model: "gpt-5.6-sol",
   });
   const rules = new RuleResolver(store, projects, tasks);
   if (options.helperRule !== undefined) {
@@ -1040,12 +1040,12 @@ test("a continuation handle does not survive an MCP process restart", async (t) 
   await new AgentConfigManager(store).setConfigured("researcher", {
     provider: "openai",
     surface: "cli",
-    model: "researcher-model",
+    model: "gpt-5.6-sol",
   });
   await new AgentConfigManager(store).setConfigured("examiner", {
     provider: "openai",
     surface: "cli",
-    model: "examiner-model",
+    model: "gpt-5.6-sol",
   });
   await new RuleResolver(store, projects, tasks).setRule(
     "global",
@@ -1264,7 +1264,7 @@ async function bootstrapClient(
       await configs.setConfigured(agent, {
         provider: "openai",
         surface: "cli",
-        model: `${agent}-model`,
+        model: "gpt-5.6-sol",
       });
     }
   }
@@ -1573,12 +1573,12 @@ async function planHarness(
   await configs.setConfigured("planner", {
     provider: "openai",
     surface: "cli",
-    model: "planner-model",
+    model: "gpt-5.6-sol",
   });
   await configs.setConfigured("coder", {
     provider: "openai",
     surface: "cli",
-    model: "coder-model",
+    model: "gpt-5.6-sol",
   });
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -1932,7 +1932,7 @@ test("staged CODER runs through MCP and leaves the real source unchanged", async
   await new AgentConfigManager(store).setConfigured("coder", {
     provider: "openai",
     surface: "cli",
-    model: "coder-model",
+    model: "gpt-5.6-sol",
   });
 
   const transport = new StdioClientTransport({
@@ -2039,7 +2039,7 @@ test("staged CODER runs through MCP and leaves the real source unchanged", async
     await new AgentConfigManager(store).setConfigured("reviewer", {
       provider: "openai",
       surface: "cli",
-      model: "reviewer-model",
+      model: "gpt-5.6-sol",
     });
     const reviewed = await client.callTool({
       name: "synaphex_invoke_agent",
@@ -2234,7 +2234,7 @@ test("interrupted-apply recovery is explicit and observational over real stdio",
       await configs.setConfigured(agent, {
         provider: "openai",
         surface: "cli",
-        model: `${agent}-model`,
+        model: "gpt-5.6-sol",
       });
     }
 
@@ -2506,7 +2506,7 @@ test("the task lifecycle is deterministic and one-way over real stdio", async (t
       await configs.setConfigured(agent, {
         provider: "openai",
         surface: "cli",
-        model: `${agent}-model`,
+        model: "gpt-5.6-sol",
       });
     }
     const transport = new StdioClientTransport({

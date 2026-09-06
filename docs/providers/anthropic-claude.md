@@ -28,10 +28,13 @@ MCP registration behaviour was verified directly.
     "status": "configured",
     "provider": "anthropic",
     "surface": "cli",
-    "model": "claude-model-id"
+    "model": "claude-sonnet-4-5"
   }
 }
 ```
+
+This target currently declares no optional model settings in Synaphex. The
+provider-native defaults apply.
 
 `anthropic` + `cli` is executable. Synaphex launches the Claude Code CLI as an
 external process for that invocation.

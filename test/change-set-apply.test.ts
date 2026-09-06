@@ -170,7 +170,7 @@ async function createFixture(t: TestContext): Promise<Fixture> {
     await configs.setConfigured(agent, {
       provider: "openai",
       surface: "cli",
-      model: `${agent}-model`,
+      model: "gpt-5.6-sol",
     });
   }
   const commands = new SessionCommands({ projects, tasks, sessions });

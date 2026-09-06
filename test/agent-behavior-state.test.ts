@@ -254,7 +254,7 @@ test("config and behavior state remain isolated from source and workflow state",
   await new AgentConfigManager(fixture.store).setConfigured("questioner", {
     provider: "openai",
     surface: "cli",
-    model: "gpt-example",
+    model: "gpt-5.6-sol",
   });
   await fixture.manager.replaceOutputFields("researcher", ["findings"]);
 

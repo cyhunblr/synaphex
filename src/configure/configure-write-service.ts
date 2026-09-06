@@ -14,6 +14,7 @@ import {
   type RuleScope,
 } from "../domain/rule.js";
 import type { TaskId } from "../domain/task.js";
+import { getProviderTargetCapability } from "../core/provider-model-capability-registry.js";
 import { ConfigLifecycle } from "../installer/config-lifecycle.js";
 import type { ConfigureReadModels, RuleScopeSelection } from "./configure-read-models.js";
 
@@ -47,6 +48,7 @@ export interface AgentConfigWrite {
   readonly provider: string;
   readonly surface: string;
   readonly model: string;
+  readonly settings?: Readonly<Record<string, unknown>>;
 }
 
 export interface RuleWrite extends RuleScopeSelection {
@@ -103,14 +105,24 @@ export class ConfigureWriteService {
     if (typeof write.model !== "string" || write.model.trim().length === 0) {
       throw new InvalidAgentConfigError(name, "model must not be empty");
     }
+    const target = getProviderTargetCapability(
+      write.provider as AgentProvider,
+      write.surface as AgentSurface,
+    );
+    if (target.executionAvailability !== "available") {
+      throw new InvalidAgentConfigError(
+        name,
+        target.unavailableReason ?? "provider target is unavailable",
+      );
+    }
 
     // setConfigured runs the canonical capability validation and the atomic
-    // config-document replace; no settings are forwarded because v0.1 accepts
-    // none and the GUI must not widen that.
+    // config-document replace. Settings remain model-scoped and fail closed.
     await this.reads.agentConfigs.setConfigured(name, {
       provider: write.provider as AgentProvider,
       surface: write.surface as AgentSurface,
       model: write.model.trim(),
+      ...(write.settings === undefined ? {} : { settings: write.settings }),
     });
     await this.renderCanonicalDocuments();
   }

@@ -10,6 +10,11 @@ import {
   InvalidAgentModelError,
   InvalidAgentSettingError,
 } from "../domain/errors.js";
+import {
+  getProviderModelCapability,
+  getProviderTargetCapability,
+  validateModelSettings,
+} from "./provider-model-capability-registry.js";
 
 export interface AgentCapabilityValidator {
   validate(
@@ -34,12 +39,37 @@ export class StaticAgentCapabilityValidator
     if (config.model.trim().length === 0) {
       throw new InvalidAgentModelError(agent, "model must be non-empty");
     }
-    const unsupportedSetting = Object.keys(config.settings ?? {})[0];
-    if (unsupportedSetting !== undefined) {
+    const target = getProviderTargetCapability(config.provider, config.surface);
+    if (target.executionAvailability !== "available") {
+      const unsupportedSetting = Object.keys(config.settings ?? {})[0];
+      if (unsupportedSetting !== undefined) {
+        throw new InvalidAgentSettingError(
+          agent,
+          unsupportedSetting,
+          "settings cannot be validated for an unavailable target",
+        );
+      }
+      // Historical Google/VS Code entries remain parseable and visible. The
+      // router still refuses them, and Configure cannot create new ones.
+      return { agent, ...config };
+    }
+    const capability = getProviderModelCapability(
+      config.provider,
+      config.surface,
+      config.model,
+    );
+    if (capability === undefined) {
+      throw new InvalidAgentModelError(
+        agent,
+        "model is not supported for this provider and surface",
+      );
+    }
+    const invalid = validateModelSettings(capability, config.settings);
+    if (invalid.setting !== undefined) {
       throw new InvalidAgentSettingError(
         agent,
-        unsupportedSetting,
-        "no optional settings are supported by the static v0 capability model",
+        invalid.setting,
+        invalid.reason ?? "setting is invalid",
       );
     }
     return { agent, ...config };

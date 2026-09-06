@@ -69,6 +69,25 @@ test("configure diagnostics project complete system and provider state", async (
   );
 });
 
+test("configure projects the canonical model catalog without executor internals", () => {
+  const catalog = new ConfigureReadModels().modelCapabilities();
+  const openai = catalog.targets.find(
+    (target) => target.provider === "openai" && target.surface === "cli",
+  )!;
+  assert.equal(openai.executionAvailability, "available");
+  assert.deepEqual(openai.models.map((model) => model.id), ["gpt-5.6-sol"]);
+  assert.deepEqual(openai.models[0]!.settings[0], {
+    key: "reasoning_effort",
+    label: "Reasoning effort",
+    description: "Controls how much reasoning effort Codex applies.",
+    type: "enum",
+    values: ["low", "medium", "high", "xhigh"].map((value) => ({ value, label: value })),
+    required: false,
+    defaultBehavior: "provider_native",
+  });
+  assert.equal("execution" in openai.models[0]!.settings[0]!, false);
+});
+
 function manifestEntry(provider: "openai" | "google") {
   return {
     provider,

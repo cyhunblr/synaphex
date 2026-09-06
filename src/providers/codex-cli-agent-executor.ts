@@ -13,6 +13,10 @@ import type {
   AgentExecutor,
 } from "../domain/agent-invocation.js";
 import {
+  getProviderModelCapability,
+  validateModelSettings,
+} from "../core/provider-model-capability-registry.js";
+import {
   CodexCliExecutionError,
   ProviderExecutionPolicyUnsupportedError,
   type CodexCliExecutionFailureReason,
@@ -140,6 +144,10 @@ export class CodexCliAgentExecutor implements AgentExecutor {
             "-c",
             override,
           ]),
+          ...codexModelSettingOverrides(input).flatMap((override) => [
+            "-c",
+            override,
+          ]),
           "--output-schema",
           schemaPath,
           "--output-last-message",
@@ -206,12 +214,33 @@ function assertSupportedRoute(input: AgentExecutionInput): void {
       contextAgent: context.agent,
     });
   }
-  if (
-    route.settings !== undefined &&
-    Reflect.ownKeys(route.settings).length > 0
-  ) {
+  codexModelSettingOverrides(input);
+}
+
+function codexModelSettingOverrides(input: AgentExecutionInput): string[] {
+  const settings = input.route.settings;
+  if (settings === undefined || Object.keys(settings).length === 0) return [];
+  const capability = getProviderModelCapability(
+    "openai",
+    "cli",
+    input.route.model,
+  );
+  if (capability === undefined) {
     throw new CodexCliExecutionError("unsupported_settings");
   }
+  const invalid = validateModelSettings(capability, settings);
+  if (invalid.setting !== undefined) {
+    throw new CodexCliExecutionError("unsupported_settings", {
+      setting: invalid.setting,
+    });
+  }
+  return Object.entries(settings).map(([key, value]) => {
+    const setting = capability.settings.find((entry) => entry.key === key)!;
+    if (setting.execution.kind !== "codex_config") {
+      throw new CodexCliExecutionError("unsupported_settings", { setting: key });
+    }
+    return `${setting.execution.key}=${JSON.stringify(value)}`;
+  });
 }
 
 async function assertWorkspace(sourcePath: string): Promise<void> {

@@ -84,7 +84,7 @@ function executionInput(
       effectiveSurface: "cli",
       cliForcedByCrossProvider: true,
       routingReason: "cross_provider_cli",
-      model: "claude-explicit-model",
+      model: "claude-sonnet-4-5",
       ...(settings === undefined ? {} : { settings }),
     },
     context: syntheticAgentContext(agent, sourcePath),
@@ -125,7 +125,7 @@ test("Claude adapter constructs a fresh restricted direct command and decodes st
     "--restricted",
   ]);
   assert.equal(optionValue(call.args, "--output-format"), "json");
-  assert.equal(optionValue(call.args, "--model"), "claude-explicit-model");
+  assert.equal(optionValue(call.args, "--model"), "claude-sonnet-4-5");
   assert.equal(optionValue(call.args, "--permission-mode"), "dontAsk");
   for (const flag of [
     "--safe-mode",

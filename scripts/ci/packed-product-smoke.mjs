@@ -579,6 +579,28 @@ try {
     const payload = await status.json();
     check("configure API reports six agents", payload.agents === 6);
 
+    const catalogResponse = await fetch(`${url}/api/model-capabilities`, {
+      headers: { "x-synaphex-configure-token": token, origin: url },
+    });
+    const catalog = await catalogResponse.json();
+    check("configure API ships the model capability catalog", catalogResponse.status === 200);
+    const catalogTargets = new Map(
+      (catalog.targets ?? []).map((entry) => [`${entry.provider}/${entry.surface}`, entry]),
+    );
+    check(
+      "packed catalog contains the supported CLI models",
+      catalogTargets.get("openai/cli")?.models?.[0]?.id === "gpt-5.6-sol" &&
+        catalogTargets.get("anthropic/cli")?.models?.[0]?.id === "claude-sonnet-4-5" &&
+        catalogTargets.get("google/cli")?.models?.length === 0,
+    );
+    check(
+      "packed catalog preserves model setting metadata",
+      catalogTargets.get("openai/cli")?.models?.[0]?.settings?.[0]?.key ===
+        "reasoning_effort" &&
+        catalogTargets.get("openai/cli")?.models?.[0]?.settings?.[0]?.defaultBehavior ===
+          "provider_native",
+    );
+
     const diagnosticsResponse = await fetch(`${url}/api/diagnostics`, {
       headers: { "x-synaphex-configure-token": token, origin: url },
     });
