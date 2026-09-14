@@ -567,6 +567,18 @@ try {
       "configure UI ships its bundle",
       /\/assets\/[A-Za-z0-9._-]+\.js/.test(html),
     );
+    const bundlePath = /(?:src|href)="(\/assets\/[A-Za-z0-9._-]+\.js)"/.exec(html)?.[1];
+    const bundle = bundlePath === undefined
+      ? ""
+      : await (await fetch(`${url}${bundlePath}`)).text();
+    check(
+      "packed UI contains target, tier, and utility controls",
+      bundle.includes("Execution Target") &&
+        bundle.includes("Recommended") &&
+        bundle.includes("Other supported") &&
+        bundle.includes("Reload") &&
+        bundle.includes("Copy path"),
+    );
     check(
       "configure injected a session token",
       !html.includes("__SYNAPHEX_CONFIGURE_TOKEN__"),
@@ -590,6 +602,8 @@ try {
     check(
       "packed catalog contains the supported CLI models",
       catalog.catalogVersion === 1 &&
+        catalogTargets.get("codex_cli")?.models?.length === 5 &&
+        catalogTargets.get("claude_code_cli")?.models?.length === 11 &&
         catalogTargets.get("codex_cli")?.models?.some(
           (model) => model.id === "gpt-5.6-terra",
         ) &&
@@ -598,6 +612,18 @@ try {
         ) &&
         catalogTargets.get("antigravity_cli")?.support === "unavailable" &&
         catalogTargets.get("antigravity_cli")?.models?.length === 0,
+    );
+    check(
+      "packed catalog preserves recommended and supported tiers",
+      catalogTargets.get("codex_cli")?.models?.filter(
+        (model) => model.supportTier === "recommended",
+      ).length === 1 &&
+        catalogTargets.get("claude_code_cli")?.models?.filter(
+          (model) => model.supportTier === "recommended",
+        ).length === 2 &&
+        catalogTargets.get("claude_code_cli")?.models?.some(
+          (model) => model.supportTier === "supported",
+        ),
     );
     check(
       "packed catalog preserves model setting metadata",
@@ -609,6 +635,15 @@ try {
           "provider_native" &&
         catalogTargets.get("codex_cli")?.models?.[0]?.settings?.[0]?.executorBinding ===
           undefined,
+    );
+    const claudeModels = catalogTargets.get("claude_code_cli")?.models ?? [];
+    check(
+      "packed catalog preserves model-specific Claude effort metadata",
+      claudeModels.find((model) => model.id === "claude-opus-5")?.settings?.[0]
+        ?.values?.map((entry) => entry.value).join(",") ===
+          "low,medium,high,xhigh,max" &&
+        claudeModels.find((model) => model.id === "claude-sonnet-4-5")
+          ?.settings?.length === 0,
     );
 
     const diagnosticsResponse = await fetch(`${url}/api/diagnostics`, {
@@ -638,6 +673,20 @@ try {
           "unavailable" &&
         diagnosticProviders.get("openai")?.executionTargets?.[0]
           ?.executionPolicySupport === "supported",
+    );
+    check(
+      "VS Code is host-only in packed diagnostics",
+      diagnosticProviders.get("openai")?.hostIntegration?.surfaces?.some(
+        (surface) => surface.surface === "vscode" && surface.callableTarget === false,
+      ) &&
+        diagnosticProviders.get("anthropic")?.hostIntegration?.surfaces?.some(
+          (surface) => surface.surface === "vscode" && surface.callableTarget === false,
+        ) &&
+        [...diagnosticProviders.values()].every((entry) =>
+          (entry.executionTargets ?? []).every(
+            (target) => !target.id.includes("vscode"),
+          ),
+        ),
     );
     check(
       "configure diagnostics report registration state",

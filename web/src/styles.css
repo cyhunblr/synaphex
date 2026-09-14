@@ -86,8 +86,8 @@ button, input, select { font: inherit; color: inherit; }
   background: var(--panel-raised);
 }
 
-.main { flex: 1; display: flex; min-height: 0; }
-.content { flex: 1; padding: 20px; overflow: auto; }
+.main { flex: 1; display: flex; min-height: 0; min-width: 0; }
+.content { flex: 1; min-width: 0; padding: 20px; overflow: auto; }
 
 .summary {
   display: flex;
@@ -161,7 +161,9 @@ button, input, select { font: inherit; color: inherit; }
 /* --- panels ------------------------------------------------------------- */
 
 .drawer {
-  width: 380px;
+  flex: 0 0 420px;
+  width: 420px;
+  max-width: 45vw;
   border-left: 1px solid var(--border);
   background: var(--panel);
   padding: 18px;
@@ -169,6 +171,12 @@ button, input, select { font: inherit; color: inherit; }
 }
 .drawer h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: 0.4px; }
 .drawer .muted { color: var(--text-dim); font-size: 12px; margin-bottom: 14px; }
+.drawer .muted.compact, .muted.compact { margin: 5px 0; }
+.agent-title { font-size: 19px; font-weight: 650; letter-spacing: 0.5px; }
+.badge-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.panel-section { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
+.panel-actions { margin-top: 16px; }
+.small { font-size: 11px; }
 
 .field { margin-bottom: 12px; }
 .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
@@ -180,6 +188,25 @@ button, input, select { font: inherit; color: inherit; }
   border-radius: 8px;
 }
 .field input:disabled, .field select:disabled { opacity: 0.5; cursor: not-allowed; }
+.capability-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  color: var(--text-dim);
+  font-size: 12px;
+  margin: -2px 0 12px;
+}
+.readiness-list, .diagnostic-list { margin: 0; }
+.readiness-list > div, .diagnostic-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+}
+.readiness-list dt, .diagnostic-list dt { color: var(--text-dim); }
+.readiness-list dd, .diagnostic-list dd { margin: 0; text-align: right; }
 
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn {
@@ -250,10 +277,70 @@ pre {
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend svg { display: block; }
 
+.scope-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(190px, 1fr) minmax(240px, 1.4fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.diagnostics-section { margin-top: 22px; }
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(260px, 1fr));
+  gap: 14px;
+}
+.provider-card {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.provider-card h3 { margin: 0; font-size: 17px; }
+.diagnostic-group { border-top: 1px solid var(--border); margin-top: 13px; padding-top: 11px; }
+.diagnostic-group h4 {
+  margin: 0 0 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.target-diagnostic + .target-diagnostic { margin-top: 12px; }
+.plain-list { margin: 6px 0; padding-left: 18px; }
+.host-surfaces li { margin: 5px 0; }
+.model-list + .model-list { margin-top: 9px; }
+.config-version { margin-top: 14px; }
+
+.config-document { margin-bottom: 18px; }
+.config-document-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.config-document-heading h2 { font-size: 14px; margin: 0 0 4px; }
+.config-path { margin: 0; overflow-wrap: anywhere; }
+.file-feedback { font-size: 12px; margin: 6px 0; }
+.file-feedback[data-tone="ok"] { color: var(--ok); }
+.file-feedback[data-tone="bad"] { color: var(--bad); }
+
 /* Narrow windows scale the graph rather than forcing horizontal scrolling. */
 @media (max-width: 900px) {
   .main { flex-direction: column; }
-  .drawer { width: auto; border-left: none; border-top: 1px solid var(--border); }
+  .drawer {
+    flex-basis: auto;
+    width: auto;
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+  .provider-grid { grid-template-columns: 1fr; }
+  .scope-controls { grid-template-columns: 1fr; }
+}
+
+@media (min-width: 901px) and (max-width: 1150px) {
+  .provider-grid { grid-template-columns: repeat(2, minmax(250px, 1fr)); }
 }
 
 /*

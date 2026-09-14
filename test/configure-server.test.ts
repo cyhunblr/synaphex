@@ -156,6 +156,28 @@ test("model capability endpoint exposes the versioned offline catalog", async (t
   };
   assert.equal(body.catalogVersion, 1);
   assert.equal(body.targets.length, 3);
+  const targets = body.targets as Array<{
+    id: string;
+    support: string;
+    models: Array<{
+      id: string;
+      supportTier: string;
+      settings: Array<{ key: string; values: Array<{ value: string }> }>;
+    }>;
+  }>;
+  const codex = targets.find((target) => target.id === "codex_cli")!;
+  const claude = targets.find((target) => target.id === "claude_code_cli")!;
+  const google = targets.find((target) => target.id === "antigravity_cli")!;
+  assert.equal(codex.models.length, 5);
+  assert.equal(claude.models.length, 11);
+  assert.equal(codex.models.filter((model) => model.supportTier === "recommended").length, 1);
+  assert.equal(claude.models.filter((model) => model.supportTier === "recommended").length, 2);
+  assert.deepEqual(
+    claude.models.find((model) => model.id === "claude-opus-5")?.settings[0]?.values.map((entry) => entry.value),
+    ["low", "medium", "high", "xhigh", "max"],
+  );
+  assert.equal(google.support, "unavailable");
+  assert.deepEqual(google.models, []);
   const serialized = JSON.stringify(body);
   assert.match(serialized, /gpt-5\.6-sol/);
   assert.match(serialized, /gpt-5\.6-terra/);
@@ -167,6 +189,29 @@ test("model capability endpoint exposes the versioned offline catalog", async (t
   assert.equal(serialized.includes("model_reasoning_effort"), false);
   assert.equal(serialized.includes("claude_argument"), false);
   assert.equal(serialized.toLowerCase().includes("credential"), false);
+});
+
+test("config preview exposes only the three canonical documents and their paths", async (t) => {
+  const f = await fixture(t);
+  const response = await fetch(`${f.server.url}/api/config-preview`, {
+    headers: f.headers,
+  });
+  assert.equal(response.status, 200);
+  const body = await json(response) as {
+    documents: Array<{ file: string; path: string; content: string | null }>;
+  };
+  assert.deepEqual(body.documents.map((document) => document.file), [
+    "agent_config.jsonc",
+    "agent_behavior.jsonc",
+    "rules.jsonc",
+  ]);
+  for (const document of body.documents) {
+    assert.ok(document.path.endsWith(`/.synaphex/${document.file}`));
+  }
+  const arbitrary = await fetch(`${f.server.url}/api/config-preview/other`, {
+    headers: f.headers,
+  });
+  assert.equal(arbitrary.status, 404);
 });
 
 test("a valid agent configuration is persisted through the domain service", async (t) => {

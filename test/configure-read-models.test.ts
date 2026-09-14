@@ -71,6 +71,25 @@ test("configure diagnostics project complete system and provider state", async (
       },
     ],
   );
+  const openai = diagnostics.providers.find((entry) => entry.provider === "openai")!;
+  assert.deepEqual(
+    openai.hostIntegration.surfaces.map((surface) => ({
+      id: surface.id,
+      label: surface.label,
+      callableTarget: surface.callableTarget,
+    })),
+    [
+      { id: "codex_cli", label: "Codex CLI", callableTarget: false },
+      {
+        id: "codex_vscode",
+        label: "Codex VS Code extension",
+        callableTarget: false,
+      },
+    ],
+  );
+  assert.deepEqual(openai.executionTargets.map((target) => target.id), [
+    "codex_cli",
+  ]);
 });
 
 test("configure projects the canonical target/model catalog without executor internals", () => {

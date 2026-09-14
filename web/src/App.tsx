@@ -8,13 +8,14 @@ import {
   type EdgeModel,
   type ModelCapabilityCatalog,
   type ProjectModel,
-  type RuleDecision,
   type ScopeSelection,
   type StatusModel,
 } from "./api";
 import { AgentConfigView } from "./AgentConfigView";
 import { DiagnosticsView } from "./DiagnosticsView";
+import { FilesView } from "./FilesView";
 import { AGENT_ORDER, HexGraph } from "./HexGraph";
+import { completeScopeForRequest, RulesView } from "./RulesView";
 
 type View = "overview" | "rules" | "projects" | "diagnostics" | "files";
 
@@ -42,10 +43,13 @@ export function App() {
    * reload, so a browser refresh cannot resurrect a stale draft.
    */
   const refresh = useCallback(async () => {
+    const requestedScope = completeScopeForRequest(scope);
     const [s, a, r, p, d, capabilities] = await Promise.all([
       api.status(),
       api.agents(),
-      api.rules(scope),
+      requestedScope === null
+        ? Promise.resolve({ edges: [], overrides: [] })
+        : api.rules(requestedScope),
       api.projects(),
       api.diagnostics(),
       api.modelCapabilities(),
@@ -146,10 +150,14 @@ export function App() {
             <ProjectsView projects={projects} />
           ) : view === "diagnostics" ? (
             diagnostics === null ? null : (
-              <DiagnosticsView diagnostics={diagnostics} status={status} />
+              <DiagnosticsView
+                diagnostics={diagnostics}
+                catalog={modelCapabilities}
+                status={status}
+              />
             )
           ) : (
-            <FilesView />
+            <FilesView loadPreview={api.configPreview} />
           )}
         </div>
 
@@ -175,14 +183,29 @@ export function App() {
               )
             }
             onRule={(target, decision) =>
-              act(
-                () =>
-                  api.saveRule(
-                    { caller: selectedAgent.agent, target, decision, ...scope },
-                    status.configVersion,
-                  ),
-                `Rule updated`,
-              )
+              {
+                const requestedScope = completeScopeForRequest(scope);
+                if (requestedScope === null) {
+                  setToast({
+                    tone: "warn",
+                    message: "Select a complete rule scope before changing an override.",
+                  });
+                  return;
+                }
+                void act(
+                  () =>
+                    api.saveRule(
+                      {
+                        caller: selectedAgent.agent,
+                        target,
+                        decision,
+                        ...requestedScope,
+                      },
+                      status.configVersion,
+                    ),
+                  "Rule updated",
+                );
+              }
             }
           />
         ) : null}
@@ -204,7 +227,7 @@ function Summary({ status }: { status: StatusModel | null }) {
       <Stat value={status.agents} label="Agents" />
       <Stat value={status.configured} label="Configured" />
       <Stat value={status.unconfigured} label="Unconfigured" />
-      <Stat value={status.executableAgentConfigurations} label="Executable agent configs" />
+      <Stat value={status.executableAgentConfigurations} label="Configured executable agents" />
       <Stat value={`${status.hostRegistrationsRecorded}/${status.providers}`} label="Host registrations recorded" />
     </div>
   );
@@ -246,7 +269,7 @@ function UserPanel({
       <div className="row">
         <button className="btn" onClick={() => onGo("rules")}>Global rules</button>
         <button className="btn" onClick={() => onGo("projects")}>Projects</button>
-        <button className="btn" onClick={() => onGo("diagnostics")}>Diagnostics</button>
+        <button className="btn" onClick={() => onGo("diagnostics")}>Providers &amp; installation</button>
         <button className="btn" onClick={() => onGo("files")}>Config files</button>
       </div>
       {status !== null ? (
@@ -258,99 +281,6 @@ function UserPanel({
         <button className="btn" onClick={onClose}>Close</button>
       </div>
     </aside>
-  );
-}
-
-function RulesView({
-  edges,
-  projects,
-  scope,
-  onScope,
-}: {
-  edges: EdgeModel[];
-  projects: ProjectModel[];
-  scope: ScopeSelection;
-  onScope(scope: ScopeSelection): void;
-}) {
-  const project = projects.find((entry) => entry.id === scope.projectId);
-  return (
-    <>
-      <div className="notice">
-        Effective decision resolves <strong>task &rarr; project &rarr; global &rarr; default_deny</strong>.
-        The first scope with a rule wins; anything unmatched is denied.
-      </div>
-
-      <div className="row" style={{ marginBottom: 14 }}>
-        <div className="field" style={{ minWidth: 160 }}>
-          <label htmlFor="scope">Scope</label>
-          <select
-            id="scope"
-            value={scope.scope}
-            onChange={(e) =>
-              onScope({ scope: e.target.value as ScopeSelection["scope"] })
-            }
-          >
-            <option value="global">global</option>
-            <option value="project">project</option>
-            <option value="task">task</option>
-          </select>
-        </div>
-        {scope.scope !== "global" ? (
-          <div className="field" style={{ minWidth: 220 }}>
-            <label htmlFor="project">Project</label>
-            <select
-              id="project"
-              value={scope.projectId ?? ""}
-              onChange={(e) => onScope({ ...scope, projectId: e.target.value })}
-            >
-              <option value="">select…</option>
-              {projects.map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name}</option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-        {scope.scope === "task" && project !== undefined ? (
-          <div className="field" style={{ minWidth: 260 }}>
-            <label htmlFor="task">Task</label>
-            <select
-              id="task"
-              value={scope.taskId ?? ""}
-              onChange={(e) => onScope({ ...scope, taskId: e.target.value })}
-            >
-              <option value="">select…</option>
-              {project.tasks.map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.description.slice(0, 48)} ({task.status})
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-      </div>
-
-      <table>
-        <thead>
-          <tr><th>Caller</th><th>Target</th><th>Effective</th><th>Decided by</th></tr>
-        </thead>
-        <tbody>
-          {edges.map((edge) => (
-            <tr key={`${edge.caller}-${edge.target}`}>
-              <td>{edge.caller}</td>
-              <td>{edge.target}</td>
-              <td>
-                {edge.immutable ? (
-                  <span className="badge" data-tone="bad">forbidden by role contract</span>
-                ) : (
-                  edge.decision
-                )}
-              </td>
-              <td className="muted">{edge.immutable ? "role contract" : edge.source}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
   );
 }
 
@@ -383,39 +313,6 @@ function ProjectsView({ projects }: { projects: ProjectModel[] }) {
               ))}
             </tbody>
           </table>
-        </section>
-      ))}
-    </>
-  );
-}
-
-function FilesView() {
-  const [documents, setDocuments] = useState<
-    { file: string; path: string; content: string | null }[]
-  >([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api
-      .configPreview()
-      .then((preview) => setDocuments(preview.documents))
-      .catch((cause: unknown) => setError(describe(cause)));
-  }, []);
-
-  if (error !== null) {
-    return <div className="notice" data-tone="bad">{error}</div>;
-  }
-  return (
-    <>
-      <div className="notice">
-        Read-only preview. These files stay the single configuration authority
-        and remain editable by hand outside this app.
-      </div>
-      {documents.map((document) => (
-        <section key={document.file} style={{ marginBottom: 18 }}>
-          <h2 style={{ fontSize: 14, marginBottom: 4 }}>{document.file}</h2>
-          <p className="muted" style={{ fontSize: 12 }}><code>{document.path}</code></p>
-          <pre>{document.content ?? "(not created yet)"}</pre>
         </section>
       ))}
     </>
