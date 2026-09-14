@@ -137,17 +137,18 @@ licence   Apache-2.0
 The name stays **unscoped**. This repository is the new Synaphex product; it is
 not a semantic continuation of anything that previously held the name.
 
-### Why 0.1.0 despite historical 1.x–3.x
+### Why 0.1.1 despite historical 1.x–3.x
 
 The npm name `synaphex` was previously used by the same maintainer for an
 unrelated product ("Project memory management for Claude Code"), reaching
 `3.2.0` across 36 versions. That package has since been **fully unpublished**
 (registry reports `Unpublished on 2026-09-05T09:35:17.872Z`).
 
-This product therefore starts at `0.1.0`. A Phase-7B registry snapshot recorded
-that no `0.x` version had ever existed — that is **historical evidence gathered
-before the unpublish**, and the now-absent registry entry cannot re-prove it.
-The actual first publish is the final authority.
+This product was initially prepared at `0.1.0`. A Phase-7B registry snapshot
+recorded that no `0.x` version had ever existed — that is **historical evidence
+gathered before the unpublish**, and the now-absent registry entry cannot
+re-prove it. The `synaphex@0.1.0` coordinate is now permanently unavailable, so
+this product starts at `0.1.1`.
 
 npm never permits reusing a previously published `name@version`, so no
 historical version may be selected. Nothing in the release tooling derives a

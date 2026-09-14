@@ -119,7 +119,7 @@ CODER additionally requires a **clean worktree** at invocation. Uncommitted chan
 | | |
 | --- | --- |
 | npm package | `synaphex` |
-| Version | 0.1.0 |
+| Version | 0.1.1 |
 | License | Apache-2.0 |
 | Shape | CLI and MCP application |
 | Node SDK | **None.** `exports` is closed |

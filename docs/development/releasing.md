@@ -144,7 +144,7 @@ Current state, from [ADR 0008](../architecture/0008-release.md): an unrelated hi
       against that exact tarball, prints its sha256 and SRI
 3. review the printed checksum and package contents
 4. publish that exact artifact from a maintainer-authenticated npm CLI:
-      npm publish ./release-candidate/synaphex-0.1.0.tgz
+      npm publish ./release-candidate/synaphex-0.1.1.tgz
    never `npm publish` from the checkout, which would repack
 5. the package now exists
 6. configure npm Trusted Publishing:

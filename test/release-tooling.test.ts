@@ -181,9 +181,9 @@ test("package identity is the unscoped name at the first version", async () => {
   // continuation of the unrelated package that formerly held this name.
   assert.equal(packageJson.name, "synaphex");
   assert.equal(packageJson.name.startsWith("@"), false, "must not be scoped");
-  assert.equal(packageJson.version, "0.1.0");
-  assert.equal(lockfile.version, "0.1.0");
-  assert.equal(lockfile.packages?.[""]?.version, "0.1.0");
+  assert.equal(packageJson.version, "0.1.1");
+  assert.equal(lockfile.version, "0.1.1");
+  assert.equal(lockfile.packages?.[""]?.version, "0.1.1");
   assert.equal(lockfile.name, "synaphex");
 
   // The user-facing CLI name is part of that identity.

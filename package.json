@@ -1,6 +1,6 @@
 {
   "name": "synaphex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Foundational project and session state for Synaphex",
   "repository": {
     "type": "git",
