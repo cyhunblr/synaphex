@@ -120,7 +120,7 @@ For maintainers and contributors.
 - [Repository structure](development/repository-structure.md) — where each responsibility lives
 - [Testing](development/testing.md) — gates, layers, and what to run when
 - [CI](development/ci.md) — jobs, matrices, and why Linux only
-- [Releasing](development/releasing.md) — exact-artifact publishing and Trusted Publishing
+- [Releasing](development/releasing.md) — branch promotion and exact-artifact npm test/latest channels
 - [Architecture decisions](development/architecture-decisions.md) — how to read the ADRs
 
 ## Architecture decision records
