@@ -2,13 +2,13 @@
 /**
  * Produces and validates ONE exact release candidate.
  *
- * Developer release tooling, not a `synaphex` runtime command. It exists so the
- * manual bootstrap publish follows the same exact-artifact rule as automated
- * CD: pack once, validate that file, publish that file.
+ * Release tooling, not a `synaphex` runtime command. It gives manual and
+ * automated release paths the same exact-artifact rule: pack once, validate
+ * that file, and make only that file eligible for publication.
  *
  * It deliberately CANNOT publish, tag, authenticate, read a credential, or
- * mutate anything on npm or GitHub. It prints what a human needs in order to
- * review the candidate and then run `npm publish <path>` themselves.
+ * mutate anything on npm or GitHub. It prints the identity a maintainer or
+ * workflow needs to review the candidate.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -18,6 +18,11 @@ import { tarballIntegrity, tarballSha256 } from "./release-preflight.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const OUT = join(REPO, "release-candidate");
+
+function arg(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
 
 function step(name, command, args) {
   process.stdout.write(`\n== ${name}\n`);
@@ -34,11 +39,16 @@ function step(name, command, args) {
 }
 
 const packageJson = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8"));
+const channel = arg("--channel") ?? "stable";
+if (channel !== "stable" && channel !== "test") {
+  process.stdout.write(`release:prepare failed: unsupported channel ${channel}\n`);
+  process.exit(1);
+}
 
 step("build", "npm", ["run", "build"]);
 
 // Packed exactly once. Everything below validates THIS file, and the maintainer
-// publishes THIS file -- re-packing later would ship unvalidated bytes.
+// releases THIS file -- re-packing later would ship unvalidated bytes.
 process.stdout.write("\n== pack (once)\n");
 mkdirSync(OUT, { recursive: true });
 const packed = spawnSync("npm", ["pack", "--silent", "--pack-destination", OUT], {
@@ -61,6 +71,8 @@ step("release preflight", process.execPath, [
   join(REPO, "scripts/release/release-preflight.mjs"),
   "--tarball",
   tarball,
+  "--channel",
+  channel,
 ]);
 
 step("packed-product validation", "npm", [
@@ -76,14 +88,13 @@ process.stdout.write(
     "",
     "== release candidate",
     `package    ${packageJson.name}@${packageJson.version}`,
+    `channel    ${channel}`,
     `tarball    ${tarball}`,
     `sha256     ${tarballSha256(tarball)}`,
     `integrity  ${tarballIntegrity(tarball)}`,
     "",
     "This script does not publish, tag or authenticate.",
-    "Review the checksum and contents, then publish that exact file yourself:",
-    "",
-    `  npm publish ${tarball}`,
+    "Only this exact reviewed file is eligible for a channel publish.",
     "",
   ].join("\n"),
 );
