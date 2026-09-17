@@ -373,6 +373,27 @@ test("the release workflow publishes only the exact validated tarball", async ()
   }
 });
 
+test("both channels publish the exact validated artifact through one absolute local path", async () => {
+  for (const [path, tag, verificationCount] of [
+    [NPM_TEST_WORKFLOW, "test", 1],
+    [RELEASE_WORKFLOW, "latest", 2],
+  ] as const) {
+    const publish = jobBlock(await workflow(path), "publish");
+    assert.match(publish, /- name: Resolve exact local artifact path/);
+    assert.match(publish, /local-artifact-path/);
+    assert.match(publish, /--workspace "\$GITHUB_WORKSPACE"/);
+    assert.match(publish, /--filename "\$ARTIFACT_FILENAME"/);
+    assert.equal(
+      (publish.match(/ARTIFACT: \$\{\{ steps\.artifact-path\.outputs\.path \}\}/g) ?? []).length,
+      verificationCount + 2,
+      "verification, registry preflight, publication, and any post-publish check must share one path",
+    );
+    assert.equal(publish.includes("ARTIFACT: release-candidate/"), false);
+    assert.match(publish, new RegExp(`npm publish "\\$ARTIFACT" --access public --tag ${tag}`));
+    assert.equal(/npm publish\s+\.(\s|$)/m.test(publish), false);
+  }
+});
+
 test("the release workflow never creates versions or tags", async () => {
   const release = await executableWorkflow(RELEASE_WORKFLOW);
   for (const forbidden of [

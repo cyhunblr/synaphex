@@ -8,7 +8,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const TEST_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-test\.([1-9]\d*)$/;
@@ -62,6 +62,21 @@ export function selectReleaseArtifact({ directory, name, version, entries }) {
     throw new Error(`release artifact does not exist: ${path}`);
   }
   return path;
+}
+
+export function localArtifactPath(workspace, artifactFilename) {
+  if (!isAbsolute(workspace)) {
+    throw new Error(`GitHub workspace must be an absolute path, received ${workspace}`);
+  }
+  if (
+    artifactFilename !== basename(artifactFilename)
+    || artifactFilename === "."
+    || artifactFilename === ".."
+    || !artifactFilename.endsWith(".tgz")
+  ) {
+    throw new Error(`artifact filename must be a basename ending in .tgz, received ${artifactFilename}`);
+  }
+  return join(resolve(workspace), "release-candidate", artifactFilename);
 }
 
 export function tarballPackageIdentity(path) {
@@ -171,6 +186,12 @@ function main() {
         name: required("--name"),
         version: required("--version"),
       })}\n`);
+      return;
+    case "local-artifact-path":
+      process.stdout.write(`${localArtifactPath(
+        required("--workspace"),
+        required("--filename"),
+      )}\n`);
       return;
     case "assert-tarball-package":
       process.stdout.write(`${JSON.stringify(assertTarballPackageIdentity(

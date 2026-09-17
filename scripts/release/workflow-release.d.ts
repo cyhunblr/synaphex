@@ -25,6 +25,7 @@ export function selectReleaseArtifact(input: {
   readonly version: string;
   readonly entries?: readonly string[];
 }): string;
+export function localArtifactPath(workspace: string, artifactFilename: string): string;
 export function tarballPackageIdentity(path: string): {
   readonly name: string;
   readonly version: string;
