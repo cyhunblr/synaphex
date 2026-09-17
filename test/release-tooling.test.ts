@@ -19,6 +19,7 @@ const registryModule = pathToFileURL(
 ).href;
 const RELEASE_WORKFLOW = join(REPO, ".github/workflows/release.yml");
 const CI_WORKFLOW = join(REPO, ".github/workflows/ci.yml");
+const NPM_TEST_WORKFLOW = join(REPO, ".github/workflows/npm-test.yml");
 
 async function workflow(path: string): Promise<string> {
   return readFile(path, "utf8");
@@ -81,7 +82,7 @@ test("package.json owns the version and the tag only confirms it", async () => {
   );
 });
 
-test("prerelease versions are refused while no dist-tag policy exists", async () => {
+test("stable releases reject prereleases while the test channel accepts its exact grammar", async () => {
   const { checkVersionContract } = await import(preflightModule);
   for (const version of ["0.2.0-beta.1", "1.0.0-rc.1", "1.0"]) {
     const problems = checkVersionContract({
@@ -94,6 +95,31 @@ test("prerelease versions are refused while no dist-tag policy exists", async ()
       `${version} must be refused`,
     );
   }
+  const prerelease = "0.2.0-test.145";
+  assert.deepEqual(
+    checkVersionContract({
+      packageJson: { name: "synaphex", version: prerelease },
+      lockfile: {
+        name: "synaphex",
+        version: prerelease,
+        packages: { "": { version: prerelease } },
+      },
+      channel: "test",
+    }),
+    [],
+  );
+  assert.match(
+    checkVersionContract({
+      packageJson: { name: "synaphex", version: "0.2.0-beta.1" },
+      lockfile: {
+        name: "synaphex",
+        version: "0.2.0-beta.1",
+        packages: { "": { version: "0.2.0-beta.1" } },
+      },
+      channel: "test",
+    }).join(" "),
+    /X\.Y\.Z-test\.N/,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -277,23 +303,22 @@ test("the derived integrity matches npm's dist.integrity format", async (t: Test
 // Workflow security audits
 // ---------------------------------------------------------------------------
 
-test("the release workflow uses no long-lived publish credential", async () => {
-  const release = await executableWorkflow(RELEASE_WORKFLOW);
-  for (const forbidden of [
-    "NPM_TOKEN",
-    "NODE_AUTH_TOKEN",
-    "npm_token",
-    "secrets.NPM",
-    "//registry.npmjs.org/:_authToken",
-  ]) {
+test("release workflows scope the bootstrap token to environment-gated publish jobs", async () => {
+  for (const [path, environment] of [
+    [RELEASE_WORKFLOW, "npm-release"],
+    [NPM_TEST_WORKFLOW, "npm-test"],
+  ] as const) {
+    const release = await executableWorkflow(path);
+    assert.match(release, new RegExp(`environment:\\s*${environment}`));
+    assert.match(release, /NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/);
     assert.equal(
-      release.includes(forbidden),
-      false,
-      `release workflow must not reference ${forbidden}`,
+      (release.match(/NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/g) ?? []).length,
+      2,
+      "the token is available only to npm identity and publish steps",
     );
+    assert.equal(release.includes("id-token: write"), false);
+    assert.equal(release.includes("_authToken"), false);
   }
-  // OIDC is the only publish credential.
-  assert.match(release, /id-token:\s*write/);
 });
 
 test("no workflow smuggles a publish credential into CI", async () => {
@@ -310,12 +335,15 @@ test("the release workflow publishes only the exact validated tarball", async ()
   // Never `npm publish .` or a bare publish from the checkout.
   assert.equal(/npm publish\s*(\.|--|$)/m.test(release), false);
   assert.equal(/npm publish\s+\.\s/.test(release), false);
-  assert.match(release, /npm publish "release-artifact\/[^"]*\.tgz"/);
-  // Packed exactly once, then validated by path.
-  assert.equal((release.match(/npm pack/g) ?? []).length, 1);
-  assert.match(release, /test:packed-product -- --tarball/);
-  // Integrity is re-checked before the irreversible step.
-  assert.match(release, /sha256sum --check SHA256SUMS/);
+  assert.match(release, /npm publish "\$ARTIFACT" --access public --tag latest/);
+  // The canonical helper owns the one pack and exact-artifact product gate.
+  assert.equal((release.match(/release:prepare/g) ?? []).length, 1);
+  assert.equal((release.match(/npm pack/g) ?? []).length, 0);
+  // All recorded hashes are checked before and after the irreversible step.
+  assert.equal((release.match(/verify-artifact/g) ?? []).length, 2);
+  for (const field of ["size", "sha256", "sha512", "integrity", "shasum"]) {
+    assert.match(release, new RegExp(`--${field}`));
+  }
 });
 
 test("the release workflow never creates versions or tags", async () => {
@@ -348,22 +376,42 @@ test("provenance is never disabled", async () => {
 test("registry mutation is gated behind a protected environment", async () => {
   const release = await workflow(RELEASE_WORKFLOW);
   assert.match(release, /environment:\s*npm-release/);
-  // The verify job must not hold OIDC or an environment.
-  const verifyBlock = release.slice(
-    release.indexOf("  verify:"),
+  // Preparation carries neither a credential nor an environment gate.
+  const prepareBlock = release.slice(
+    release.indexOf("  prepare:"),
     release.indexOf("  publish:"),
   );
-  assert.equal(verifyBlock.includes("id-token"), false);
-  assert.equal(verifyBlock.includes("environment:"), false);
+  assert.equal(prepareBlock.includes("NODE_AUTH_TOKEN"), false);
+  assert.equal(prepareBlock.includes("environment:"), false);
 });
 
-test("release runs only on a version tag, never on a main push", async () => {
+test("production release is manual and fails closed outside main", async () => {
   const release = await workflow(RELEASE_WORKFLOW);
-  assert.match(release, /tags:\s*\n\s*- "v\*\.\*\.\*"/);
-  // No branch trigger and no manual version input that could bypass the tag.
-  assert.equal(/on:[\s\S]*?branches:/.test(release.slice(0, release.indexOf("jobs:"))), false);
-  assert.equal(release.includes("workflow_dispatch"), false);
-  assert.equal(/inputs:/.test(release), false);
+  assert.match(release, /on:\s*\n\s*workflow_dispatch:/);
+  assert.match(release, /--actual "\$GITHUB_REF_NAME"[\s\S]*--expected main/);
+  assert.match(release, /--ref-type "\$GITHUB_REF_TYPE"/);
+  assert.equal(/push:\s*\n/.test(release.slice(0, release.indexOf("jobs:"))), false);
+  assert.equal(release.includes("git tag"), false);
+});
+
+test("test channel is manual, test-branch-only, and publishes a derived prerelease", async () => {
+  const release = await workflow(NPM_TEST_WORKFLOW);
+  assert.match(release, /on:\s*\n\s*workflow_dispatch:/);
+  assert.match(release, /--actual "\$GITHUB_REF_NAME"[\s\S]*--expected test/);
+  assert.match(release, /--ref-type "\$GITHUB_REF_TYPE"/);
+  assert.match(release, /derive-test-version/);
+  assert.match(release, /npm version "\$VERSION" --no-git-tag-version --ignore-scripts/);
+  assert.match(release, /release:prepare -- --channel test/);
+  assert.match(release, /npm publish "\$ARTIFACT" --access public --tag test/);
+  assert.equal(/push:\s*\n/.test(release.slice(0, release.indexOf("jobs:"))), false);
+});
+
+test("CI covers pull requests and pushes for dev, test, and main", async () => {
+  const ci = await workflow(CI_WORKFLOW);
+  assert.match(ci, /pull_request:\s*\n\s*branches: \[dev, test, main\]/);
+  assert.match(ci, /push:\s*\n\s*branches: \[dev, test, main\]/);
+  assert.match(ci, /Source validation \(Node \$\{\{ matrix\.node \}\}\)/);
+  assert.match(ci, /Packed product \(Node \$\{\{ matrix\.node \}\}\)/);
 });
 
 test("the release workflow invokes no provider or model command", async () => {

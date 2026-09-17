@@ -22,6 +22,7 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const CANONICAL_REPOSITORY = "github.com/cyhunblr/synaphex";
 /** Versions npm will never accept a publish for, whatever the tag says. */
 const STABLE_VERSION = /^\d+\.\d+\.\d+$/;
+const TEST_PRERELEASE_VERSION = /^\d+\.\d+\.\d+-test\.[1-9]\d*$/;
 
 function arg(name) {
   const index = process.argv.indexOf(name);
@@ -48,18 +49,22 @@ export function tarballSha256(path) {
  * Exported so the release tests can exercise the real rules against fixtures
  * rather than re-implementing them.
  */
-export function checkVersionContract({ packageJson, lockfile, tag }) {
+export function checkVersionContract({ packageJson, lockfile, tag, channel = "stable" }) {
   const problems = [];
   const version = packageJson.version;
   if (typeof version !== "string" || version.length === 0) {
     problems.push("package.json has no version");
     return problems;
   }
-  if (!STABLE_VERSION.test(version)) {
-    // Prerelease channels are deliberately deferred: shipping one would mean
-    // choosing a dist-tag policy that does not exist yet.
+  if (channel !== "stable" && channel !== "test") {
+    problems.push(`unsupported release channel: ${channel}`);
+  } else if (channel === "stable" && !STABLE_VERSION.test(version)) {
     problems.push(
-      `version ${version} is not a stable X.Y.Z release; prerelease channels are not supported yet`,
+      `version ${version} is not a stable X.Y.Z release`,
+    );
+  } else if (channel === "test" && !TEST_PRERELEASE_VERSION.test(version)) {
+    problems.push(
+      `version ${version} is not an X.Y.Z-test.N prerelease`,
     );
   }
   if (lockfile.version !== version) {
@@ -136,11 +141,12 @@ export function checkLicensePolicy(packageJson, licenseFileExists = undefined) {
 function main() {
   const tag = arg("--tag") ?? process.env.RELEASE_TAG;
   const tarball = arg("--tarball");
+  const channel = arg("--channel") ?? "stable";
   const packageJson = JSON.parse(readFileSync(resolve(REPO, "package.json"), "utf8"));
   const lockfile = JSON.parse(readFileSync(resolve(REPO, "package-lock.json"), "utf8"));
 
   const blocking = [
-    ...checkVersionContract({ packageJson, lockfile, tag }),
+    ...checkVersionContract({ packageJson, lockfile, tag, channel }),
     ...checkPublishMetadata(packageJson),
   ];
 
@@ -171,6 +177,7 @@ function main() {
   const policy = checkLicensePolicy(packageJson);
 
   process.stdout.write(`package        ${packageJson.name}@${packageJson.version}\n`);
+  process.stdout.write(`channel        ${channel}\n`);
   process.stdout.write(`tag            ${tag ?? "(none supplied)"}\n\n`);
 
   for (const problem of blocking) {

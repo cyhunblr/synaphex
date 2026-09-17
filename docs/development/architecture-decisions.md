@@ -34,7 +34,7 @@ Do not treat an ADR as stale merely because it is old. Check its status line fir
 | [0005](../architecture/0005-task-lifecycle.md) | Deterministic task lifecycle | Accepted (Phase 6A) | `active → completed → archived`; no reopen or unarchive |
 | [0006](../architecture/0006-installer.md) | Installer and provider MCP registration | Accepted (Phase 6B1) | Official provider commands only; never installs or authenticates providers |
 | [0007](../architecture/0007-mcp-host-surface-identity.md) | MCP host-surface identity | **Superseded** by 0009 | Historical: host identity as provider + surface |
-| [0008](../architecture/0008-release.md) | Release and CD | Accepted (Phase 7B; identity and licensing resolved in 7C) | Exact-artifact publishing, Trusted Publishing, bootstrap |
+| [0008](../architecture/0008-release.md) | Branch promotion and npm release channels | Accepted | `dev` → `test` → `main`, exact-artifact test/latest publishing, environment-gated token bootstrap |
 | [0009](../architecture/0009-mcp-host-provider-identity.md) | MCP host identity is provider-only | Accepted (Phase 8B) | Provider-only host context; removal of the silent `vscode → cli` downgrade |
 | [0010](../architecture/0010-package-and-config-surface.md) | Package surface and configuration lifecycle | Accepted (Phase 8C) | Closed `exports`; parse/validate/preserve/render config lifecycle |
 

@@ -1,0 +1,30 @@
+name: Promotion guard
+
+on:
+  pull_request:
+    branches: [test, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promotion-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  promotion-guard:
+    name: promotion-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enforce dev to test to main promotion
+        run: |
+          node scripts/ci/promotion-guard.mjs \
+            --head "$GITHUB_HEAD_REF" \
+            --base "$GITHUB_BASE_REF"
