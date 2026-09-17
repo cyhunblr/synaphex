@@ -5,6 +5,7 @@ import type { ProjectManager } from "../core/project-manager.js";
 import type { SessionManager } from "../core/session-manager.js";
 import type { TaskManager } from "../core/task-manager.js";
 import {
+  InvalidTaskTransitionError,
   NoTaskBoundError,
   PlanDraftPendingError,
   TaskHasPendingChangeSetError,
@@ -54,8 +55,7 @@ export interface TaskLifecycleDependencies {
     | "captureTaskOwnership"
     | "isTaskOwnershipCurrent"
     | "withTaskOwnershipAuthority"
-    | "findTaskOwner"
-    | "forceReleaseTaskClaim"
+    | "withTaskClaimReleased"
   >;
 }
 
@@ -182,39 +182,38 @@ export class TaskLifecycleCommands
     taskId: TaskId,
   ): Promise<TaskArchiveResult> {
     await this.dependencies.projects.get(projectId);
-    // Refuse an active task BEFORE touching any session state, so a failed
-    // archive never releases a live task claim as a side effect.
-    const task = await this.dependencies.tasks.get(projectId, taskId);
-    if (task.status !== "completed") {
-      // Core owns the transition rule and its error identity.
-      return this.finalizeArchive(projectId, taskId, false);
-    }
-
-    // Discovered, never supplied. A completed task cannot be reclaimed as a
-    // new active task under the accepted lifecycle, so releasing before
-    // archiving cannot admit competing active work.
-    const owner = await this.dependencies.sessions.findTaskOwner(taskId);
-    let releasedTaskSession = false;
-    if (owner !== null) {
-      const release = await this.dependencies.sessions.forceReleaseTaskClaim(
-        taskId,
-      );
-      releasedTaskSession = release.released;
-    }
-    return this.finalizeArchive(projectId, taskId, releasedTaskSession);
+    const transaction = await this.dependencies.sessions.withTaskClaimReleased(
+      taskId,
+      async () => {
+        // Validate while holding the same task-binding lock used by completion.
+        // A refused archive therefore cannot release a live task claim, and a
+        // concurrent completion cannot slip between validation and release.
+        const task = await this.dependencies.tasks.get(projectId, taskId);
+        if (task.status !== "completed") {
+          throw new InvalidTaskTransitionError(
+            task.id,
+            task.status,
+            "archived",
+          );
+        }
+      },
+      () => this.dependencies.tasks.archive(projectId, taskId),
+    );
+    return this.toArchiveResult(
+      transaction.value,
+      transaction.release.released,
+    );
   }
 
-  private async finalizeArchive(
-    projectId: ProjectId,
-    taskId: TaskId,
+  private toArchiveResult(
+    archived: Task,
     releasedTaskSession: boolean,
-  ): Promise<TaskArchiveResult> {
-    // Preserves plans, artifacts, change sets, receipts and memory: the task
-    // directory is MOVED into the archive collection, never pruned.
-    const archived = await this.dependencies.tasks.archive(projectId, taskId);
+  ): TaskArchiveResult {
+    // TaskManager preserves plans, artifacts, change sets, receipts and memory:
+    // the task directory is moved into the archive collection, never pruned.
     return {
-      projectId,
-      taskId,
+      projectId: archived.projectId,
+      taskId: archived.id,
       status: archived.status,
       completedAt: archived.completedAt,
       archivedAt: archived.archivedAt,
