@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   appendFileSync,
@@ -7,7 +8,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const TEST_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-test\.([1-9]\d*)$/;
@@ -61,6 +62,56 @@ export function selectReleaseArtifact({ directory, name, version, entries }) {
     throw new Error(`release artifact does not exist: ${path}`);
   }
   return path;
+}
+
+export function localArtifactPath(workspace, artifactFilename) {
+  if (!isAbsolute(workspace)) {
+    throw new Error(`GitHub workspace must be an absolute path, received ${workspace}`);
+  }
+  if (
+    artifactFilename !== basename(artifactFilename)
+    || artifactFilename === "."
+    || artifactFilename === ".."
+    || !artifactFilename.endsWith(".tgz")
+  ) {
+    throw new Error(`artifact filename must be a basename ending in .tgz, received ${artifactFilename}`);
+  }
+  return join(resolve(workspace), "release-candidate", artifactFilename);
+}
+
+export function tarballPackageIdentity(path) {
+  const resolved = resolve(path);
+  const extracted = spawnSync(
+    "tar",
+    ["-xOf", resolved, "package/package.json"],
+    { encoding: "utf8", shell: false },
+  );
+  if (extracted.status !== 0) {
+    const detail = (extracted.stderr ?? "").trim().slice(0, 200);
+    throw new Error(
+      `cannot read package/package.json from ${basename(resolved)}${detail ? `: ${detail}` : ""}`,
+    );
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(extracted.stdout ?? "");
+  } catch {
+    throw new Error(`invalid package/package.json in ${basename(resolved)}`);
+  }
+  if (typeof manifest.name !== "string" || typeof manifest.version !== "string") {
+    throw new Error(`missing package identity in ${basename(resolved)}`);
+  }
+  return { name: manifest.name, version: manifest.version };
+}
+
+export function assertTarballPackageIdentity(path, expected) {
+  const actual = tarballPackageIdentity(path);
+  if (actual.name !== expected.name || actual.version !== expected.version) {
+    throw new Error(
+      `tarball package mismatch: actual=${actual.name}@${actual.version} expected=${expected.name}@${expected.version}`,
+    );
+  }
+  return actual;
 }
 
 export function artifactIdentity(path, metadata = {}) {
@@ -135,6 +186,18 @@ function main() {
         name: required("--name"),
         version: required("--version"),
       })}\n`);
+      return;
+    case "local-artifact-path":
+      process.stdout.write(`${localArtifactPath(
+        required("--workspace"),
+        required("--filename"),
+      )}\n`);
+      return;
+    case "assert-tarball-package":
+      process.stdout.write(`${JSON.stringify(assertTarballPackageIdentity(
+        required("--path"),
+        { name: required("--name"), version: required("--version") },
+      ))}\n`);
       return;
     case "artifact-identity": {
       const identity = artifactIdentity(required("--path"), {

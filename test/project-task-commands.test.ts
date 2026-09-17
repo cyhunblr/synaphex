@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -163,21 +163,32 @@ test("task identity carries no provider, model or transport information", async 
   const f = await createFixture(t);
   const project = await f.commands.registerProject("Demo", f.sourcePath);
   const task = await f.commands.createTask(project.id, "Provider neutral");
-  const serialized = JSON.stringify(task).toLowerCase();
+  assert.match(task.id, /^task_[0-9a-f]{32}$/);
+
+  const source = await readFile(
+    join(process.cwd(), "src", "core", "task-manager.ts"),
+    "utf8",
+  );
+  const construction = source.match(
+    /id: `task_\$\{randomUUID\(\)\.replaceAll\("-", ""\)\}`/,
+  )?.[0];
+  assert.ok(construction, "task id construction must remain explicit and inspectable");
   for (const forbidden of [
-    "claude",
-    "codex",
-    "anthropic",
-    "openai",
-    "google",
-    "antigravity",
+    "process",
+    "provider",
     "model",
-    "conversation",
-    "mcp",
+    "transport",
     "host",
-    String(process.pid),
+    "client",
+    "conversation",
+    "thread",
+    "session",
   ]) {
-    assert.equal(serialized.includes(forbidden), false, `leaks ${forbidden}`);
+    assert.equal(
+      construction.toLowerCase().includes(forbidden),
+      false,
+      `task id construction must not use ${forbidden} identity`,
+    );
   }
 });
 

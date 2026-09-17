@@ -39,6 +39,32 @@ async function executableWorkflow(path: string): Promise<string> {
     .join("\n");
 }
 
+function jobBlock(source: string, jobId: string): string {
+  const marker = `\n  ${jobId}:\n`;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, `workflow must define job ${jobId}`);
+  const bodyStart = start + marker.length;
+  const remainder = source.slice(bodyStart);
+  const nextJob = remainder.search(/^  [A-Za-z0-9_-]+:\s*$/m);
+  return nextJob === -1 ? remainder : remainder.slice(0, nextJob);
+}
+
+function namedSteps(job: string): readonly string[] {
+  return [...job.matchAll(/^      - name: (.+)$/gm)].map((match) => match[1]!);
+}
+
+function assertOrderedSubsequence(
+  actual: readonly string[],
+  expected: readonly string[],
+): void {
+  let previous = -1;
+  for (const step of expected) {
+    const index = actual.indexOf(step);
+    assert.ok(index > previous, `${step} must appear in canonical order`);
+    previous = index;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Version and tag authority
 // ---------------------------------------------------------------------------
@@ -338,11 +364,33 @@ test("the release workflow publishes only the exact validated tarball", async ()
   assert.match(release, /npm publish "\$ARTIFACT" --access public --tag latest/);
   // The canonical helper owns the one pack and exact-artifact product gate.
   assert.equal((release.match(/release:prepare/g) ?? []).length, 1);
-  assert.equal((release.match(/npm pack/g) ?? []).length, 0);
+  assert.equal((release.match(/npm pack --dry-run/g) ?? []).length, 1);
+  assert.equal(release.replace("npm pack --dry-run", "").includes("npm pack"), false);
   // All recorded hashes are checked before and after the irreversible step.
   assert.equal((release.match(/verify-artifact/g) ?? []).length, 2);
   for (const field of ["size", "sha256", "sha512", "integrity", "shasum"]) {
     assert.match(release, new RegExp(`--${field}`));
+  }
+});
+
+test("both channels publish the exact validated artifact through one absolute local path", async () => {
+  for (const [path, tag, verificationCount] of [
+    [NPM_TEST_WORKFLOW, "test", 1],
+    [RELEASE_WORKFLOW, "latest", 2],
+  ] as const) {
+    const publish = jobBlock(await workflow(path), "publish");
+    assert.match(publish, /- name: Resolve exact local artifact path/);
+    assert.match(publish, /local-artifact-path/);
+    assert.match(publish, /--workspace "\$GITHUB_WORKSPACE"/);
+    assert.match(publish, /--filename "\$ARTIFACT_FILENAME"/);
+    assert.equal(
+      (publish.match(/ARTIFACT: \$\{\{ steps\.artifact-path\.outputs\.path \}\}/g) ?? []).length,
+      verificationCount + 2,
+      "verification, registry preflight, publication, and any post-publish check must share one path",
+    );
+    assert.equal(publish.includes("ARTIFACT: release-candidate/"), false);
+    assert.match(publish, new RegExp(`npm publish "\\$ARTIFACT" --access public --tag ${tag}`));
+    assert.equal(/npm publish\s+\.(\s|$)/m.test(publish), false);
   }
 });
 
@@ -402,8 +450,49 @@ test("test channel is manual, test-branch-only, and publishes a derived prerelea
   assert.match(release, /derive-test-version/);
   assert.match(release, /npm version "\$VERSION" --no-git-tag-version --ignore-scripts/);
   assert.match(release, /release:prepare -- --channel test/);
+  assert.match(release, /assert-tarball-package/);
+  assert.match(release, /test "\$VERSION" = "\$\{\{ steps\.prerelease\.outputs\.version \}\}"/);
   assert.match(release, /npm publish "\$ARTIFACT" --access public --tag test/);
   assert.equal(/push:\s*\n/.test(release.slice(0, release.indexOf("jobs:"))), false);
+});
+
+test("test prerelease mutation follows the complete pristine source-validation contract", async () => {
+  const ci = await workflow(CI_WORKFLOW);
+  const testRelease = await workflow(NPM_TEST_WORKFLOW);
+  const canonicalSourceSteps = namedSteps(jobBlock(ci, "source-validation"));
+  assert.deepEqual(canonicalSourceSteps, [
+    "Install dependencies",
+    "Typecheck",
+    "Build",
+    "Test",
+    "MCP stdio protocol tests",
+    "Whitespace check",
+    "Package dry run",
+  ]);
+
+  const testSteps = namedSteps(jobBlock(testRelease, "prepare"));
+  assertOrderedSubsequence(testSteps, canonicalSourceSteps);
+  const mutation = testSteps.indexOf("Derive ephemeral test prerelease");
+  assert.ok(mutation > testSteps.indexOf("Package dry run"));
+  assert.ok(testSteps.indexOf("Build") < testSteps.indexOf("Test"));
+  assert.ok(testSteps.indexOf("Build") < testSteps.indexOf("MCP stdio protocol tests"));
+  assertOrderedSubsequence(testSteps, [
+    "Derive ephemeral test prerelease",
+    "Verify only package metadata changed",
+    "Prepare and validate exact test artifact",
+    "Record artifact identity",
+    "Confirm prerelease coordinate is unused",
+    "Upload exact test artifact",
+  ]);
+});
+
+test("production runs the same build-before-test source validation without mutating its version", async () => {
+  const ci = await workflow(CI_WORKFLOW);
+  const production = await workflow(RELEASE_WORKFLOW);
+  const canonicalSourceSteps = namedSteps(jobBlock(ci, "source-validation"));
+  const productionPrepare = jobBlock(production, "prepare");
+  assertOrderedSubsequence(namedSteps(productionPrepare), canonicalSourceSteps);
+  assert.equal(productionPrepare.includes("npm version"), false);
 });
 
 test("CI covers pull requests and pushes for dev, test, and main", async () => {

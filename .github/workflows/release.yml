@@ -58,11 +58,20 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Build
+        run: npm run build
+
       - name: Test
         run: npm test
 
       - name: MCP stdio protocol tests
         run: npm run test:mcp-stdio
+
+      - name: Whitespace check
+        run: git diff --check
+
+      - name: Package dry run
+        run: npm pack --dry-run
 
       - name: Prepare and validate exact artifact
         run: npm run release:prepare
@@ -134,9 +143,19 @@ jobs:
           name: ${{ needs.prepare.outputs.upload_name }}
           path: release-candidate
 
+      - name: Resolve exact local artifact path
+        id: artifact-path
+        env:
+          ARTIFACT_FILENAME: ${{ needs.prepare.outputs.artifact_filename }}
+        run: |
+          ARTIFACT_PATH=$(node scripts/release/workflow-release.mjs local-artifact-path \
+            --workspace "$GITHUB_WORKSPACE" \
+            --filename "$ARTIFACT_FILENAME")
+          echo "path=$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+
       - name: Verify downloaded artifact identity
         env:
-          ARTIFACT: release-candidate/${{ needs.prepare.outputs.artifact_filename }}
+          ARTIFACT: ${{ steps.artifact-path.outputs.path }}
         run: |
           node scripts/release/workflow-release.mjs verify-artifact \
             --path "$ARTIFACT" \
@@ -153,7 +172,7 @@ jobs:
 
       - name: Re-check coordinate is unused
         env:
-          ARTIFACT: release-candidate/${{ needs.prepare.outputs.artifact_filename }}
+          ARTIFACT: ${{ steps.artifact-path.outputs.path }}
         run: |
           node scripts/release/registry-state.mjs \
             --name "${{ needs.prepare.outputs.name }}" \
@@ -162,13 +181,13 @@ jobs:
 
       - name: Publish exact artifact to latest
         env:
-          ARTIFACT: release-candidate/${{ needs.prepare.outputs.artifact_filename }}
+          ARTIFACT: ${{ steps.artifact-path.outputs.path }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish "$ARTIFACT" --access public --tag latest
 
       - name: Verify artifact remained byte-identical
         env:
-          ARTIFACT: release-candidate/${{ needs.prepare.outputs.artifact_filename }}
+          ARTIFACT: ${{ steps.artifact-path.outputs.path }}
         run: |
           node scripts/release/workflow-release.mjs verify-artifact \
             --path "$ARTIFACT" \

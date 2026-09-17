@@ -110,13 +110,23 @@ test("the revision id is independent of content and of identifying state", async
   // A content hash exists for integrity, but is NOT the revision identity.
   assert.match(metadata.contentHash, /^[0-9a-f]{64}$/);
   assert.notEqual(metadata.revisionId, metadata.contentHash);
-  for (const forbidden of [
-    f.task.id,
-    f.project.id,
-    String(process.pid),
-    metadata.contentHash,
-  ]) {
-    assert.equal(draft.revisionId.includes(forbidden), false);
+  assert.match(draft.revisionId, /^planrev_[0-9a-f]{32}$/);
+
+  const source = await readFile(
+    join(process.cwd(), "src", "core", "plan-manager.ts"),
+    "utf8",
+  );
+  const factory = source.match(
+    /function generateDraftRevisionId\(\): PlanDraftRevisionId \{[\s\S]*?\n\}/,
+  )?.[0];
+  assert.ok(factory, "plan revision factory must remain explicit and inspectable");
+  assert.match(factory, /randomBytes\(16\)\.toString\("hex"\)/);
+  for (const forbidden of ["process", "provider", "session", "task", "project", "content", "hash"]) {
+    assert.equal(
+      factory.toLowerCase().includes(forbidden),
+      false,
+      `plan revision construction must not use ${forbidden} identity`,
+    );
   }
 });
 
