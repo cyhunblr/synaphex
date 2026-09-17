@@ -1,4 +1,4 @@
-name: npm production release
+name: npm test channel
 
 on:
   workflow_dispatch:
@@ -7,12 +7,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: npm-release-${{ github.ref }}
+  group: npm-test-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   prepare:
-    name: Prepare production artifact
+    name: Prepare test prerelease artifact
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -35,25 +35,34 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Require main
+      - name: Require test
         run: |
           node scripts/release/workflow-release.mjs assert-branch \
             --actual "$GITHUB_REF_NAME" \
-            --expected main \
+            --expected test \
             --ref-type "$GITHUB_REF_TYPE"
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify pristine checkout and stable package identity
+      - name: Derive ephemeral test prerelease
+        id: prerelease
         run: |
           set -euo pipefail
-          git diff --exit-code
-          git diff --cached --exit-code
-          NAME=$(node -p "require('./package.json').name")
-          VERSION=$(node -p "require('./package.json').version")
-          test "$NAME" = synaphex
-          node scripts/release/workflow-release.mjs assert-stable --version "$VERSION"
+          STABLE_VERSION=$(node -p "require('./package.json').version")
+          VERSION=$(node scripts/release/workflow-release.mjs derive-test-version \
+            --stable "$STABLE_VERSION" \
+            --run-number "$GITHUB_RUN_NUMBER")
+          npm version "$VERSION" --no-git-tag-version --ignore-scripts
+          test "$(node -p "require('./package.json').version")" = "$VERSION"
+          node scripts/release/workflow-release.mjs assert-test-version --version "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify only package metadata changed
+        run: |
+          set -euo pipefail
+          test -z "$(git diff --cached --name-only)"
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "package-lock.json package.json "
 
       - name: Typecheck
         run: npm run typecheck
@@ -64,8 +73,8 @@ jobs:
       - name: MCP stdio protocol tests
         run: npm run test:mcp-stdio
 
-      - name: Prepare and validate exact artifact
-        run: npm run release:prepare
+      - name: Prepare and validate exact test artifact
+        run: npm run release:prepare -- --channel test
 
       - name: Record artifact identity
         id: identity
@@ -73,6 +82,8 @@ jobs:
           set -euo pipefail
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
+          test "$NAME" = synaphex
+          test "$VERSION" = "${{ steps.prerelease.outputs.version }}"
           ARTIFACT=$(node scripts/release/workflow-release.mjs artifact-path \
             --directory release-candidate \
             --name "$NAME" \
@@ -84,7 +95,7 @@ jobs:
             --git-sha "$GITHUB_SHA" \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Confirm coordinate is unused
+      - name: Confirm prerelease coordinate is unused
         run: |
           node scripts/release/registry-state.mjs \
             --name "${{ steps.identity.outputs.name }}" \
@@ -93,22 +104,22 @@ jobs:
 
       - name: Name uploaded artifact
         id: upload-name
-        run: echo "value=npm-release-${{ steps.identity.outputs.version }}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+        run: echo "value=npm-test-${{ steps.identity.outputs.version }}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload exact release artifact
+      - name: Upload exact test artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.upload-name.outputs.value }}
           path: ${{ steps.identity.outputs.artifact_path }}
-          retention-days: 30
+          retention-days: 14
           if-no-files-found: error
 
   publish:
-    name: Publish npm latest
+    name: Publish npm test
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: npm-release
+    environment: npm-test
     permissions:
       contents: read
     steps:
@@ -121,14 +132,14 @@ jobs:
           node-version: "22"
           registry-url: https://registry.npmjs.org
 
-      - name: Require main
+      - name: Require test
         run: |
           node scripts/release/workflow-release.mjs assert-branch \
             --actual "$GITHUB_REF_NAME" \
-            --expected main \
+            --expected test \
             --ref-type "$GITHUB_REF_TYPE"
 
-      - name: Download exact release artifact
+      - name: Download exact test artifact
         uses: actions/download-artifact@v4
         with:
           name: ${{ needs.prepare.outputs.upload_name }}
@@ -151,7 +162,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm whoami --registry=https://registry.npmjs.org/
 
-      - name: Re-check coordinate is unused
+      - name: Re-check prerelease coordinate is unused
         env:
           ARTIFACT: release-candidate/${{ needs.prepare.outputs.artifact_filename }}
         run: |
@@ -160,20 +171,8 @@ jobs:
             --version "${{ needs.prepare.outputs.version }}" \
             --tarball "$ARTIFACT"
 
-      - name: Publish exact artifact to latest
+      - name: Publish exact artifact to test
         env:
           ARTIFACT: release-candidate/${{ needs.prepare.outputs.artifact_filename }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish "$ARTIFACT" --access public --tag latest
-
-      - name: Verify artifact remained byte-identical
-        env:
-          ARTIFACT: release-candidate/${{ needs.prepare.outputs.artifact_filename }}
-        run: |
-          node scripts/release/workflow-release.mjs verify-artifact \
-            --path "$ARTIFACT" \
-            --size "${{ needs.prepare.outputs.size }}" \
-            --sha256 "${{ needs.prepare.outputs.sha256 }}" \
-            --sha512 "${{ needs.prepare.outputs.sha512 }}" \
-            --integrity "${{ needs.prepare.outputs.integrity }}" \
-            --shasum "${{ needs.prepare.outputs.shasum }}"
+        run: npm publish "$ARTIFACT" --access public --tag test

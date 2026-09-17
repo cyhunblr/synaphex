@@ -6,6 +6,7 @@ export declare function checkVersionContract(input: {
   packageJson: Record<string, unknown>;
   lockfile: Record<string, unknown>;
   tag?: string | undefined;
+  channel?: "stable" | "test" | undefined;
 }): string[];
 export declare function checkPublishMetadata(
   packageJson: Record<string, unknown>,
