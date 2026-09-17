@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -64,6 +65,40 @@ test("artifact selection requires the one exact name and version", async () => {
       entries: ["synaphex-0.1.2-test.4.tgz", "stale.tgz"],
     }),
     /expected exactly/,
+  );
+});
+
+test("tarball package identity must match the derived release coordinate", async (t: TestContext) => {
+  const { assertTarballPackageIdentity } = await import(helperModule);
+  const directory = await mkdtemp(join(tmpdir(), "synaphex-tarball-identity-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const packageDirectory = join(directory, "package");
+  await mkdir(packageDirectory);
+  await writeFile(
+    join(packageDirectory, "package.json"),
+    JSON.stringify({ name: "synaphex", version: "0.1.2-test.145" }),
+  );
+  const tarball = join(directory, "synaphex-0.1.2-test.145.tgz");
+  const packed = spawnSync(
+    "tar",
+    ["-czf", tarball, "-C", directory, "package"],
+    { encoding: "utf8", shell: false },
+  );
+  assert.equal(packed.status, 0, packed.stderr);
+
+  assert.deepEqual(
+    assertTarballPackageIdentity(tarball, {
+      name: "synaphex",
+      version: "0.1.2-test.145",
+    }),
+    { name: "synaphex", version: "0.1.2-test.145" },
+  );
+  assert.throws(
+    () => assertTarballPackageIdentity(tarball, {
+      name: "synaphex",
+      version: "0.1.2-test.146",
+    }),
+    /actual=synaphex@0\.1\.2-test\.145 expected=synaphex@0\.1\.2-test\.146/,
   );
 });
 
