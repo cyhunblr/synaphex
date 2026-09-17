@@ -68,6 +68,31 @@ test("artifact selection requires the one exact name and version", async () => {
   );
 });
 
+test("publication artifact paths are absolute local paths to basename-only tarballs", async () => {
+  const { localArtifactPath } = await import(helperModule);
+  assert.equal(
+    localArtifactPath("/github/workspace", "synaphex-0.1.2-test.4.tgz"),
+    "/github/workspace/release-candidate/synaphex-0.1.2-test.4.tgz",
+  );
+
+  for (const unsafe of [
+    "release-candidate/synaphex-0.1.2-test.4.tgz",
+    "owner/repository",
+    "git+ssh://git@github.com/owner/repository.git",
+    "synaphex",
+    ".",
+  ]) {
+    assert.throws(
+      () => localArtifactPath("/github/workspace", unsafe),
+      /basename ending in \.tgz/,
+    );
+  }
+  assert.throws(
+    () => localArtifactPath("github/workspace", "synaphex-0.1.2-test.4.tgz"),
+    /workspace must be an absolute path/,
+  );
+});
+
 test("tarball package identity must match the derived release coordinate", async (t: TestContext) => {
   const { assertTarballPackageIdentity } = await import(helperModule);
   const directory = await mkdtemp(join(tmpdir(), "synaphex-tarball-identity-"));
