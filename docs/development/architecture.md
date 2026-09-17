@@ -177,10 +177,10 @@ The ordering inside `publish` is deliberate: patch bytes first, then metadata. A
 
 ## Locks
 
-Four domains use `RecoverableProcessLock`:
+Five domains use `RecoverableProcessLock`:
 
 ```text
-task binding · memory · plan · source mutation
+task binding · task lifecycle · memory · plan · source mutation
 ```
 
 Design properties:

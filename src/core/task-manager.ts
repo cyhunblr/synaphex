@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   AmbiguousTaskReferenceError,
   InvalidTaskDescriptionError,
@@ -7,6 +7,7 @@ import {
 } from "../domain/errors.js";
 import type { ProjectId } from "../domain/project.js";
 import type { Task, TaskId, TaskStatus } from "../domain/task.js";
+import { RecoverableProcessLock } from "../infrastructure/recoverable-process-lock.js";
 import { StateStore } from "../infrastructure/state-store.js";
 import { ProjectManager } from "./project-manager.js";
 import { projectStateDirectory } from "./project-state-path.js";
@@ -22,12 +23,17 @@ interface StoredTask {
 }
 
 export class TaskManager {
+  private readonly lock: RecoverableProcessLock;
+
   constructor(
     private readonly stateStore: StateStore,
     private readonly projectManager: ProjectManager,
     private readonly namingService: TaskNamingService =
       new DeterministicTaskNamingService(),
-  ) {}
+    lock?: RecoverableProcessLock,
+  ) {
+    this.lock = lock ?? new RecoverableProcessLock(stateStore);
+  }
 
   async create(projectId: ProjectId, description: string): Promise<Task> {
     const normalizedDescription = normalizeTaskDescription(description);
@@ -128,54 +134,72 @@ export class TaskManager {
     projectId: ProjectId,
     taskReference: string,
   ): Promise<Task> {
-    const storedTask = await this.resolveStored(projectId, taskReference);
-    if (storedTask.task.status !== "active") {
-      throw new InvalidTaskTransitionError(
-        storedTask.task.id,
-        storedTask.task.status,
-        "completed",
-      );
-    }
+    const resolvedTaskId = (await this.resolveStored(projectId, taskReference)).task.id;
+    return this.withLifecycleLock(resolvedTaskId, async () => {
+      const storedTask = await this.resolveStored(projectId, resolvedTaskId);
+      if (storedTask.task.status !== "active") {
+        throw new InvalidTaskTransitionError(
+          storedTask.task.id,
+          storedTask.task.status,
+          "completed",
+        );
+      }
 
-    const completedTask: Task = {
-      ...storedTask.task,
-      status: "completed",
-      completedAt: new Date().toISOString(),
-    };
-    await this.stateStore.writeJson(
-      `${storedTask.relativeDirectory}/task.jsonc`,
-      completedTask,
-    );
-    return completedTask;
+      const completedTask: Task = {
+        ...storedTask.task,
+        status: "completed",
+        completedAt: new Date().toISOString(),
+      };
+      await this.stateStore.writeJson(
+        `${storedTask.relativeDirectory}/task.jsonc`,
+        completedTask,
+      );
+      return completedTask;
+    });
   }
 
   async archive(projectId: ProjectId, taskReference: string): Promise<Task> {
-    const project = await this.projectManager.get(projectId);
-    const storedTask = await this.resolveStored(projectId, taskReference);
-    if (storedTask.task.status !== "completed") {
-      throw new InvalidTaskTransitionError(
-        storedTask.task.id,
-        storedTask.task.status,
-        "archived",
+    const resolvedTaskId = (await this.resolveStored(projectId, taskReference)).task.id;
+    return this.withLifecycleLock(resolvedTaskId, async () => {
+      const project = await this.projectManager.get(projectId);
+      const storedTask = await this.resolveStored(projectId, resolvedTaskId);
+      if (storedTask.task.status !== "completed") {
+        throw new InvalidTaskTransitionError(
+          storedTask.task.id,
+          storedTask.task.status,
+          "archived",
+        );
+      }
+
+      const archivedTask: Task = {
+        ...storedTask.task,
+        status: "archived",
+        archivedAt: new Date().toISOString(),
+      };
+      await this.stateStore.writeJson(
+        `${storedTask.relativeDirectory}/task.jsonc`,
+        archivedTask,
       );
-    }
 
-    const archivedTask: Task = {
-      ...storedTask.task,
-      status: "archived",
-      archivedAt: new Date().toISOString(),
-    };
-    await this.stateStore.writeJson(
-      `${storedTask.relativeDirectory}/task.jsonc`,
-      archivedTask,
-    );
+      const destinationDirectory = `${projectStateDirectory(project)}/tasks/archive/${taskStateDirectoryName(archivedTask)}`;
+      await this.stateStore.move(
+        storedTask.relativeDirectory,
+        destinationDirectory,
+      );
+      return archivedTask;
+    });
+  }
 
-    const destinationDirectory = `${projectStateDirectory(project)}/tasks/archive/${taskStateDirectoryName(archivedTask)}`;
-    await this.stateStore.move(
-      storedTask.relativeDirectory,
-      destinationDirectory,
+  /** Serializes each task's complete/archive read-check-write boundary. */
+  private async withLifecycleLock<T>(
+    taskId: TaskId,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const safeTaskId = createHash("sha256").update(taskId).digest("hex");
+    return this.lock.withLock(
+      `state/task-lifecycle/${safeTaskId}.lock.json`,
+      operation,
     );
-    return archivedTask;
   }
 
   private async resolveStored(

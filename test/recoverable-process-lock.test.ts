@@ -727,6 +727,7 @@ test("every lock domain routes through the one shared primitive", async () => {
     "src/core/memory-manager.ts",
     "src/core/plan-manager.ts",
     "src/core/change-set-apply-manager.ts",
+    "src/core/task-manager.ts",
   ];
   for (const path of domains) {
     const raw = await read(join(process.cwd(), path), "utf8");
