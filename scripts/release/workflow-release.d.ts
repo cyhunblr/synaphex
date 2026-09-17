@@ -25,6 +25,14 @@ export function selectReleaseArtifact(input: {
   readonly version: string;
   readonly entries?: readonly string[];
 }): string;
+export function tarballPackageIdentity(path: string): {
+  readonly name: string;
+  readonly version: string;
+};
+export function assertTarballPackageIdentity(
+  path: string,
+  expected: { readonly name: string; readonly version: string },
+): { readonly name: string; readonly version: string };
 export function artifactIdentity(
   path: string,
   metadata?: { readonly name?: string; readonly version?: string; readonly gitSha?: string },

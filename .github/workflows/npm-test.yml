@@ -35,6 +35,9 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Require test
         run: |
           node scripts/release/workflow-release.mjs assert-branch \
@@ -42,8 +45,33 @@ jobs:
             --expected test \
             --ref-type "$GITHUB_REF_TYPE"
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Verify pristine source metadata
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          git diff --cached --exit-code
+          NAME=$(node -p "require('./package.json').name")
+          STABLE_VERSION=$(node -p "require('./package.json').version")
+          test "$NAME" = synaphex
+          node scripts/release/workflow-release.mjs assert-stable --version "$STABLE_VERSION"
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: MCP stdio protocol tests
+        run: npm run test:mcp-stdio
+
+      - name: Whitespace check
+        run: git diff --check
+
+      - name: Package dry run
+        run: npm pack --dry-run
 
       - name: Derive ephemeral test prerelease
         id: prerelease
@@ -64,15 +92,6 @@ jobs:
           test -z "$(git diff --cached --name-only)"
           test "$(git diff --name-only | sort | tr '\n' ' ')" = "package-lock.json package.json "
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test
-        run: npm test
-
-      - name: MCP stdio protocol tests
-        run: npm run test:mcp-stdio
-
       - name: Prepare and validate exact test artifact
         run: npm run release:prepare -- --channel test
 
@@ -88,6 +107,10 @@ jobs:
             --directory release-candidate \
             --name "$NAME" \
             --version "$VERSION")
+          node scripts/release/workflow-release.mjs assert-tarball-package \
+            --path "$ARTIFACT" \
+            --name "$NAME" \
+            --version "$VERSION"
           node scripts/release/workflow-release.mjs artifact-identity \
             --path "$ARTIFACT" \
             --name "$NAME" \

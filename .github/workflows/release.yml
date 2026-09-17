@@ -58,11 +58,20 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Build
+        run: npm run build
+
       - name: Test
         run: npm test
 
       - name: MCP stdio protocol tests
         run: npm run test:mcp-stdio
+
+      - name: Whitespace check
+        run: git diff --check
+
+      - name: Package dry run
+        run: npm pack --dry-run
 
       - name: Prepare and validate exact artifact
         run: npm run release:prepare
