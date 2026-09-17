@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import type {
   ActionClassification,
@@ -222,31 +224,47 @@ function harness(capacity?: number): Harness {
 // Store: issuance, capacity, host binding
 // ---------------------------------------------------------------------------
 
-test("a continuation id is opaque, prefixed, and derived from nothing identifying", () => {
+test("a continuation id is opaque, prefixed, and derived from nothing identifying", async () => {
   const h = harness();
-  const ids = new Set<string>();
-  for (let round = 0; round < 50; round += 1) {
-    const record = h.store.issue({
-      host: HOST,
-      sessionId: SESSION,
-      invocation: invocationResult([helperClassification("allowed")]),
-    });
-    assert.notEqual(record, null);
-    assert.match(record!.id, /^cont_[0-9a-f]{32}$/);
-    assert.equal(ids.has(record!.id), false);
-    ids.add(record!.id);
-    for (const forbidden of [
-      SESSION,
-      SESSION.replace("ses_", ""),
-      "invocation_root",
-      "researcher",
-      "openai",
-      "anthropic",
-      String(process.pid),
-    ]) {
-      assert.equal(record!.id.includes(forbidden), false);
-    }
-    h.store.consume(record!.id);
+  const record = h.store.issue({
+    host: HOST,
+    sessionId: SESSION,
+    invocation: invocationResult([helperClassification("allowed")]),
+  });
+  assert.notEqual(record, null);
+  assert.match(record!.id, /^cont_[0-9a-f]{32}$/);
+
+  const source = await readFile(
+    join(process.cwd(), "src", "operations", "invocation-continuation-store.ts"),
+    "utf8",
+  );
+  const factory = source.match(
+    /function generateContinuationId\(\): ContinuationId \{[\s\S]*?\n\}/,
+  )?.[0];
+  assert.ok(factory, "continuation id factory must remain explicit and inspectable");
+  assert.match(
+    factory,
+    /return `\$\{CONTINUATION_ID_PREFIX\}\$\{randomBytes\(16\)\.toString\("hex"\)\}`;/,
+  );
+  for (const forbidden of [
+    "process",
+    "provider",
+    "session",
+    "transport",
+    "host",
+    "client",
+    "conversation",
+    "thread",
+    "task",
+    "project",
+    "invocation",
+    "agent",
+  ]) {
+    assert.equal(
+      factory.toLowerCase().includes(forbidden),
+      false,
+      `continuation id construction must not use ${forbidden} identity`,
+    );
   }
 });
 

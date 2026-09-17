@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -175,23 +175,39 @@ test("every successful claim persists a unique opaque ownership token", async (t
 
 test("the ownership token encodes no provider, process or session identity", async (t) => {
   const fixture = await createFixture(t);
-  const opened = await fixture.commands.openTaskSession(
+  await fixture.commands.openTaskSession(
     fixture.project.id,
     fixture.task.id,
   );
   const token = (await readClaim(fixture))?.ownershipToken as string;
+  assert.match(token, /^[0-9a-f]{32}$/);
+
+  const source = await readFile(
+    join(process.cwd(), "src", "core", "session-manager.ts"),
+    "utf8",
+  );
+  const factory = source.match(
+    /function generateOwnershipToken\(\): string \{[\s\S]*?\n\}/,
+  )?.[0];
+  assert.ok(factory, "ownership token factory must remain explicit and inspectable");
+  assert.match(factory, /return randomUUID\(\)\.replaceAll\("-", ""\);/);
   for (const forbidden of [
-    String(process.pid),
-    opened.sessionId,
-    opened.sessionId.replace("ses_", ""),
-    fixture.task.id,
-    fixture.project.id,
-    "claude",
-    "codex",
-    "google",
-    "mcp",
+    "process",
+    "provider",
+    "session",
+    "transport",
+    "host",
+    "client",
+    "conversation",
+    "thread",
+    "task",
+    "project",
   ]) {
-    assert.equal(token.includes(forbidden), false, `token leaks ${forbidden}`);
+    assert.equal(
+      factory.toLowerCase().includes(forbidden),
+      false,
+      `ownership token construction must not use ${forbidden} identity`,
+    );
   }
 });
 
