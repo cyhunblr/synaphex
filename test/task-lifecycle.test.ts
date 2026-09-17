@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import test, { type TestContext } from "node:test";
 import { AgentConfigManager } from "../src/core/agent-config-manager.js";
 import { AgentInvocationService } from "../src/core/agent-invocation-service.js";
@@ -15,6 +16,7 @@ import { PlanManager } from "../src/core/plan-manager.js";
 import { ProjectManager } from "../src/core/project-manager.js";
 import { SessionManager } from "../src/core/session-manager.js";
 import { TaskManager } from "../src/core/task-manager.js";
+import { projectStateDirectory } from "../src/core/project-state-path.js";
 import type {
   AgentExecutionInput,
   AgentExecutor,
@@ -31,6 +33,10 @@ import type { Project } from "../src/domain/project.js";
 import type { RuntimeAvailability } from "../src/domain/provider-routing.js";
 import { generateSessionId, type SessionId } from "../src/domain/session.js";
 import type { Task } from "../src/domain/task.js";
+import {
+  RecoverableProcessLock,
+  type RecoverableProcessLockOptions,
+} from "../src/infrastructure/recoverable-process-lock.js";
 import { StateStore } from "../src/infrastructure/state-store.js";
 import { ChangeSetCommands } from "../src/operations/change-set-commands.js";
 import { InvocationContinuationCommands } from "../src/operations/invocation-continuation-commands.js";
@@ -82,7 +88,13 @@ interface Fixture {
   readonly sessionId: SessionId;
 }
 
-async function createFixture(t: TestContext): Promise<Fixture> {
+async function createFixture(
+  t: TestContext,
+  options: {
+    readonly lifecycleLock?: RecoverableProcessLockOptions;
+    readonly taskBindingLock?: RecoverableProcessLockOptions;
+  } = {},
+): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), "synaphex-lifecycle-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const stateRoot = join(root, "state-root");
@@ -99,8 +111,14 @@ async function createFixture(t: TestContext): Promise<Fixture> {
 
   const store = new StateStore(stateRoot);
   const projects = new ProjectManager(store, { homeDirectory });
-  const tasks = new TaskManager(store, projects);
-  const sessions = new SessionManager(store);
+  const lifecycleLock = options.lifecycleLock === undefined
+    ? undefined
+    : new RecoverableProcessLock(store, options.lifecycleLock);
+  const tasks = new TaskManager(store, projects, undefined, lifecycleLock);
+  const taskBindingLock = options.taskBindingLock === undefined
+    ? undefined
+    : new RecoverableProcessLock(store, options.taskBindingLock);
+  const sessions = new SessionManager(store, taskBindingLock);
   const plans = new PlanManager(store, tasks);
   const artifacts = new ArtifactManager(store, projects, tasks);
   const project = await projects.create("Lifecycle Project", sourcePath);
@@ -601,16 +619,54 @@ test("an active task is never archived", async (t) => {
 });
 
 test("archiving twice leaves exactly one archived task", async (t) => {
-  const f = await createFixture(t);
+  let lockArmed = false;
+  let acquisitions = 0;
+  let signalFirstAcquired!: () => void;
+  let releaseFirst!: () => void;
+  const firstAcquired = new Promise<void>((resolve) => {
+    signalFirstAcquired = resolve;
+  });
+  const firstMayProceed = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  const f = await createFixture(t, {
+    lifecycleLock: {
+      retryDelayMs: 1,
+      afterAcquire: async () => {
+        if (!lockArmed) return;
+        acquisitions += 1;
+        if (acquisitions === 1) {
+          signalFirstAcquired();
+          await firstMayProceed;
+        }
+      },
+    },
+  });
   await f.lifecycle.completeTask(f.sessionId);
-  const outcomes = await Promise.allSettled([
-    f.lifecycle.archiveTask(f.project.id, f.task.id),
-    f.lifecycle.archiveTask(f.project.id, f.task.id),
-  ]);
+  lockArmed = true;
+
+  const first = f.lifecycle.archiveTask(f.project.id, f.task.id);
+  await firstAcquired;
+  const second = f.lifecycle.archiveTask(f.project.id, f.task.id);
+  await nextTurn();
+  assert.equal(
+    acquisitions,
+    1,
+    "the second archive must not enter task mutation while the first is held",
+  );
+  releaseFirst();
+
+  const outcomes = await Promise.allSettled([first, second]);
   assert.equal(outcomes.filter((o) => o.status === "fulfilled").length, 1);
   const loser = outcomes.find((o) => o.status === "rejected");
   assert.ok(loser?.status === "rejected");
   assert.ok(loser.reason instanceof InvalidTaskTransitionError);
+  assert.equal(loser.reason.code, "INVALID_TASK_TRANSITION");
+  assert.equal(
+    acquisitions,
+    1,
+    "the rejected archive must not enter the task mutation boundary",
+  );
 
   // Exactly one task, in the archive collection only.
   assert.deepEqual(
@@ -618,6 +674,76 @@ test("archiving twice leaves exactly one archived task", async (t) => {
     [f.task.id],
   );
   assert.deepEqual(await f.tasks.listOpen(f.project.id), []);
+
+  const projectTasks = join(
+    f.stateRoot,
+    projectStateDirectory(f.project),
+    "tasks",
+  );
+  assert.deepEqual(await readdir(join(projectTasks, "open")), []);
+  assert.equal((await readdir(join(projectTasks, "archive"))).length, 1);
+  assert.equal(
+    (await readdir(projectTasks, { recursive: true })).some((entry) =>
+      entry.endsWith(".tmp")
+    ),
+    false,
+  );
+  assert.deepEqual(
+    await readdir(join(f.stateRoot, "state", "task-lifecycle")),
+    [],
+    "the released lifecycle lock must leave no lock artifact",
+  );
+});
+
+test("completion and archival serialize without leaving an archived task bound", async (t) => {
+  let armed = false;
+  let acquisitions = 0;
+  let signalCommitHeld!: () => void;
+  let releaseCommit!: () => void;
+  const commitHeld = new Promise<void>((resolve) => {
+    signalCommitHeld = resolve;
+  });
+  const commitMayProceed = new Promise<void>((resolve) => {
+    releaseCommit = resolve;
+  });
+  const f = await createFixture(t, {
+    taskBindingLock: {
+      retryDelayMs: 1,
+      afterAcquire: async () => {
+        if (!armed) return;
+        acquisitions += 1;
+        // completeTask captures, checks, then commits under ownership. Hold
+        // that third acquisition so archive is known to be concurrently queued.
+        if (acquisitions === 3) {
+          signalCommitHeld();
+          await commitMayProceed;
+        }
+      },
+    },
+  });
+  armed = true;
+
+  const completion = f.lifecycle.completeTask(f.sessionId);
+  await commitHeld;
+  const archival = f.lifecycle.archiveTask(f.project.id, f.task.id);
+  await nextTurn();
+  assert.equal(acquisitions, 3, "archive must wait for the completion commit");
+  releaseCommit();
+
+  const [completed, archived] = await Promise.all([completion, archival]);
+  assert.equal(completed.status, "completed");
+  assert.equal(archived.status, "archived");
+  assert.equal(archived.releasedTaskSession, true);
+  assert.equal(await f.sessions.findTaskOwner(f.task.id), null);
+  assert.equal(
+    (await f.sessions.getCurrentBinding(f.sessionId)).taskId,
+    null,
+  );
+  assert.deepEqual(await f.tasks.listOpen(f.project.id), []);
+  assert.deepEqual(
+    (await f.tasks.listArchived(f.project.id)).map((task) => task.id),
+    [f.task.id],
+  );
 });
 
 test("archive invalidates a completed-bound invocation still in flight", async (t) => {

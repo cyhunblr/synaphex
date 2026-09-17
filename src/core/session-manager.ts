@@ -284,18 +284,27 @@ export class SessionManager {
    * no-op reporting `released: false`.
    */
   async forceReleaseTaskClaim(taskId: TaskId): Promise<TaskClaimReleaseResult> {
+    return this.withTaskBindingLock(() =>
+      this.releaseTaskClaimWhileLocked(taskId)
+    );
+  }
+
+  /**
+   * Runs an administrative transition under the task-binding lock, validating
+   * before releasing any claim and retaining the lock until the transition is
+   * durable. Lifecycle callers therefore use the same lock order as ordinary
+   * task-bound commits: task binding first, domain mutation second.
+   */
+  async withTaskClaimReleased<T>(
+    taskId: TaskId,
+    validate: () => Promise<void>,
+    operation: () => Promise<T>,
+  ): Promise<{ readonly value: T; readonly release: TaskClaimReleaseResult }> {
     return this.withTaskBindingLock(async () => {
-      // Cross-validates the claim against its owner's binding, and self-heals
-      // an orphaned claim by removing it (reporting no owner).
-      const owner = await this.findTaskOwnerWhileLocked(taskId);
-      if (owner === null) {
-        return { taskId, released: false, previousSessionId: null };
-      }
-      // Claim first, then the owner's binding record -- same ordering rationale
-      // as closeSession.
-      await this.stateStore.removeFile(taskBindingClaimPath(taskId));
-      await this.stateStore.removeFile(sessionStatePath(owner.sessionId));
-      return { taskId, released: true, previousSessionId: owner.sessionId };
+      await validate();
+      const release = await this.releaseTaskClaimWhileLocked(taskId);
+      const value = await operation();
+      return { value, release };
     });
   }
 
@@ -468,6 +477,22 @@ export class SessionManager {
 
     await this.stateStore.removeFile(claimPath);
     return null;
+  }
+
+  private async releaseTaskClaimWhileLocked(
+    taskId: TaskId,
+  ): Promise<TaskClaimReleaseResult> {
+    // Cross-validates the claim against its owner's binding, and self-heals an
+    // orphaned claim by removing it (reporting no owner).
+    const owner = await this.findTaskOwnerWhileLocked(taskId);
+    if (owner === null) {
+      return { taskId, released: false, previousSessionId: null };
+    }
+    // Claim first, then the owner's binding record -- same ordering rationale
+    // as closeSession.
+    await this.stateStore.removeFile(taskBindingClaimPath(taskId));
+    await this.stateStore.removeFile(sessionStatePath(owner.sessionId));
+    return { taskId, released: true, previousSessionId: owner.sessionId };
   }
 
   private async withTaskBindingLock<T>(operation: () => Promise<T>): Promise<T> {
