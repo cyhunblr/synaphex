@@ -15,7 +15,7 @@ What `.github/workflows/ci.yml` runs, and why it is shaped that way.
 
 | Setting | Value |
 | --- | --- |
-| Triggers | `pull_request`, `push` to `main`, `workflow_dispatch` |
+| Triggers | `pull_request` and `push` for `dev`, `test`, and `main`; `workflow_dispatch` |
 | Permissions | `contents: read` |
 | Concurrency | `ci-${{ github.workflow }}-${{ github.ref }}`, `cancel-in-progress: true` |
 | Runner | `ubuntu-latest` (both jobs) |
@@ -27,7 +27,7 @@ Concurrency cancellation is **CI execution hygiene only** — a newer commit on 
 
 ```mermaid
 flowchart TD
-    T[pull_request · push to main · workflow_dispatch] --> SV
+    T[pull_request · push<br/>dev · test · main<br/>workflow_dispatch] --> SV
 
     subgraph SV[source-validation · timeout 20m]
         SV20[Node 20]
@@ -103,7 +103,26 @@ Claiming a support matrix CI does not actually verify would be dishonest, so [co
 
 This is what makes CI fork- and PR-safe: a pull request from an untrusted fork runs the same gates with nothing to leak.
 
-Publishing credentials appear nowhere in `ci.yml`. Release authentication is OIDC-based and lives only in the release workflow — see [releasing](releasing.md#trusted-publishing).
+Publishing credentials appear nowhere in `ci.yml`. The manually invoked npm
+workflows use protected GitHub Environments and expose `NPM_TOKEN` only to npm
+identity and publish steps; see [releasing](releasing.md).
+
+## Promotion checks
+
+CI proves the source and packed product on every protected branch. A separate
+read-only workflow exposes the stable `promotion-guard` check for promotion
+pull requests:
+
+```text
+feature/* or bugfix/* → dev     ordinary reviewed development PR
+dev                   → test    only accepted source for test
+test                  → main    only accepted source for main
+```
+
+The guard runs only for PRs targeting `test` or `main`. It reports the actual
+head, base, and expected source branch when rejecting a PR. Required status
+checks can be added to the repository Rulesets after GitHub has observed the
+new check names.
 
 ## Related
 

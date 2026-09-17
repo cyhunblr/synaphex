@@ -1,8 +1,8 @@
-# Releasing
+# Branch promotion and npm releases
 
-Operator documentation for `.github/workflows/release.yml` and the release
-scripts. **Nothing on this page should be executed casually** — publishing to
-npm is irreversible.
+Maintainer documentation for the protected branch flow and the two manually
+invoked npm workflows. npm publication is irreversible; do not dispatch either
+workflow until its environment, approval policy, and credential are ready.
 
 ## Development index
 
@@ -13,199 +13,127 @@ npm is irreversible.
 - **Releasing**
 - [Architecture decisions](architecture-decisions.md)
 
-## Version authority
-
-**`package.json` is the single source of version truth.** A Git tag only asserts what the committed version already says; disagreement is a hard failure, not something to reconcile.
-
-The tag must be exactly `v${version}` — `v0.1.0` for version `0.1.0`.
-
-Preflight checks, from `scripts/release/release-preflight.mjs`:
-
-| Check | Failure |
-| --- | --- |
-| `package.json` has a version | No version |
-| Version is stable `X.Y.Z` | Prereleases unsupported — no dist-tag policy exists yet |
-| `package-lock.json` version matches | Lockfile drift |
-| `package-lock` root package version matches | Lockfile drift |
-| `package-lock` name matches | Wrong lockfile |
-| Tag equals `v${version}` | Tag/version mismatch |
-| Tagged commit is an ancestor of `origin/main` | Tag not on the release branch |
-| Package is not `private` | Would refuse to publish |
-| `repository` points at the canonical repo | Required for provenance |
-| `files` allowlist is declared | Otherwise the tarball is unbounded |
-| Every `bin` path exists in the build output | A bin pointing at nothing |
-| License is declared, not `UNLICENSED`, and `LICENSE` exists | Declaring a license the package cannot substantiate |
-
-## Release flow
-
-```mermaid
-flowchart TD
-    TAG[Maintainer pushes tag vX.Y.Z] --> V
-
-    subgraph V[verify · Node 22 · npm 11.10.0 · 30m]
-        V1[checkout fetch-depth 0] --> V2[release preflight]
-        V2 --> V3[typecheck · build · test · mcp-stdio]
-        V3 --> V4[npm pack ONCE]
-        V4 --> V5[packed-product against THAT tarball]
-        V5 --> V6[registry-state check]
-        V6 --> V7[upload release-candidate · 30 days]
-    end
-
-    V --> GATE{{npm-release environment<br/>human approval}}
-    GATE --> P
-
-    subgraph P[publish · id-token write]
-        P1[download release-candidate] --> P2[sha256sum --check]
-        P2 --> P3[re-check registry state]
-        P3 --> P4[npm publish THAT tgz]
-    end
-
-    style GATE fill:#fff4f4,stroke:#c0392b
-```
-
-Trigger is a pushed tag matching `v*.*.*`. It never runs on an ordinary merge.
-
-| Setting | Value |
-| --- | --- |
-| Runner | `ubuntu-latest` |
-| Node | `22` (both jobs) |
-| npm | pinned `11.10.0` |
-| Default permissions | `contents: read` |
-| `publish` permissions | `contents: read`, `id-token: write` |
-| Concurrency | `release-${{ github.ref }}`, `cancel-in-progress: false` |
-| Timeouts | `verify` 30m, `publish` 20m |
-| Environment gate | `npm-release` on the `publish` job |
-
-Node 22 is pinned because Trusted Publishing needs a recent runtime; application support remains Node 20 and 22, which `ci.yml` continues to prove. npm is pinned rather than `latest` because Trusted Publishing behavior depends on the npm version, and a publish-critical job must not drift.
-
-`cancel-in-progress: false` is deliberate — cancelling a release mid-publish is worse than letting it finish.
-
-The `verify` job re-runs the full gates on the tagged commit. **Passing CI earlier is not release authority.**
-
-## The exact-artifact rule
-
-This is the most important property of the whole design.
+## Branch topology
 
 ```text
-npm pack        ONCE, in verify
-  → sha256 recorded
-  → packed-product validates THAT file
-  → registry state checked against THAT file's integrity
-  → uploaded as an artifact
-  → publish downloads it, re-checks sha256sum
-  → npm publish <that exact .tgz>
+feature/* or bugfix/*
+          ↓ pull request
+         dev        integration; CI only
+          ↓ dev → test pull request
+         test       release candidate; CI plus manual npm test channel
+          ↓ test → main pull request
+         main       production; CI plus manual npm latest channel
 ```
 
-> **The normal workflow never runs `npm publish .`** Publishing from a working directory would repack, producing bytes that were never validated. The file that was tested and the file that reaches the registry must be byte-identical.
+`.github/workflows/promotion-guard.yml` supplies the stable
+`promotion-guard` check. A PR into `test` must come from `dev`; a PR into
+`main` must come from `test`. Feature work continues to enter through `dev`.
 
-The `publish` job independently verifies integrity with `sha256sum --check SHA256SUMS` before publishing, so a corrupted or substituted artifact fails closed rather than shipping.
+## Common release safety properties
 
-## Registry state
+Both npm workflows are `workflow_dispatch` only, require Node 22, and request
+only `contents: read`. Their preparation jobs:
 
-`scripts/release/registry-state.mjs` classifies the target version before any publish attempt:
+1. reject the wrong branch;
+2. run typecheck, tests, and MCP stdio validation;
+3. use `npm run release:prepare` to build, pack once, run preflight, and run the
+   packed-product suite against that exact tarball;
+4. record package name, version, Git SHA, filename, byte size, SHA-256,
+   SHA-512, SRI integrity, and npm SHA-1 shasum;
+5. fail closed unless `npm view <name>@<version>` proves the coordinate absent;
+6. upload the one validated `.tgz` for the environment-gated publish job.
 
-| State | Meaning | Outcome |
+The publish job downloads and re-hashes that artifact, runs `npm whoami`, and
+re-checks registry state immediately before publishing the literal tarball.
+It never publishes from the checkout and never repacks between validation and
+publish.
+
+Registry ambiguity is not absence. An existing coordinate, differing or
+matching bytes, missing integrity, authentication failure, or registry/network
+failure all stop the workflow.
+
+## Test prerelease channel
+
+Workflow: `.github/workflows/npm-test.yml`
+
+```text
+trigger       manual workflow_dispatch on test
+environment   npm-test
+dist-tag      test
+install       npm install synaphex@test
+```
+
+The stable version in `package.json` remains the source input. The runner
+increments its patch component and appends the GitHub run number:
+
+```text
+0.1.1 → 0.1.2-test.<github-run-number>
+```
+
+`npm version --no-git-tag-version --ignore-scripts` changes `package.json` and
+`package-lock.json` only inside the ephemeral runner. The workflow verifies
+those are the only tracked changes. It does not commit the prerelease version,
+create a tag, or retry with a different version after a registry collision.
+
+## Production channel
+
+Workflow: `.github/workflows/release.yml`
+
+```text
+trigger       manual workflow_dispatch on main
+environment   npm-release
+dist-tag      latest
+```
+
+Production publishes the exact stable `X.Y.Z` already committed in
+`package.json`; it never bumps or invents a version. Preparation requires a
+pristine checkout, package name `synaphex`, matching lockfile metadata, valid
+publish metadata and licence, the full validation suite, an unused registry
+coordinate, and a single exact artifact. The tarball is hashed again after the
+publish command to prove the local artifact remained byte-identical.
+
+## GitHub configuration required before dispatch
+
+Create these protected GitHub Environments manually:
+
+| Environment | Secret | Used for |
 | --- | --- | --- |
-| `absent` | Version not published | **The only state permitting a publish** |
-| `published_match` | This exact artifact is already published | Idempotent — a rerun is already done |
-| `published_differs` | Version exists with different integrity | **Fail closed.** Never republish over it |
-| `unavailable` | Registry unreachable or gave no integrity value | **Fail closed** |
+| `npm-test` | `NPM_TOKEN` | prerelease publication with dist-tag `test` |
+| `npm-release` | `NPM_TOKEN` | stable publication with dist-tag `latest` |
 
-Comparison is by npm's recorded `dist.integrity`, not by version string alone — so "already published" means genuinely the same bytes.
+Configure appropriate required reviewers for each environment. Do not commit a
+token or add a repository-level fallback. The workflows map the environment
+secret to `NODE_AUTH_TOKEN` only for `npm whoami` and `npm publish`; preparation
+and artifact verification do not receive it.
 
-The check runs **twice**: once in `verify`, and again in `publish` after the approval gate. A rerun following a successful publish must not attempt the immutable version again.
+This token contract is the bootstrap architecture. After npm publication is
+proven, production should migrate to npm Trusted Publishing/OIDC in a separate
+reviewed change. Until then the workflows intentionally request no
+`id-token: write` permission.
 
-## Trusted Publishing
+## Not automated
 
-Automated releases authenticate with **GitHub Actions OIDC via npm Trusted Publishing**.
-
-Requirements:
-
-```text
-permissions: id-token: write        (publish job only)
-environment: npm-release           (protected, human-approved)
-registry-url: https://registry.npmjs.org
-```
-
-> **There is deliberately no `NPM_TOKEN` or `NODE_AUTH_TOKEN` anywhere in the release workflow**, and no token-based fallback branch. Adding one would put a long-lived credential into exactly the place this design keeps it out of.
-
-**Provenance** is generated automatically by Trusted Publishing for a public repository and is deliberately never disabled. There is no custom signing step; provenance comes from the platform.
-
-## First publish bootstrap
-
-A package must exist before a Trusted Publisher can be configured for it, so **the first publish is deliberately outside automated CD**.
-
-Current state, from [ADR 0008](../architecture/0008-release.md): an unrelated historical `synaphex` package was fully unpublished, which starts an npm **24-hour cooldown** before the name accepts a new version. That window is not modelled or guessed locally — npm is authoritative and simply rejects an early attempt.
-
-```text
-1. wait out npm's 24-hour post-unpublish cooldown
-2. npm run release:prepare
-      builds, packs ONCE, runs preflight and the packed-product gate
-      against that exact tarball, prints its sha256 and SRI
-3. review the printed checksum and package contents
-4. publish that exact artifact from a maintainer-authenticated npm CLI:
-      npm publish ./release-candidate/synaphex-0.1.1.tgz
-   never `npm publish` from the checkout, which would repack
-5. the package now exists
-6. configure npm Trusted Publishing:
-      owner       cyhunblr
-      repository  synaphex
-      workflow    .github/workflows/release.yml
-      environment npm-release
-7. create/review the GitHub npm-release Environment and its reviewers
-8. every subsequent release runs through tokenless OIDC CD
-```
-
-`npm run release:prepare` **cannot publish, tag, authenticate, or read a credential.** It produces a local candidate under `release-candidate/` (gitignored) and prints what to review. The maintainer performs step 4 themselves.
-
-### Credential policy
-
-Bootstrap authentication is a maintainer-authenticated npm CLI and nothing more. Whatever credential the maintainer's own npm security policy requires stays entirely outside this project: **Synaphex does not store it, read it, place it in scripts or CI, or record its value anywhere.** Automated CD remains tokenless OIDC.
-
-## What release automation does not do
-
-```text
-version bumps        tag creation         GitHub Release creation
-unpublish/deprecate  npm account setup    trusted-publisher registration
-dist-tag rollback    automatic rollback
-```
-
-**Tags are created by a human.** The workflow reacts to a tag; it never creates one, and it never bumps a version.
-
-**There is no automatic rollback.** `npm unpublish`, `npm deprecate`, and dist-tag changes are deliberate manual operations. A published version is immutable.
-
-**GitHub Release automation is deferred post-v0.1.** No GitHub Release is created automatically today.
+The workflows do not create or push Git tags, create GitHub Releases, edit a
+changelog, bump the next development version, configure npm/GitHub credentials,
+unpublish, deprecate, or roll back a dist-tag. Branch merges and workflow
+dispatches remain explicit maintainer actions.
 
 ## Maintainer sequence
 
-For a normal release, once bootstrap is complete:
+For a test candidate:
 
-1. Decide the version; update `package.json` and `package-lock.json` together.
-2. Commit to `main` and push.
-3. Verify locally with `npm run release:preflight` (read-only) or the full `npm run release:prepare`.
-4. Create and push the tag `v${version}`.
-5. Watch `verify`; it re-runs every gate on the tagged commit.
-6. Approve the `npm-release` environment gate when satisfied.
-7. `publish` verifies integrity, re-checks registry state, and publishes the exact tarball.
+1. merge reviewed work into `dev` after CI passes;
+2. open the `dev` → `test` PR and require CI plus `promotion-guard`;
+3. merge it, then manually dispatch **npm test channel** from `test`;
+4. review/approve `npm-test` and verify the published prerelease explicitly.
 
-## Failure behavior
+For production:
 
-All of these fail closed, before any registry mutation:
-
-| Failure | Where |
-| --- | --- |
-| Tag does not match `v${version}` | Preflight |
-| Lockfile version or name mismatch | Preflight |
-| Prerelease version | Preflight — no dist-tag policy yet |
-| Tag not an ancestor of `origin/main` | Preflight |
-| Missing `files`, bad `repository`, missing `bin` output | Preflight |
-| Missing or `UNLICENSED` license | Preflight |
-| Typecheck, build, test, or stdio failure | Verify |
-| Packed-product failure on the exact tarball | Verify |
-| Version already published with different integrity | Registry state |
-| Registry unreachable | Registry state |
-| Artifact checksum mismatch | Publish |
-| Environment approval withheld | Publish gate |
+1. open the `test` → `main` PR and require CI plus `promotion-guard`;
+2. ensure `package.json` and `package-lock.json` already carry the intended
+   stable version;
+3. merge it, then manually dispatch **npm production release** from `main`;
+4. review/approve `npm-release` and verify the published `latest` version.
 
 ## Related
 

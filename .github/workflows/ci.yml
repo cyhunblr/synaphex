@@ -4,8 +4,9 @@ name: CI
 # The only network access is the dependency install itself.
 on:
   pull_request:
+    branches: [dev, test, main]
   push:
-    branches: [main]
+    branches: [dev, test, main]
   workflow_dispatch:
 
 permissions:
