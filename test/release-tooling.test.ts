@@ -329,22 +329,34 @@ test("the derived integrity matches npm's dist.integrity format", async (t: Test
 // Workflow security audits
 // ---------------------------------------------------------------------------
 
-test("release workflows scope the bootstrap token to environment-gated publish jobs", async () => {
-  for (const [path, environment] of [
-    [RELEASE_WORKFLOW, "npm-release"],
-    [NPM_TEST_WORKFLOW, "npm-test"],
-  ] as const) {
-    const release = await executableWorkflow(path);
-    assert.match(release, new RegExp(`environment:\\s*${environment}`));
-    assert.match(release, /NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/);
-    assert.equal(
-      (release.match(/NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/g) ?? []).length,
-      2,
-      "the token is available only to npm identity and publish steps",
-    );
-    assert.equal(release.includes("id-token: write"), false);
-    assert.equal(release.includes("_authToken"), false);
-  }
+test("production release retains its environment-scoped bootstrap token", async () => {
+  const release = await executableWorkflow(RELEASE_WORKFLOW);
+  assert.match(release, /environment:\s*npm-release/);
+  assert.match(release, /NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/);
+  assert.equal(
+    (release.match(/NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/g) ?? []).length,
+    2,
+    "the token is available only to npm identity and publish steps",
+  );
+  assert.equal(release.includes("id-token: write"), false);
+  assert.equal(release.includes("_authToken"), false);
+});
+
+test("test-channel publication uses only environment-gated Trusted Publishing", async () => {
+  const release = await executableWorkflow(NPM_TEST_WORKFLOW);
+  const publish = jobBlock(release, "publish");
+
+  assert.match(publish, /environment:\s*npm-test/);
+  assert.match(publish, /permissions:\s*\n\s*contents:\s*read\s*\n\s*id-token:\s*write/);
+  assert.match(publish, /node-version:\s*"22\.23\.2"/);
+  assert.match(publish, /npm install --global npm@11\.5\.1/);
+  assert.match(publish, /test "\$NODE_VERSION" = "v22\.23\.2"/);
+  assert.match(publish, /test "\$NPM_VERSION" = "11\.5\.1"/);
+  assert.equal(release.includes("NPM_TOKEN"), false);
+  assert.equal(release.includes("NODE_AUTH_TOKEN"), false);
+  assert.equal(release.includes("npm whoami"), false);
+  assert.equal(publish.includes("registry-url:"), false);
+  assert.equal(publish.includes("_authToken"), false);
 });
 
 test("no workflow smuggles a publish credential into CI", async () => {
@@ -414,11 +426,14 @@ test("the release workflow never creates versions or tags", async () => {
   }
 });
 
-test("provenance is never disabled", async () => {
-  const release = await executableWorkflow(RELEASE_WORKFLOW);
-  assert.equal(release.includes("NPM_CONFIG_PROVENANCE=false"), false);
-  assert.equal(release.includes("--no-provenance"), false);
-  assert.equal(release.includes("provenance: false"), false);
+test("provenance is neither explicitly requested nor disabled", async () => {
+  for (const path of [RELEASE_WORKFLOW, NPM_TEST_WORKFLOW]) {
+    const release = await executableWorkflow(path);
+    assert.equal(release.includes("NPM_CONFIG_PROVENANCE=false"), false);
+    assert.equal(release.includes("--no-provenance"), false);
+    assert.equal(release.includes("provenance: false"), false);
+    assert.equal(release.includes("--provenance"), false);
+  }
 });
 
 test("registry mutation is gated behind a protected environment", async () => {
