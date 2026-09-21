@@ -329,21 +329,25 @@ test("the derived integrity matches npm's dist.integrity format", async (t: Test
 // Workflow security audits
 // ---------------------------------------------------------------------------
 
-test("release workflows scope the bootstrap token to environment-gated publish jobs", async () => {
+test("both release channels use only environment-gated Trusted Publishing", async () => {
   for (const [path, environment] of [
-    [RELEASE_WORKFLOW, "npm-release"],
     [NPM_TEST_WORKFLOW, "npm-test"],
+    [RELEASE_WORKFLOW, "npm-release"],
   ] as const) {
     const release = await executableWorkflow(path);
-    assert.match(release, new RegExp(`environment:\\s*${environment}`));
-    assert.match(release, /NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/);
-    assert.equal(
-      (release.match(/NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/g) ?? []).length,
-      2,
-      "the token is available only to npm identity and publish steps",
-    );
-    assert.equal(release.includes("id-token: write"), false);
-    assert.equal(release.includes("_authToken"), false);
+    const publish = jobBlock(release, "publish");
+
+    assert.match(publish, new RegExp(`environment:\\s*${environment}`));
+    assert.match(publish, /permissions:\s*\n\s*contents:\s*read\s*\n\s*id-token:\s*write/);
+    assert.match(publish, /node-version:\s*"22\.23\.2"/);
+    assert.match(publish, /npm install --global npm@11\.5\.1/);
+    assert.match(publish, /test "\$NODE_VERSION" = "v22\.23\.2"/);
+    assert.match(publish, /test "\$NPM_VERSION" = "11\.5\.1"/);
+    assert.equal(release.includes("NPM_TOKEN"), false);
+    assert.equal(release.includes("NODE_AUTH_TOKEN"), false);
+    assert.equal(release.includes("npm whoami"), false);
+    assert.equal(publish.includes("registry-url:"), false);
+    assert.equal(publish.includes("_authToken"), false);
   }
 });
 
@@ -391,6 +395,9 @@ test("both channels publish the exact validated artifact through one absolute lo
     assert.equal(publish.includes("ARTIFACT: release-candidate/"), false);
     assert.match(publish, new RegExp(`npm publish "\\$ARTIFACT" --access public --tag ${tag}`));
     assert.equal(/npm publish\s+\.(\s|$)/m.test(publish), false);
+    assert.equal(publish.includes("npm run build"), false);
+    assert.equal(publish.includes("npm pack"), false);
+    assert.equal(publish.includes("release:prepare"), false);
   }
 });
 
@@ -414,11 +421,14 @@ test("the release workflow never creates versions or tags", async () => {
   }
 });
 
-test("provenance is never disabled", async () => {
-  const release = await executableWorkflow(RELEASE_WORKFLOW);
-  assert.equal(release.includes("NPM_CONFIG_PROVENANCE=false"), false);
-  assert.equal(release.includes("--no-provenance"), false);
-  assert.equal(release.includes("provenance: false"), false);
+test("provenance is neither explicitly requested nor disabled", async () => {
+  for (const path of [RELEASE_WORKFLOW, NPM_TEST_WORKFLOW]) {
+    const release = await executableWorkflow(path);
+    assert.equal(release.includes("NPM_CONFIG_PROVENANCE=false"), false);
+    assert.equal(release.includes("--no-provenance"), false);
+    assert.equal(release.includes("provenance: false"), false);
+    assert.equal(release.includes("--provenance"), false);
+  }
 });
 
 test("registry mutation is gated behind a protected environment", async () => {
