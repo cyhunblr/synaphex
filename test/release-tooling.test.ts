@@ -389,7 +389,10 @@ test("both release channels use only environment-gated Trusted Publishing", asyn
 
     assert.match(publish, new RegExp(`environment:\\s*${environment}`));
     assert.match(publish, /permissions:\s*\n\s*contents:\s*read\s*\n\s*id-token:\s*write/);
-    assert.match(publish, /node-version:\s*"22\.23\.2"/);
+    assert.match(
+      publish,
+      /uses: actions\/setup-node@v7\s*\n\s*with:\s*\n\s*node-version:\s*"22\.23\.2"\s*\n\s*package-manager-cache:\s*false/,
+    );
     assert.match(publish, /npm install --global npm@11\.5\.1/);
     assert.match(publish, /test "\$NODE_VERSION" = "v22\.23\.2"/);
     assert.match(publish, /test "\$NPM_VERSION" = "11\.5\.1"/);
