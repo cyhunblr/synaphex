@@ -28,7 +28,7 @@ jobs:
     # publication, `HOME`-override provider isolation and a `/dev/null`
     # Git hooksPath. A Windows port needs its own probe implementation
     # (ADR 0004), so claiming a matrix CI does not verify would be dishonest.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -37,9 +37,9 @@ jobs:
         # suite on each rather than assumed from `engines`.
         node: ["20", "22"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -74,7 +74,7 @@ jobs:
   # appeared only under `npm pack` -> `npm install -g` -> global bin shim.
   packed-product:
     name: Packed product (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     needs: source-validation
     strategy:
@@ -82,9 +82,9 @@ jobs:
       matrix:
         node: ["20", "22"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -108,7 +108,7 @@ jobs:
       # Keeps the exact artifact that passed the gate downloadable. This is
       # NOT publication: Phase 7A deliberately stops short of any release.
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: synaphex-package-node${{ matrix.node }}
           path: dist-artifact/*.tgz
