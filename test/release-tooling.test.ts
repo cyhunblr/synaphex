@@ -20,6 +20,13 @@ const registryModule = pathToFileURL(
 const RELEASE_WORKFLOW = join(REPO, ".github/workflows/release.yml");
 const CI_WORKFLOW = join(REPO, ".github/workflows/ci.yml");
 const NPM_TEST_WORKFLOW = join(REPO, ".github/workflows/npm-test.yml");
+const PROMOTION_GUARD_WORKFLOW = join(REPO, ".github/workflows/promotion-guard.yml");
+const SYNAPHEX_WORKFLOWS = [
+  CI_WORKFLOW,
+  PROMOTION_GUARD_WORKFLOW,
+  NPM_TEST_WORKFLOW,
+  RELEASE_WORKFLOW,
+] as const;
 
 async function workflow(path: string): Promise<string> {
   return readFile(path, "utf8");
@@ -329,6 +336,49 @@ test("the derived integrity matches npm's dist.integrity format", async (t: Test
 // Workflow security audits
 // ---------------------------------------------------------------------------
 
+test("Linux workflows pin Ubuntu 24.04 and use Node 24 action majors", async () => {
+  const sources = await Promise.all(SYNAPHEX_WORKFLOWS.map(executableWorkflow));
+  const combined = sources.join("\n");
+
+  for (const source of sources) {
+    const runnerLabels = [...source.matchAll(/^\s*runs-on:\s*(\S+)\s*$/gm)]
+      .map((match) => match[1]);
+    assert.ok(runnerLabels.length > 0, "every workflow must define a runner");
+    assert.deepEqual(
+      [...new Set(runnerLabels)],
+      ["ubuntu-24.04"],
+      "every Synaphex-owned Linux job must use the pinned Ubuntu 24.04 image",
+    );
+  }
+
+  for (const [action, major] of [
+    ["checkout", "v7"],
+    ["setup-node", "v7"],
+    ["upload-artifact", "v7"],
+    ["download-artifact", "v8"],
+  ] as const) {
+    const references = [...combined.matchAll(
+      new RegExp(`actions/${action}@(v\\d+)`, "g"),
+    )].map((match) => match[1]);
+    assert.ok(references.length > 0, `expected at least one actions/${action} reference`);
+    assert.deepEqual(
+      [...new Set(references)],
+      [major],
+      `every actions/${action} reference must use ${major}`,
+    );
+  }
+
+  assert.equal(combined.includes("ubuntu-latest"), false);
+  for (const legacy of [
+    "actions/checkout@v4",
+    "actions/setup-node@v4",
+    "actions/upload-artifact@v4",
+    "actions/download-artifact@v4",
+  ]) {
+    assert.equal(combined.includes(legacy), false, `${legacy} must be fully removed`);
+  }
+});
+
 test("both release channels use only environment-gated Trusted Publishing", async () => {
   for (const [path, environment] of [
     [NPM_TEST_WORKFLOW, "npm-test"],
@@ -339,7 +389,10 @@ test("both release channels use only environment-gated Trusted Publishing", asyn
 
     assert.match(publish, new RegExp(`environment:\\s*${environment}`));
     assert.match(publish, /permissions:\s*\n\s*contents:\s*read\s*\n\s*id-token:\s*write/);
-    assert.match(publish, /node-version:\s*"22\.23\.2"/);
+    assert.match(
+      publish,
+      /uses: actions\/setup-node@v7\s*\n\s*with:\s*\n\s*node-version:\s*"22\.23\.2"\s*\n\s*package-manager-cache:\s*false/,
+    );
     assert.match(publish, /npm install --global npm@11\.5\.1/);
     assert.match(publish, /test "\$NODE_VERSION" = "v22\.23\.2"/);
     assert.match(publish, /test "\$NPM_VERSION" = "11\.5\.1"/);
@@ -511,6 +564,11 @@ test("CI covers pull requests and pushes for dev, test, and main", async () => {
   assert.match(ci, /push:\s*\n\s*branches: \[dev, test, main\]/);
   assert.match(ci, /Source validation \(Node \$\{\{ matrix\.node \}\}\)/);
   assert.match(ci, /Packed product \(Node \$\{\{ matrix\.node \}\}\)/);
+  assert.equal(
+    (ci.match(/node: \["20", "22"\]/g) ?? []).length,
+    2,
+    "source and packed-product validation must retain the Node 20/22 matrix",
+  );
 });
 
 test("the release workflow invokes no provider or model command", async () => {
