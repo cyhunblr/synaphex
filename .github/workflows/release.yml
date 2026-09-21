@@ -120,6 +120,7 @@ jobs:
     environment: npm-release
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -127,8 +128,20 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          registry-url: https://registry.npmjs.org
+          node-version: "22.23.2"
+
+      - name: Select Trusted Publishing npm CLI
+        run: npm install --global npm@11.5.1
+
+      - name: Verify Trusted Publishing runtime
+        run: |
+          set -euo pipefail
+          NODE_VERSION=$(node --version)
+          NPM_VERSION=$(npm --version)
+          echo "Node: $NODE_VERSION"
+          echo "npm: $NPM_VERSION"
+          test "$NODE_VERSION" = "v22.23.2"
+          test "$NPM_VERSION" = "11.5.1"
 
       - name: Require main
         run: |
@@ -165,11 +178,6 @@ jobs:
             --integrity "${{ needs.prepare.outputs.integrity }}" \
             --shasum "${{ needs.prepare.outputs.shasum }}"
 
-      - name: Verify npm identity
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm whoami --registry=https://registry.npmjs.org/
-
       - name: Re-check coordinate is unused
         env:
           ARTIFACT: ${{ steps.artifact-path.outputs.path }}
@@ -182,7 +190,6 @@ jobs:
       - name: Publish exact artifact to latest
         env:
           ARTIFACT: ${{ steps.artifact-path.outputs.path }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish "$ARTIFACT" --access public --tag latest
 
       - name: Verify artifact remained byte-identical

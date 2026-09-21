@@ -329,34 +329,26 @@ test("the derived integrity matches npm's dist.integrity format", async (t: Test
 // Workflow security audits
 // ---------------------------------------------------------------------------
 
-test("production release retains its environment-scoped bootstrap token", async () => {
-  const release = await executableWorkflow(RELEASE_WORKFLOW);
-  assert.match(release, /environment:\s*npm-release/);
-  assert.match(release, /NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/);
-  assert.equal(
-    (release.match(/NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/g) ?? []).length,
-    2,
-    "the token is available only to npm identity and publish steps",
-  );
-  assert.equal(release.includes("id-token: write"), false);
-  assert.equal(release.includes("_authToken"), false);
-});
+test("both release channels use only environment-gated Trusted Publishing", async () => {
+  for (const [path, environment] of [
+    [NPM_TEST_WORKFLOW, "npm-test"],
+    [RELEASE_WORKFLOW, "npm-release"],
+  ] as const) {
+    const release = await executableWorkflow(path);
+    const publish = jobBlock(release, "publish");
 
-test("test-channel publication uses only environment-gated Trusted Publishing", async () => {
-  const release = await executableWorkflow(NPM_TEST_WORKFLOW);
-  const publish = jobBlock(release, "publish");
-
-  assert.match(publish, /environment:\s*npm-test/);
-  assert.match(publish, /permissions:\s*\n\s*contents:\s*read\s*\n\s*id-token:\s*write/);
-  assert.match(publish, /node-version:\s*"22\.23\.2"/);
-  assert.match(publish, /npm install --global npm@11\.5\.1/);
-  assert.match(publish, /test "\$NODE_VERSION" = "v22\.23\.2"/);
-  assert.match(publish, /test "\$NPM_VERSION" = "11\.5\.1"/);
-  assert.equal(release.includes("NPM_TOKEN"), false);
-  assert.equal(release.includes("NODE_AUTH_TOKEN"), false);
-  assert.equal(release.includes("npm whoami"), false);
-  assert.equal(publish.includes("registry-url:"), false);
-  assert.equal(publish.includes("_authToken"), false);
+    assert.match(publish, new RegExp(`environment:\\s*${environment}`));
+    assert.match(publish, /permissions:\s*\n\s*contents:\s*read\s*\n\s*id-token:\s*write/);
+    assert.match(publish, /node-version:\s*"22\.23\.2"/);
+    assert.match(publish, /npm install --global npm@11\.5\.1/);
+    assert.match(publish, /test "\$NODE_VERSION" = "v22\.23\.2"/);
+    assert.match(publish, /test "\$NPM_VERSION" = "11\.5\.1"/);
+    assert.equal(release.includes("NPM_TOKEN"), false);
+    assert.equal(release.includes("NODE_AUTH_TOKEN"), false);
+    assert.equal(release.includes("npm whoami"), false);
+    assert.equal(publish.includes("registry-url:"), false);
+    assert.equal(publish.includes("_authToken"), false);
+  }
 });
 
 test("no workflow smuggles a publish credential into CI", async () => {
@@ -403,6 +395,9 @@ test("both channels publish the exact validated artifact through one absolute lo
     assert.equal(publish.includes("ARTIFACT: release-candidate/"), false);
     assert.match(publish, new RegExp(`npm publish "\\$ARTIFACT" --access public --tag ${tag}`));
     assert.equal(/npm publish\s+\.(\s|$)/m.test(publish), false);
+    assert.equal(publish.includes("npm run build"), false);
+    assert.equal(publish.includes("npm pack"), false);
+    assert.equal(publish.includes("release:prepare"), false);
   }
 });
 
